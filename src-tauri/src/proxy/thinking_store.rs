@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-const MIN_SIGNATURE_LENGTH: usize = 50;
+const MIN_SIGNATURE_LENGTH: usize = 32;
 pub const SENTINEL_SIGNATURE: &str = "skip_thought_signature_validator";
 const MAX_SESSIONS: usize = 2000;
 fn max_turns_per_session() -> usize {
@@ -2109,7 +2109,14 @@ fn client_id_from_store_key(store_key: &str) -> &str {
 }
 
 pub fn is_real_signature(sig: &str) -> bool {
-    sig.len() >= MIN_SIGNATURE_LENGTH && sig != SENTINEL_SIGNATURE
+    let s = sig.trim();
+    if s == SENTINEL_SIGNATURE {
+        return false;
+    }
+    if s.as_bytes().first() == Some(&0x12) && s.len() >= 16 {
+        return true;
+    }
+    s.len() >= MIN_SIGNATURE_LENGTH
 }
 
 /// 判断签名是否符合 Google Gemini 原生 Protobuf 签名特征：
@@ -2121,11 +2128,15 @@ pub fn is_likely_gemini_signature(sig: &str) -> bool {
     if s == SENTINEL_SIGNATURE {
         return true;
     }
-    if s.len() < MIN_SIGNATURE_LENGTH {
-        return false;
-    }
     // Claude 签名绝不能被误判为 Gemini 签名
     if is_claude_signature(s) {
+        return false;
+    }
+    // 兼容历史脏数据中被误解码为原始二进制 Protobuf (首字节 0x12) 的签名
+    if s.as_bytes().first() == Some(&0x12) && s.len() >= 16 {
+        return true;
+    }
+    if s.len() < MIN_SIGNATURE_LENGTH {
         return false;
     }
     if !s.starts_with('E') && !s.starts_with('R') {
@@ -2306,8 +2317,16 @@ pub fn place_turn_signature(parts: &mut [Value], fallback_sig: Option<&str>) -> 
             .filter(|s| is_real_signature(s))
             .map(str::to_string)
     })?;
-    parts[anchor]["thoughtSignature"] = json!(sig);
-    Some(sig)
+
+    // 权威防裂化：如果签名是原始二进制 protobuf (首字节 0x12)，必须转为标准 Base64 编码后再发送给 Gemini！
+    let final_sig = if sig.as_bytes().first() == Some(&0x12) {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(sig.as_bytes())
+    } else {
+        sig
+    };
+    parts[anchor]["thoughtSignature"] = json!(final_sig);
+    Some(final_sig)
 }
 
 pub fn is_placeholder_thought(s: &str) -> bool {

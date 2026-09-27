@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime};
 
 // Node.js proxy uses 2 hours TTL
 const SIGNATURE_TTL: Duration = Duration::from_secs(2 * 60 * 60);
-const MIN_SIGNATURE_LENGTH: usize = 50;
+const MIN_SIGNATURE_LENGTH: usize = 32;
 
 // Different cache limits for different layers
 const TOOL_CACHE_LIMIT: usize = 500; // Layer 1: Tool-specific signatures
@@ -83,6 +83,14 @@ impl SignatureCache {
 
     /// Store a tool call signature
     pub fn cache_tool_signature(&self, tool_use_id: &str, signature: String) {
+        // 自愈防裂化：若签名被误传为原始 Protobuf 二进制 (首字节 0x12)，自动纠正编码为标准 Base64
+        let signature = if signature.as_bytes().first() == Some(&0x12) {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(signature.as_bytes())
+        } else {
+            signature
+        };
+
         if signature.len() < MIN_SIGNATURE_LENGTH {
             return;
         }
@@ -224,6 +232,14 @@ impl SignatureCache {
         signature: String,
         message_count: usize,
     ) {
+        // 自愈防裂化：若签名被误传为原始 Protobuf 二进制 (首字节 0x12)，自动纠正编码为标准 Base64
+        let signature = if signature.as_bytes().first() == Some(&0x12) {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(signature.as_bytes())
+        } else {
+            signature
+        };
+
         if signature.len() < MIN_SIGNATURE_LENGTH {
             return;
         }

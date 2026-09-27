@@ -866,7 +866,7 @@ fn model_supports_thinking(mapped_model: &str) -> bool {
 }
 
 /// Minimum length for a valid thought_signature
-const MIN_SIGNATURE_LENGTH: usize = 50;
+const MIN_SIGNATURE_LENGTH: usize = 32;
 
 /// Sentinel signature for models that support skipping signature validation
 const SENTINEL_SIGNATURE: &str = "skip_thought_signature_validator";

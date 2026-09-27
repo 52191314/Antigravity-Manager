@@ -499,9 +499,10 @@ pub fn transform_openai_request_with_session(
                         }));
                     }
                 } else {
+                    let has_tools = msg.tool_calls.as_ref().map(|tc| !tc.is_empty()).unwrap_or(false);
                     match content {
                         OpenAIContent::String(s) => {
-                            if !s.is_empty() {
+                            if !s.is_empty() && !(has_tools && crate::proxy::thinking_store::is_placeholder_thought(s)) {
                                 parts.extend(crate::proxy::mappers::common_utils::parse_markdown_images_to_parts(s));
                             }
                         }
@@ -509,7 +510,9 @@ pub fn transform_openai_request_with_session(
                             for block in blocks {
                                 match block {
                                     OpenAIContentBlock::Text { text } => {
-                                        parts.extend(crate::proxy::mappers::common_utils::parse_markdown_images_to_parts(text));
+                                        if !(has_tools && crate::proxy::thinking_store::is_placeholder_thought(text)) {
+                                            parts.extend(crate::proxy::mappers::common_utils::parse_markdown_images_to_parts(text));
+                                        }
                                     }
                                 OpenAIContentBlock::ImageUrl { image_url } => {
                                     if image_url.url.starts_with("data:") {

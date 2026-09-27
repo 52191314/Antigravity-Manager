@@ -1030,6 +1030,22 @@ fn build_contents(
                 match item {
                     ContentBlock::Text { text } => {
                         if text != "(no content)" && !text.trim().is_empty() {
+                            // [2026-09-27] 如果 assistant 消息同时包含 tool_use，且该文本仅为占位符（如 "..."、"·" 等），
+                            // 丢弃无实质意义的占位文本，避免在 Gemini 格式转换中被误选为签名锚点，
+                            // 导致上游 400 'Function call is missing a thought_signature in functionCall parts'
+                            if is_assistant
+                                && crate::proxy::thinking_store::is_placeholder_thought(text)
+                                && blocks
+                                    .iter()
+                                    .any(|b| matches!(b, ContentBlock::ToolUse { .. }))
+                            {
+                                tracing::debug!(
+                                    "[Claude-Request] Dropping placeholder text accompanying tool_use (text={:?})",
+                                    text
+                                );
+                                continue;
+                            }
+
                             // [NEW] 任务去重逻辑: 如果当前是 User 消息，且紧跟在 ToolResult 之后，
                             // 检查该文本是否与上一轮任务描述完全一致。
                             if !is_assistant && *previous_was_tool_result {

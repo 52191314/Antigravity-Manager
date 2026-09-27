@@ -2277,28 +2277,65 @@ pub fn is_thought_part(part: &Value) -> bool {
 /// 由官方报文归纳出的四条硬约束：
 ///
 /// 1. 锚点 = 该轮第一个 `thought != true` 的 part，**不是**硬编码的 `parts[0]`
-///    （该轮有思考块时，官方签名落在 `parts[1]`）；
+/// 确定 model 轮次中接收签名的目标锚点部件索引。
+///
+/// 官方规范与 Google Gemini 强校验铁律（现场 400 铁证）：
+/// 1. 若本轮包含工具调用 (`functionCall`)，Google Gemini 的工具校验器强制要求签名**必须落在 `functionCall` 部件上**。
+///    若存在 `functionCall` 但签名落在了正文文本部件（如客户端占位符 `"..."` 或过程说明）上，
+///    上游直接抛出终止性 400 错误：
+///    `Function call is missing a thought_signature in functionCall parts. Additional data, function call ...`
+///    因此，当存在 `functionCall` 时，锚点**严格必须**为首个 `functionCall` 部件。
+/// 2. 若本轮无任何 `functionCall`（纯正文回答轮次），锚点为首个非思考部件（`thought != true` 的纯文本正文）。
+/// 3. 若整轮皆为思考块，则无锚点（返回 None）。
+pub fn find_turn_anchor(parts: &[Value]) -> Option<usize> {
+    if let Some(fc_pos) = parts.iter().position(|p| p.get("functionCall").is_some()) {
+        Some(fc_pos)
+    } else {
+        parts.iter().position(|p| !is_thought_part(p))
+    }
+}
+
+/// 官方报文对齐规范：为 model 轮次将签名归位到正确的锚点。
+///
+/// 由官方报文归纳出的硬约束：
+/// 1. 签名只写在「目标锚点部件」上（若有工具调用则落在首个 `functionCall`，纯正文轮落在首个正文 `parts[0]` 或 `parts[1]`）；
 /// 2. `thought: true` / `functionResponse` / 其余 part —— 字段必须**缺席**，而不是空串；
-/// 3. 锚点自带真实签名时**原样保留**（覆盖"纯正文轮"与"思考块 + 正文轮"两种排列）；
+/// 3. 锚点自带或本轮携带真实签名时**抢救保留**（覆盖客户端将签名误挂在占位文本或非锚点部件的场景）；
 /// 4. 锚点无签名且 `fallback_sig` 也为空时 —— **什么都不写**。官方在"在飞轮"上就是缺席的，
 ///    缺失签名是被容忍的，**绝不发明哨兵**。
 ///
-/// 本函数**绝不重排、绝不插入** part —— 顺序即锚点语义。
-///
 /// 返回最终写入锚点的签名（若有）。
-pub fn place_turn_signature(parts: &mut [Value], fallback_sig: Option<&str>) -> Option<String> {
-    // 1. 锚点 = 第一个非思考 part；整轮皆思考则本轮无锚点
-    let anchor = parts.iter().position(|p| !is_thought_part(p))?;
+pub fn place_turn_signature(parts: &mut Vec<Value>, fallback_sig: Option<&str>) -> Option<String> {
+    // 1. 签名抢救与提取（必须在任何清空或过滤之前执行）：
+    // 优先从锚点取出自带真实签名；若锚点无签名，但本轮其他 part（如客户端把签名挂在占位文本上）
+    // 带有真实签名，全面救援提取，绝不遗失该轮有效凭证！
+    let own_sig = parts.iter().find_map(|p| {
+        p.get("thoughtSignature")
+            .or_else(|| p.get("thought_signature"))
+            .and_then(|s| s.as_str())
+            .filter(|s| is_real_signature(s))
+            .map(str::to_string)
+    });
 
-    // 2. 必须在清空之前取出锚点自带的签名
-    let own_sig = parts[anchor]
-        .get("thoughtSignature")
-        .or_else(|| parts[anchor].get("thought_signature"))
-        .and_then(|s| s.as_str())
-        .filter(|s| is_real_signature(s))
-        .map(str::to_string);
+    // 2. 占位文本清理：若本轮包含 functionCall，清理混入的无意义占位正文（如 "..."、"·" 等客户端/中间件遗留脏数据）
+    let has_fc = parts.iter().any(|p| p.get("functionCall").is_some());
+    if has_fc {
+        parts.retain(|p| {
+            if p.get("functionCall").is_none() && !is_thought_part(p) {
+                if let Some(t) = p.get("text").and_then(|s| s.as_str()) {
+                    if is_placeholder_thought(t) {
+                        return false;
+                    }
+                }
+            }
+            true
+        });
+    }
 
-    // 3. 全量清空，保证非锚点 part 的签名字段确实"缺席"
+    // 3. 锚点确定：有工具调用则必须锚定首个 functionCall；无工具调用则锚定首个非思考正文
+    let anchor = find_turn_anchor(parts)?;
+
+    // 4. 全量清空，保证非锚点 part 的签名字段确实"缺席"
     for part in parts.iter_mut() {
         if let Some(obj) = part.as_object_mut() {
             obj.remove("thoughtSignature");
@@ -2306,12 +2343,12 @@ pub fn place_turn_signature(parts: &mut [Value], fallback_sig: Option<&str>) -> 
         }
     }
 
-    // 4. functionResponse 永不携带签名
+    // 5. functionResponse 永不携带签名
     if parts[anchor].get("functionResponse").is_some() {
         return None;
     }
 
-    // 5. 锚点自带优先，缺失时才使用回填来源（跨协议路径）
+    // 6. 锚点自带/抢救优先，缺失才使用回填来源（跨协议路径）
     let sig = own_sig.or_else(|| {
         fallback_sig
             .filter(|s| is_real_signature(s))
@@ -4754,6 +4791,87 @@ mod signature_placement_tests {
         assert!(placed.is_none(), "整轮皆思考则本轮无锚点");
         assert!(parts[0].get("thoughtSignature").is_none());
         assert!(parts[1].get("thoughtSignature").is_none());
+    }
+
+    #[test]
+    fn arrangement_f_tool_call_with_placeholder_text_anchors_to_function_call() {
+        // 现场 400 铁证重现：客户端发送带有占位文本 "..." 与 tool_use 的 assistant 轮次，
+        // 签名最初挂在占位文本 "..." 上。
+        // 正确产出：丢弃占位文本 "..."，将真实签名救援并归位到首个 functionCall 上！
+        let sig = gemini_sig(10);
+        let mut parts = vec![
+            json!({ "text": "Thinking deeply...", "thought": true }),
+            json!({ "text": "...", "thoughtSignature": sig.clone() }),
+            json!({ "functionCall": { "id": "call_2594022", "name": "exec", "args": { "command": "dws auth" } } }),
+        ];
+        let placed = place_turn_signature(&mut parts, None);
+
+        assert_eq!(placed.as_deref(), Some(sig.as_str()));
+        // 占位文本 "..." 必须被清理，parts 仅保留思考块与 functionCall
+        assert_eq!(parts.len(), 2, "占位文本部件必须被丢弃");
+        assert_eq!(parts[0]["thought"], true);
+        assert!(parts[0].get("thoughtSignature").is_none());
+        assert_eq!(parts[1]["functionCall"]["name"], "exec");
+        assert_eq!(
+            parts[1]["thoughtSignature"], sig,
+            "签名必须正确归位到 functionCall 锚点"
+        );
+    }
+
+    #[test]
+    fn arrangement_g_tool_call_with_commentary_anchors_to_function_call() {
+        // 当 assistant 轮次同时包含真实正文说明与工具调用时，
+        // Google Gemini 强校验规范要求签名必须落在 functionCall 部件上，正文不得带签名
+        let sig = gemini_sig(11);
+        let mut parts = vec![
+            json!({ "text": "I will run this tool for you" }),
+            json!({ "functionCall": { "id": "call_999", "name": "read_file" } }),
+        ];
+        let placed = place_turn_signature(&mut parts, Some(sig.as_str()));
+
+        assert_eq!(placed.as_deref(), Some(sig.as_str()));
+        assert_eq!(parts.len(), 2, "真实正文与工具调用均予保留");
+        assert!(
+            parts[0].get("thoughtSignature").is_none(),
+            "正文不得携带签名"
+        );
+        assert_eq!(
+            parts[1]["thoughtSignature"], sig,
+            "签名必须落在 functionCall 上"
+        );
+    }
+
+    #[test]
+    fn test_find_turn_anchor_logic() {
+        // 1. 纯思考块 -> 无锚点
+        assert_eq!(
+            find_turn_anchor(&[json!({ "thought": true, "text": "t" })]),
+            None
+        );
+        // 2. 思考块 + 正文 -> 锚点为正文
+        assert_eq!(
+            find_turn_anchor(&[
+                json!({ "thought": true, "text": "t" }),
+                json!({ "text": "answer" })
+            ]),
+            Some(1)
+        );
+        // 3. 正文 + 工具 -> 锚点必须优先为工具调用！
+        assert_eq!(
+            find_turn_anchor(&[
+                json!({ "text": "commentary" }),
+                json!({ "functionCall": { "name": "bash" } })
+            ]),
+            Some(1)
+        );
+        // 4. 并发工具 -> 锚点为首个工具调用
+        assert_eq!(
+            find_turn_anchor(&[
+                json!({ "functionCall": { "name": "a" } }),
+                json!({ "functionCall": { "name": "b" } })
+            ]),
+            Some(0)
+        );
     }
 
     #[test]

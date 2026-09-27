@@ -3,6 +3,14 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.5-beta.1 (2026-09-27)**:
+        -   **[Compound Tool Turn Signature Anchor Alignment] Prevent Signature Misplacement When Tool Calls Coexist with Commentary Text, Strictly Anchoring Signatures to First functionCall (Fixes #3529, Thanks to @Mortalit)**:
+            -   **Root cause & upstream confirmation**: When models or clients return progress or commentary text alongside tool calls within the same turn (e.g. `[thought, text, functionCall]`), the legacy `parts.iter().position(|p| !is_thought_part(p))` logic anchored the signature to the text part at index 1 and stripped the signature from the subsequent `functionCall`. Google Gemini upstream validates thought signatures specifically on the `functionCall` part, resulting in HTTP 400: `Function call is missing a thought_signature in functionCall parts`.
+            -   **Dynamic anchor prioritization (`find_turn_anchor`)**: Redesigned the gatekeeper and inbound pipeline anchoring logic: when a turn contains a `functionCall`, the first `functionCall` part is prioritized as the authoritative anchor. Pure text turns seamlessly fall back to the first non-thought text part, decoupling the two turn topologies cleanly.
+            -   **Whole-turn signature rescue & write-back loop**: Added `own_sig` whole-turn rescue scanning to `place_turn_signature`. If a client misplaced a valid signature onto preceding text or placeholder parts, the gateway rescues it and transfers it to the target `functionCall` anchor, while synchronizing `tool_signatures` in SQLite and memory cache.
+            -   **Adapter symmetry**: Added `SignatureCache::global().cache_tool_signature` caching in `claude/response.rs` for non-streaming tool use parsing, achieving full parity between streaming and non-streaming pathways.
+            -   **Middleware placeholder sanitization**: Cleaned and stripped meaningless `"..."` placeholder text parts from `claude/request.rs`, `openai/request.rs`, and inbound pipeline when accompanying tool calls, preserving substantive commentary while stabilizing prefix caching hashes.
+
     *   **v4.8.4 (2026-09-27)**:
         -   **[Pipeline Tool Normalization & Signature Fidelity] Universal Tool Call ID Canonicalization across Pipeline, Cache, and DB to Eliminate 400 'Missing a thought_signature' (Fixes #3529, #3531, Thanks to @Mortalit, @ddmixi)**:
             -   **Root cause eliminated**: Clients (such as OpenCode and Antigravity IDE) strip underscores from tool call IDs when sending tool responses (e.g. converting `call_573077` to `call573077`), causing string mismatch when looking up cached signatures and resulting in upstream Gemini errors: `Function call is missing a thought_signature in functionCall parts (400)`.

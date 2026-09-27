@@ -3,6 +3,14 @@
 > 完整版本历史记录。返回项目主页请查看 [README.md](README.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.5-beta.1 (2026-09-27)**:
+        -   **[复合工具轮签名锚点精准对齐] 解决工具调用伴随进度文本时的签名误错位，保证签名严格锁定首个 functionCall (Fixes #3529, Thanks to @Mortalit)**:
+            -   **根因分析与实测确诊**: 当模型或客户端在生成工具调用的同一轮次回传进度/说明正文（如 `[thought, text, functionCall]`）或占位符时，原 `parts.iter().position(|p| !is_thought_part(p))` 逻辑粗暴将首个正文作为锚点，把签名印在 `text` 部件上，并在清理非锚点签名时强制清除了后续 `functionCall` 的签名。Google Gemini 上游在执行工具调用校验时，只检查 `functionCall` 部件是否带有 `thought_signature`，导致即使报文携带了有效签名仍被 400 拦截：`Function call is missing a thought_signature in functionCall parts`。
+            -   **动态锚点优选机制 (`find_turn_anchor`)**: 终审门禁与流水线重构锚点判定：当本轮包含 `functionCall` 时，首个 `functionCall` 部件拥有最高锚点优先级，签名严格锁定在工具调用上；仅在纯正文轮次时平滑回退至首个非思考正文部件，实现两类轮次的精准解耦。
+            -   **全轮签名抢救与反向更新闭环**: `place_turn_signature` 增加 `own_sig` 全轮扫描机制。若客户端曾将签名误挂在正文或占位符上，网关先将签名抢救提取，再精准迁移至目标 `functionCall` 锚点，并反向更新 SQLite `tool_signatures` 与内存缓存。
+            -   **协议适配层对称补齐**: 为 `claude/response.rs` 非流式工具调用解析补全 `SignatureCache::global().cache_tool_signature` 缓存写入，确保流式与非流式调用双向缓存完全对称。
+            -   **中间件脏占位文本净化**: 在 `claude/request.rs`、`openai/request.rs` 与流水线入站中，对伴随 `tool_calls`/`tool_use` 出现的 `"..."` 等无意义客户端占位文本执行纯净化丢弃，保留合法实质性进度正文，确保前缀缓存哈希稳定。
+
     *   **v4.8.4 (2026-09-27)**:
         -   **[流水线通用归一化与签名保真] Tool Call ID 全链路规范化，根治多轮思考工具调用 400 报错 (Fixes #3529, #3531, Thanks to @Mortalit, @ddmixi)**:
             -   **根因根除**: 客户端（如 OpenCode、Antigravity IDE）在执行本地工具后将结果发回第二轮生成时，常剥离 tool_id 中的下划线（如将 `call_573077` 转换为 `call573077`），导致网关从缓存匹配签名失败，向上游发出的 `functionCall` 缺失签名而引发 Google 报错 `Function call is missing a thought_signature in functionCall parts (400)`。

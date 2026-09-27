@@ -296,6 +296,28 @@ impl InboundThinkingPipeline {
                                     continue;
                                 }
 
+                                // 丢弃占位文本部件（如 "..."、"·" 等无意义客户端脏数据）：
+                                // 若携带有真实签名，先将签名暂存至 placeholder_sig，防止有效凭证随占位文本丢弃
+                                if crate::proxy::thinking_store::is_placeholder_thought(raw_text) {
+                                    if placeholder_sig.is_none() {
+                                        if let Some(sig) = part
+                                            .get("thoughtSignature")
+                                            .or_else(|| part.get("thought_signature"))
+                                            .and_then(|s| s.as_str())
+                                            .filter(|s| {
+                                                crate::proxy::thinking_store::is_real_signature(s)
+                                            })
+                                        {
+                                            placeholder_sig = Some(sig.to_string());
+                                        }
+                                    }
+                                    tracing::debug!(
+                                        "[InboundPipeline] Dropped placeholder text part (text={:?})",
+                                        raw_text
+                                    );
+                                    continue;
+                                }
+
                                 // 跨家族协议自愈：检查是否夹带 <think> 标签包裹的思考内容（如从 Claude 跨切回 Gemini）
                                 if let Some((extracted_thought, clean_visible)) =
                                     crate::proxy::thinking_store::extract_think_tags(raw_text)
@@ -353,20 +375,21 @@ impl InboundThinkingPipeline {
                     new_parts.extend(extra_thinking_parts);
                     new_parts.extend(other_parts);
 
-                    // [2026-09-27] 占位思考块被丢弃时的签名转移：
-                    // 若该轮思考块全部为占位/空（无 thinking_part），或占位块带真实签名，
-                    // 把签名挂到第一个非思考 part（锚点）——该锚点可能是正文 text 也可能
-                    // 是 functionCall。finalize 的 place_turn_signature 会按「锚点=首个
-                    // 非思考 part」规则最终归位；若此处已挂，place 也会摘用。
-                    //
-                    // ⚠️ 必须在 other_parts 合并之后查找锚点：占位思考丢弃后，若该轮
-                    // 首个非思考 part 是正文 text（含 extra_thinking 无、thinking_part 无时），
-                    // 锚点只存在于 other_parts —— 过早查找会漏挂签名。
+                    // [2026-09-27] 占位思考块/占位文本被丢弃时的签名转移：
+                    // 若占位块带真实签名，把签名转移到目标锚点（有工具调用时严格为首个 functionCall，
+                    // 无工具调用时为首个非思考正文）。
                     if let Some(sig) = placeholder_sig.take() {
-                        if let Some(anchor) = new_parts
-                            .iter_mut()
-                            .find(|p| !crate::proxy::thinking_store::is_thought_part(p))
+                        let anchor = if let Some(fc_pos) = new_parts
+                            .iter()
+                            .position(|p| p.get("functionCall").is_some())
                         {
+                            Some(&mut new_parts[fc_pos])
+                        } else {
+                            new_parts
+                                .iter_mut()
+                                .find(|p| !crate::proxy::thinking_store::is_thought_part(p))
+                        };
+                        if let Some(anchor) = anchor {
                             if let Some(obj) = anchor.as_object_mut() {
                                 obj["thoughtSignature"] = json!(sig);
                             }

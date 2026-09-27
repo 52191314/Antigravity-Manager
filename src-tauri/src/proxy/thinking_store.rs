@@ -492,7 +492,7 @@ impl ThinkingStore {
 
         let mut used = vec![false; records.len()];
         let mut by_sig: HashMap<String, usize> = HashMap::new();
-        let mut by_tool: HashMap<&str, Vec<usize>> = HashMap::new();
+        let mut by_tool: HashMap<String, Vec<usize>> = HashMap::new();
         let mut by_fp: HashMap<&str, Vec<usize>> = HashMap::new();
         for (rec_idx, rec) in records.iter().enumerate() {
             if let Some(ref sig) = rec.signature.as_ref().filter(|s| is_real_signature(s)) {
@@ -500,7 +500,11 @@ impl ThinkingStore {
                 by_sig.insert(norm.into_owned(), rec_idx);
             }
             for id in &rec.tool_ids {
-                by_tool.entry(id.as_str()).or_default().push(rec_idx);
+                let norm = crate::proxy::common::utils::normalize_tool_id(id);
+                by_tool.entry(norm.to_string()).or_default().push(rec_idx);
+                if norm.as_ref() != id.as_str() {
+                    by_tool.entry(id.clone()).or_default().push(rec_idx);
+                }
             }
             by_fp
                 .entry(rec.fingerprint.as_str())
@@ -549,7 +553,11 @@ impl ThinkingStore {
                 continue;
             }
             for id in &turn.tool_ids {
-                let Some(idxs) = by_tool.get(id.as_str()) else {
+                let norm = crate::proxy::common::utils::normalize_tool_id(id);
+                let idxs = by_tool
+                    .get(norm.as_ref())
+                    .or_else(|| by_tool.get(id.as_str()));
+                let Some(idxs) = idxs else {
                     continue;
                 };
                 if let Some(&rec_idx) = idxs.iter().find(|&&i| {
@@ -1245,7 +1253,7 @@ impl TurnAccumulator {
                 .get("id")
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.trim().is_empty())
-                .map(str::to_string);
+                .map(|s| crate::proxy::common::utils::normalize_tool_id(s).into_owned());
 
             let synthetic = synthesize_tool_id(
                 &name,
@@ -1273,8 +1281,10 @@ impl TurnAccumulator {
     }
 
     pub fn record_tool_id(&mut self, tool_name: &str, real_id: &str) {
-        if !self.tool_ids.iter().any(|x| x == real_id) {
-            self.tool_ids.push(real_id.to_string());
+        let norm_id = crate::proxy::common::utils::normalize_tool_id(real_id);
+        let id_str = norm_id.to_string();
+        if !self.tool_ids.iter().any(|x| x == &id_str) {
+            self.tool_ids.push(id_str);
         }
         if !self.tool_names.iter().any(|x| x == tool_name) {
             self.tool_names.push(tool_name.to_string());
@@ -2641,7 +2651,7 @@ fn inspect_parts_with_anchor(
                 .get("id")
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.trim().is_empty())
-                .map(str::to_string);
+                .map(|s| crate::proxy::common::utils::normalize_tool_id(s).into_owned());
 
             let synthetic = synthesize_tool_id(&name, fc.get("args"), anchor, function_call_count);
             function_call_count += 1;
@@ -4703,5 +4713,54 @@ mod signature_placement_tests {
         assert!(placed.is_none(), "整轮皆思考则本轮无锚点");
         assert!(parts[0].get("thoughtSignature").is_none());
         assert!(parts[1].get("thoughtSignature").is_none());
+    }
+
+    #[test]
+    fn test_tool_id_normalization_in_restore() {
+        let store = ThinkingStore::new();
+        let session_key = "test_norm_tool_id_session";
+        let sig = gemini_sig(9);
+
+        // Record saved with canonical call_573077
+        // Record saved with canonical call_573077
+        store.record(
+            session_key,
+            ThinkingRecord {
+                fingerprint: "fp1".to_string(),
+                thought: "I need to read this file".to_string(),
+                signature: Some(sig.clone()),
+                tool_ids: vec!["call_573077".to_string()],
+                tool_names: vec!["default_api:read".to_string()],
+                visible: String::new(),
+            },
+        );
+
+        // Incoming client contents stripped underscore: call573077
+        let mut contents = vec![
+            json!({
+                "role": "user",
+                "parts": [{ "text": "read the file" }]
+            }),
+            json!({
+                "role": "model",
+                "parts": [{
+                    "functionCall": {
+                        "name": "default_api:read",
+                        "id": "call573077",
+                        "args": { "path": "test.txt" }
+                    }
+                }]
+            }),
+        ];
+
+        let count = store.restore_gemini_contents_with_model(
+            session_key,
+            &mut contents,
+            Some("gemini-2.5-flash"),
+        );
+        assert_eq!(count, 1);
+        let model_parts = contents[1]["parts"].as_array().unwrap();
+        // Signature should be attached to the anchor
+        assert_eq!(model_parts[0]["thoughtSignature"], sig);
     }
 }

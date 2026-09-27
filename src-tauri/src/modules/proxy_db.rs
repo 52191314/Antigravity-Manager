@@ -507,11 +507,12 @@ pub fn save_tool_signature(tool_id: &str, signature: &str) -> Result<(), String>
     if tool_id.is_empty() || signature.is_empty() {
         return Ok(());
     }
+    let norm_id = crate::proxy::common::utils::normalize_tool_id(tool_id);
     let conn = connect_db()?;
     let now = chrono::Utc::now().timestamp_millis();
     conn.execute(
         "INSERT OR REPLACE INTO tool_signatures (tool_id, signature, created_at) VALUES (?1, ?2, ?3)",
-        params![tool_id, signature, now],
+        params![norm_id.as_ref(), signature, now],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -521,6 +522,7 @@ pub fn load_tool_signature(tool_id: &str) -> Result<Option<String>, String> {
     if tool_id.is_empty() {
         return Ok(None);
     }
+    let norm_id = crate::proxy::common::utils::normalize_tool_id(tool_id);
     let db_path = get_proxy_db_path()?;
     let mut db = TOOL_SIGNATURE_DB
         .get_or_init(|| Mutex::new(None))
@@ -541,13 +543,29 @@ pub fn load_tool_signature(tool_id: &str) -> Result<Option<String>, String> {
     let mut stmt = conn
         .prepare_cached("SELECT signature FROM tool_signatures WHERE tool_id = ?1 LIMIT 1")
         .map_err(|e| e.to_string())?;
-    let mut rows = stmt.query(params![tool_id]).map_err(|e| e.to_string())?;
-    if let Some(row) = rows.next().map_err(|e| e.to_string())? {
-        let sig: String = row.get(0).map_err(|e| e.to_string())?;
-        Ok(Some(sig))
-    } else {
-        Ok(None)
+    let found = {
+        let mut rows = stmt
+            .query(params![norm_id.as_ref()])
+            .map_err(|e| e.to_string())?;
+        if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let sig: String = row.get(0).map_err(|e| e.to_string())?;
+            Some(sig)
+        } else {
+            None
+        }
+    };
+    if let Some(sig) = found {
+        return Ok(Some(sig));
     }
+    // 兼容历史未归一化的脏数据 (若带下划线未命中，尝试原始格式)
+    if norm_id.as_ref() != tool_id {
+        let mut rows = stmt.query(params![tool_id]).map_err(|e| e.to_string())?;
+        if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let sig: String = row.get(0).map_err(|e| e.to_string())?;
+            return Ok(Some(sig));
+        }
+    }
+    Ok(None)
 }
 
 #[derive(Debug, Clone)]
@@ -574,15 +592,20 @@ pub fn save_thinking_record(
     }
     let conn = thinking_db()?;
     let now = chrono::Utc::now().timestamp_millis();
-    let tool_ids_json = serde_json::to_string(tool_ids).unwrap_or_else(|_| "[]".to_string());
-    let causal_tool_id = tool_ids
+    let normalized_tool_ids: Vec<String> = tool_ids
+        .iter()
+        .map(|id| crate::proxy::common::utils::normalize_tool_id(id).into_owned())
+        .collect();
+    let tool_ids_json =
+        serde_json::to_string(&normalized_tool_ids).unwrap_or_else(|_| "[]".to_string());
+    let causal_tool_id = normalized_tool_ids
         .iter()
         .find(|id| is_synthetic_tool_id(id))
         .map(|s| s.as_str());
-    let primary_tool_id = tool_ids.first().map(|s| s.as_str());
+    let primary_tool_id = normalized_tool_ids.first().map(|s| s.as_str());
     // tool_names / full visible for tool turns are reconstructable from the next
     // request JSON at fill time. Do not write them.
-    let visible_persist = persist_visible(tool_ids, visible);
+    let visible_persist = persist_visible(&normalized_tool_ids, visible);
     let packed_thought = pack_thought(thought);
     let signature = persist_signature(signature);
 
@@ -618,9 +641,25 @@ pub fn save_thinking_record(
     let existing_id: Option<(i64, usize, Option<String>)> = match latest_row {
         Some((id, len, sig, ref last_fp, ref last_tool_id, ref last_causal_id)) => {
             let is_match = if let Some(c_id) = causal_tool_id {
-                last_causal_id.as_deref() == Some(c_id) || last_tool_id.as_deref() == Some(c_id)
+                last_causal_id.as_deref() == Some(c_id)
+                    || last_tool_id.as_deref() == Some(c_id)
+                    || last_causal_id
+                        .as_deref()
+                        .map(|s| crate::proxy::common::utils::normalize_tool_id(s))
+                        .as_deref()
+                        == Some(c_id)
+                    || last_tool_id
+                        .as_deref()
+                        .map(|s| crate::proxy::common::utils::normalize_tool_id(s))
+                        .as_deref()
+                        == Some(c_id)
             } else if let Some(p_id) = primary_tool_id {
                 last_tool_id.as_deref() == Some(p_id)
+                    || last_tool_id
+                        .as_deref()
+                        .map(|s| crate::proxy::common::utils::normalize_tool_id(s))
+                        .as_deref()
+                        == Some(p_id)
             } else {
                 last_fp == fingerprint && last_tool_id.is_none() && last_causal_id.is_none()
             };
@@ -767,128 +806,136 @@ pub fn load_thinking_by_tool_id(
     if session_key.is_empty() || tool_id.is_empty() {
         return Ok(None);
     }
+    let norm_id = crate::proxy::common::utils::normalize_tool_id(tool_id);
+    let mut candidate_ids = vec![norm_id.as_ref()];
+    if norm_id.as_ref() != tool_id {
+        candidate_ids.push(tool_id);
+    }
+
     let conn = thinking_db()?;
 
-    // 1. Track 1 (Fastest Path): 优先按因果伪哈希 ID 走 idx_thinking_rec_causal 专属局部索引 (0.02ms 纳秒级命中)
-    let mut causal_stmt = conn
-        .prepare_cached(
-            "SELECT fingerprint, thought, signature, tool_ids, tool_names, visible
-             FROM thinking_records
-             WHERE session_key = ?1 AND causal_tool_id = ?2
-             ORDER BY id DESC LIMIT 1",
-        )
-        .map_err(|e| e.to_string())?;
+    for candidate in candidate_ids {
+        // 1. Track 1 (Fastest Path): 优先按因果伪哈希 ID 走 idx_thinking_rec_causal 专属局部索引 (0.02ms 纳秒级命中)
+        let mut causal_stmt = conn
+            .prepare_cached(
+                "SELECT fingerprint, thought, signature, tool_ids, tool_names, visible
+                 FROM thinking_records
+                 WHERE session_key = ?1 AND causal_tool_id = ?2
+                 ORDER BY id DESC LIMIT 1",
+            )
+            .map_err(|e| e.to_string())?;
 
-    let mut causal_rows = causal_stmt
-        .query(params![session_key, tool_id])
-        .map_err(|e| e.to_string())?;
+        let mut causal_rows = causal_stmt
+            .query(params![session_key, candidate])
+            .map_err(|e| e.to_string())?;
 
-    if let Some(row) = causal_rows.next().map_err(|e| e.to_string())? {
-        let fp: String = row.get(0).map_err(|e| e.to_string())?;
-        let thought_raw: Vec<u8> = row.get(1).map_err(|e| e.to_string())?;
-        let signature: Option<String> = row.get(2).map_err(|e| e.to_string())?;
-        let tool_ids_str: String = row.get(3).map_err(|e| e.to_string())?;
-        let tool_names_str: String = row.get(4).map_err(|e| e.to_string())?;
-        let visible: String = row.get(5).map_err(|e| e.to_string())?;
-        let tool_ids: Vec<String> = serde_json::from_str(&tool_ids_str).unwrap_or_default();
-        let tool_names: Vec<String> = serde_json::from_str(&tool_names_str).unwrap_or_default();
-        return Ok(Some(PersistedThinkingRecord {
-            fingerprint: fp,
-            thought: unpack_thought(&thought_raw),
-            signature: persist_signature(signature.as_deref()).map(str::to_string),
-            tool_ids,
-            tool_names,
-            visible,
-        }));
-    }
-
-    // 2. Track 2 (Legacy Path): 兼容旧版 primary_tool_id (走 idx_thinking_rec_tool 索引点查)
-    let mut primary_stmt = conn
-        .prepare_cached(
-            "SELECT id, fingerprint, thought, signature, tool_ids, tool_names, visible
-             FROM thinking_records
-             WHERE session_key = ?1 AND primary_tool_id = ?2
-             ORDER BY id DESC LIMIT 1",
-        )
-        .map_err(|e| e.to_string())?;
-
-    let mut primary_rows = primary_stmt
-        .query(params![session_key, tool_id])
-        .map_err(|e| e.to_string())?;
-
-    if let Some(row) = primary_rows.next().map_err(|e| e.to_string())? {
-        let rec_id: i64 = row.get(0).map_err(|e| e.to_string())?;
-        let fp: String = row.get(1).map_err(|e| e.to_string())?;
-        let thought_raw: Vec<u8> = row.get(2).map_err(|e| e.to_string())?;
-        let signature: Option<String> = row.get(3).map_err(|e| e.to_string())?;
-        let tool_ids_str: String = row.get(4).map_err(|e| e.to_string())?;
-        let tool_names_str: String = row.get(5).map_err(|e| e.to_string())?;
-        let visible: String = row.get(6).map_err(|e| e.to_string())?;
-        let tool_ids: Vec<String> = serde_json::from_str(&tool_ids_str).unwrap_or_default();
-        let tool_names: Vec<String> = serde_json::from_str(&tool_names_str).unwrap_or_default();
-
-        // 3. Track 3 (In-Place Self-Healing): 若当前请求使用的是因果伪哈希 ID，顺手静默修复老数据
-        if is_synthetic_tool_id(tool_id) {
-            let _ = conn.execute(
-                "UPDATE thinking_records SET causal_tool_id = ?1 WHERE id = ?2 AND causal_tool_id IS NULL",
-                params![tool_id, rec_id],
-            );
+        if let Some(row) = causal_rows.next().map_err(|e| e.to_string())? {
+            let fp: String = row.get(0).map_err(|e| e.to_string())?;
+            let thought_raw: Vec<u8> = row.get(1).map_err(|e| e.to_string())?;
+            let signature: Option<String> = row.get(2).map_err(|e| e.to_string())?;
+            let tool_ids_str: String = row.get(3).map_err(|e| e.to_string())?;
+            let tool_names_str: String = row.get(4).map_err(|e| e.to_string())?;
+            let visible: String = row.get(5).map_err(|e| e.to_string())?;
+            let tool_ids: Vec<String> = serde_json::from_str(&tool_ids_str).unwrap_or_default();
+            let tool_names: Vec<String> = serde_json::from_str(&tool_names_str).unwrap_or_default();
+            return Ok(Some(PersistedThinkingRecord {
+                fingerprint: fp,
+                thought: unpack_thought(&thought_raw),
+                signature: persist_signature(signature.as_deref()).map(str::to_string),
+                tool_ids,
+                tool_names,
+                visible,
+            }));
         }
 
-        return Ok(Some(PersistedThinkingRecord {
-            fingerprint: fp,
-            thought: unpack_thought(&thought_raw),
-            signature: persist_signature(signature.as_deref()).map(str::to_string),
-            tool_ids,
-            tool_names,
-            visible,
-        }));
-    }
+        // 2. Track 2 (Legacy Path): 兼容旧版 primary_tool_id (走 idx_thinking_rec_tool 索引点查)
+        let mut primary_stmt = conn
+            .prepare_cached(
+                "SELECT id, fingerprint, thought, signature, tool_ids, tool_names, visible
+                 FROM thinking_records
+                 WHERE session_key = ?1 AND primary_tool_id = ?2
+                 ORDER BY id DESC LIMIT 1",
+            )
+            .map_err(|e| e.to_string())?;
 
-    // 4. Track 4 (Fallback Path): 极端情况兼容最古老旧记录 (tool_ids 列表内模糊包含)
-    let pattern = format!("%\"{}\"%", tool_id);
-    let mut fallback_stmt = conn
-        .prepare_cached(
-            "SELECT id, fingerprint, thought, signature, tool_ids, tool_names, visible
-             FROM thinking_records
-             WHERE session_key = ?1 AND tool_ids LIKE ?2
-             ORDER BY id DESC LIMIT 1",
-        )
-        .map_err(|e| e.to_string())?;
+        let mut primary_rows = primary_stmt
+            .query(params![session_key, candidate])
+            .map_err(|e| e.to_string())?;
 
-    let mut fallback_rows = fallback_stmt
-        .query(params![session_key, pattern])
-        .map_err(|e| e.to_string())?;
+        if let Some(row) = primary_rows.next().map_err(|e| e.to_string())? {
+            let rec_id: i64 = row.get(0).map_err(|e| e.to_string())?;
+            let fp: String = row.get(1).map_err(|e| e.to_string())?;
+            let thought_raw: Vec<u8> = row.get(2).map_err(|e| e.to_string())?;
+            let signature: Option<String> = row.get(3).map_err(|e| e.to_string())?;
+            let tool_ids_str: String = row.get(4).map_err(|e| e.to_string())?;
+            let tool_names_str: String = row.get(5).map_err(|e| e.to_string())?;
+            let visible: String = row.get(6).map_err(|e| e.to_string())?;
+            let tool_ids: Vec<String> = serde_json::from_str(&tool_ids_str).unwrap_or_default();
+            let tool_names: Vec<String> = serde_json::from_str(&tool_names_str).unwrap_or_default();
 
-    if let Some(row) = fallback_rows.next().map_err(|e| e.to_string())? {
-        let rec_id: i64 = row.get(0).map_err(|e| e.to_string())?;
-        let fp: String = row.get(1).map_err(|e| e.to_string())?;
-        let thought_raw: Vec<u8> = row.get(2).map_err(|e| e.to_string())?;
-        let signature: Option<String> = row.get(3).map_err(|e| e.to_string())?;
-        let tool_ids_str: String = row.get(4).map_err(|e| e.to_string())?;
-        let tool_names_str: String = row.get(5).map_err(|e| e.to_string())?;
-        let visible: String = row.get(6).map_err(|e| e.to_string())?;
-        let tool_ids: Vec<String> = serde_json::from_str(&tool_ids_str).unwrap_or_default();
-        let tool_names: Vec<String> = serde_json::from_str(&tool_names_str).unwrap_or_default();
+            // 3. Track 3 (In-Place Self-Healing): 若当前请求使用的是因果伪哈希 ID，顺手静默修复老数据
+            if is_synthetic_tool_id(candidate) {
+                let _ = conn.execute(
+                    "UPDATE thinking_records SET causal_tool_id = ?1 WHERE id = ?2 AND causal_tool_id IS NULL",
+                    params![candidate, rec_id],
+                );
+            }
 
-        if is_synthetic_tool_id(tool_id) {
-            let _ = conn.execute(
-                "UPDATE thinking_records SET causal_tool_id = ?1 WHERE id = ?2 AND causal_tool_id IS NULL",
-                params![tool_id, rec_id],
-            );
+            return Ok(Some(PersistedThinkingRecord {
+                fingerprint: fp,
+                thought: unpack_thought(&thought_raw),
+                signature: persist_signature(signature.as_deref()).map(str::to_string),
+                tool_ids,
+                tool_names,
+                visible,
+            }));
         }
 
-        Ok(Some(PersistedThinkingRecord {
-            fingerprint: fp,
-            thought: unpack_thought(&thought_raw),
-            signature: persist_signature(signature.as_deref()).map(str::to_string),
-            tool_ids,
-            tool_names,
-            visible,
-        }))
-    } else {
-        Ok(None)
+        // 4. Track 4 (Fallback Path): 极端情况兼容最古老旧记录 (tool_ids 列表内模糊包含)
+        let pattern = format!("%\"{}\"%", candidate);
+        let mut fallback_stmt = conn
+            .prepare_cached(
+                "SELECT id, fingerprint, thought, signature, tool_ids, tool_names, visible
+                 FROM thinking_records
+                 WHERE session_key = ?1 AND tool_ids LIKE ?2
+                 ORDER BY id DESC LIMIT 1",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let mut fallback_rows = fallback_stmt
+            .query(params![session_key, pattern])
+            .map_err(|e| e.to_string())?;
+
+        if let Some(row) = fallback_rows.next().map_err(|e| e.to_string())? {
+            let rec_id: i64 = row.get(0).map_err(|e| e.to_string())?;
+            let fp: String = row.get(1).map_err(|e| e.to_string())?;
+            let thought_raw: Vec<u8> = row.get(2).map_err(|e| e.to_string())?;
+            let signature: Option<String> = row.get(3).map_err(|e| e.to_string())?;
+            let tool_ids_str: String = row.get(4).map_err(|e| e.to_string())?;
+            let tool_names_str: String = row.get(5).map_err(|e| e.to_string())?;
+            let visible: String = row.get(6).map_err(|e| e.to_string())?;
+            let tool_ids: Vec<String> = serde_json::from_str(&tool_ids_str).unwrap_or_default();
+            let tool_names: Vec<String> = serde_json::from_str(&tool_names_str).unwrap_or_default();
+
+            if is_synthetic_tool_id(candidate) {
+                let _ = conn.execute(
+                    "UPDATE thinking_records SET causal_tool_id = ?1 WHERE id = ?2 AND causal_tool_id IS NULL",
+                    params![candidate, rec_id],
+                );
+            }
+
+            return Ok(Some(PersistedThinkingRecord {
+                fingerprint: fp,
+                thought: unpack_thought(&thought_raw),
+                signature: persist_signature(signature.as_deref()).map(str::to_string),
+                tool_ids,
+                tool_names,
+                visible,
+            }));
+        }
     }
+
+    Ok(None)
 }
 
 /// 根据 signature 精准穿透点查历史思考（利用 idx_thinking_rec_sig 索引）

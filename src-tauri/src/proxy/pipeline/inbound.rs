@@ -90,7 +90,12 @@ impl InboundThinkingPipeline {
         let trusts_signature = protocol.trusts_client_signature();
         let is_claude = target_model.to_lowercase().contains("claude");
 
-        // 0. 统一上下文结构对齐（Pipeline First 统一治理）：
+        // 0. 工具调用 ID 统一归一化治理（Pipeline First）：
+        // 彻底解决不同客户端在 tool call ID 格式上不一致（如缺少下划线 `call573077` vs `call_573077`）的问题，
+        // 将 `functionCall.id` 与 `functionResponse.id` 统一对齐为带 `_` 的标准形态 (`call_...`)。
+        Self::normalize_tool_call_ids(contents);
+
+        // 0.1 统一上下文结构对齐（Pipeline First 统一治理）：
         // 将连续的 user 消息直到下一个 model，统一合并为一个 user 轮次的多个 block (parts)，保持严格顺序。
         // 这彻底消除了 Adapter 层各自为政导致的轮次错位，使得四大协议进入流水线后结构 100% 同构！
         // 连续 user 轮**保持独立**（对齐官方形态）。
@@ -427,6 +432,46 @@ impl InboundThinkingPipeline {
         //    必须放在**末位**：若前置，回执轮会进入上面的 `is_model` 分支，
         //    从而跳过 `role == "user"` 分支里的多模态解构（图片提升为 inlineData）。
         Self::normalize_function_response_roles(contents);
+    }
+
+    /// 工具调用 ID 统一规范化治理（Pipeline First）：
+    /// 规范化 contents 中所有的 `functionCall` 与 `functionResponse` 的 `id`，
+    /// 统一对齐为带下划线的标准形态 (`call_...`)，杜绝客户端格式漂移导致的签名与思考回填脱落。
+    ///
+    /// 返回被规范化的 ID 数量。
+    pub fn normalize_tool_call_ids(contents: &mut [Value]) -> usize {
+        let mut normalized_count = 0usize;
+        for content in contents.iter_mut() {
+            if let Some(parts) = content.get_mut("parts").and_then(|p| p.as_array_mut()) {
+                for part in parts.iter_mut() {
+                    if let Some(fc) = part.get_mut("functionCall") {
+                        if let Some(id_val) = fc.get("id").and_then(|v| v.as_str()) {
+                            let norm = crate::proxy::common::utils::normalize_tool_id(id_val);
+                            if norm.as_ref() != id_val {
+                                fc["id"] = serde_json::json!(norm.as_ref());
+                                normalized_count += 1;
+                            }
+                        }
+                    }
+                    if let Some(fr) = part.get_mut("functionResponse") {
+                        if let Some(id_val) = fr.get("id").and_then(|v| v.as_str()) {
+                            let norm = crate::proxy::common::utils::normalize_tool_id(id_val);
+                            if norm.as_ref() != id_val {
+                                fr["id"] = serde_json::json!(norm.as_ref());
+                                normalized_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if normalized_count > 0 {
+            tracing::debug!(
+                "[InboundPipeline] Normalized {} tool call/response ID(s) to canonical 'call_...' format",
+                normalized_count
+            );
+        }
+        normalized_count
     }
 
     /// 把工具回执（`functionResponse`）轮的 role 归一化为官方 Antigravity 形态。
@@ -1588,5 +1633,65 @@ mod tests {
         let n = InboundThinkingPipeline::normalize_function_response_roles(&mut contents);
         assert_eq!(n, 0);
         assert_eq!(contents[0]["role"], "user");
+    }
+
+    /// 测试工具调用与回执 ID 统一归一化为 call_ 规范形态
+    #[test]
+    fn test_normalize_tool_call_ids() {
+        let mut contents = vec![
+            json!({"role": "user", "parts": [{"text": "read file"}]}),
+            json!({
+                "role": "model",
+                "parts": [
+                    {
+                        "functionCall": {
+                            "name": "read",
+                            "id": "call573077",
+                            "args": {"path": "USER.md"}
+                        }
+                    }
+                ]
+            }),
+            json!({
+                "role": "user",
+                "parts": [
+                    {
+                        "functionResponse": {
+                            "name": "read",
+                            "id": "call573077",
+                            "response": {"result": "hello"}
+                        }
+                    }
+                ]
+            }),
+            json!({
+                "role": "model",
+                "parts": [
+                    {
+                        "functionCall": {
+                            "name": "exec",
+                            "id": "call_1542346", // 已带下划线，保持原样
+                            "args": {"command": "ls"}
+                        }
+                    }
+                ]
+            }),
+        ];
+
+        let count = InboundThinkingPipeline::normalize_tool_call_ids(&mut contents);
+        assert_eq!(count, 2, "应归一化 2 个丢失下划线的 tool call/response ID");
+
+        // functionCall 验证
+        assert_eq!(contents[1]["parts"][0]["functionCall"]["id"], "call_573077");
+        // functionResponse 验证
+        assert_eq!(
+            contents[2]["parts"][0]["functionResponse"]["id"],
+            "call_573077"
+        );
+        // 原生已带下划线不受影响
+        assert_eq!(
+            contents[3]["parts"][0]["functionCall"]["id"],
+            "call_1542346"
+        );
     }
 }

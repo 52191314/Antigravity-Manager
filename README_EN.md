@@ -199,6 +199,24 @@ docker run -d --name antigravity-manager \
 
 # Forgot keys? Run `docker logs antigravity-manager` or `grep -E '"api_key"|"admin_password"' ~/.antigravity_tools/gui_config.json`
 
+> [!TIP]
+> **🧪 Pulling Beta / Preview Images**:
+> To test the latest Beta pre-release features, specify the corresponding Beta version tag (pre-releases are published independently and will never overwrite the `latest` stable tag):
+> ```bash
+> # Pull a specific Beta pre-release version (check Docker Hub for all tags)
+> docker pull lbjlaq/antigravity-manager:v4.8.2-beta.0
+> 
+> # Run Beta container
+> docker run -d --name antigravity-manager-beta \
+>   -p 8045:8045 \
+>   -e API_KEY=sk-your-api-key \
+>   -e WEB_PASSWORD=your-login-password \
+>   -e ABV_MAX_BODY_SIZE=104857600 \
+>   -v ~/.antigravity_tools:/root/.antigravity_tools \
+>   lbjlaq/antigravity-manager:v4.8.2-beta.0
+> ```
+> View all published Beta tags on [Docker Hub Tags](https://hub.docker.com/r/lbjlaq/antigravity-manager/tags). If you wish to run the unreleased bleeding-edge `beta` branch directly, build locally: `docker build -t lbjlaq/antigravity-manager:beta -f docker/Dockerfile .`.
+
 #### 🔐 Authentication Scenarios
 *   **Scenario A: Only `API_KEY` is set**
     - **Web Login**: Use `API_KEY` to access the dashboard.

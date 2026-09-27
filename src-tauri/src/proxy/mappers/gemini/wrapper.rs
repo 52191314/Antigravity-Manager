@@ -36,8 +36,21 @@ pub fn wrap_request_v2(
         .map(|a| a.len())
         .unwrap_or(1);
 
-    // 复制 body 以便修改
-    let mut inner_request = body.clone();
+    // 复制 body 以便修改；若客户端发送的是已带有 request 包装的报文（如 JeikCode 或直接透传信封），解包出内部 request
+    let (mut inner_request, incoming_req_id) = if let Some(req) = body.get("request") {
+        if req.is_object() {
+            let req_id = body
+                .get("requestId")
+                .or_else(|| body.get("_session_thinking_id"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            (req.clone(), req_id)
+        } else {
+            (body.clone(), None)
+        }
+    } else {
+        (body.clone(), None)
+    };
 
     // 深度清理 [undefined] 字符串 (Cherry Studio 等客户端常见注入)
     crate::proxy::mappers::common_utils::deep_clean_undefined(&mut inner_request, 0);
@@ -589,14 +602,6 @@ pub fn wrap_request_v2(
             gen_config.remove("thinkingConfig");
         }
 
-        // [ADDED v4.1.24] Inject topK=40 and topP=1.0 if not present to match official client
-        if !gen_config.contains_key("topK") {
-            gen_config.insert("topK".to_string(), json!(40));
-        }
-        if !gen_config.contains_key("topP") {
-            gen_config.insert("topP".to_string(), json!(1.0));
-        }
-
         if force_server_thinking {
             let default_budget =
                 crate::proxy::model_specs::get_thinking_budget(final_model_name, token);
@@ -997,8 +1002,9 @@ pub fn wrap_request_v2(
         .and_then(|c| c.as_array())
         .map(|a| a.len() as u64)
         .unwrap_or(0);
-    let official_request_id =
-        crate::proxy::mappers::common_utils::build_official_request_id(sid, step);
+    let official_request_id = incoming_req_id.unwrap_or_else(|| {
+        crate::proxy::mappers::common_utils::build_official_request_id(sid, step)
+    });
 
     // [NEW] 2. 动态 userAgent 仿真 (支持 jetski)
     // 企业 / GCP 账号（非 gmail 邮箱）在官方 Go Worker 中使用 jetski 指纹。
@@ -1020,7 +1026,7 @@ pub fn wrap_request_v2(
         }
     }
 
-    // [NEW] 3. 动态判断是否需要 agent requestType 与 enabledCreditTypes
+    // [NEW] 3. 动态判断是否需要 agent requestType
     // 对齐官方语言服务原生设计：只有存在工具定义 (tools) 或包含工具调用上下文时才进入 agent 模式。
     // 普通问答、纯文本补全不注入 requestType: "agent"，避开 Google 后端针对 Agent 资源池的过载限流。
     let has_tools = inner_request
@@ -1044,22 +1050,21 @@ pub fn wrap_request_v2(
 
     let mut final_request_obj = json!({
         "project": project_id,
+        "requestId": official_request_id,
         "request": reordered_inner,
         "model": config.final_model,
         "userAgent": official_user_agent,
-        // [CACHE] requestId 移到末尾避免动态值破坏前缀字节一致性
-        "requestId": official_request_id,
     });
 
     if config.request_type == "image_gen" {
         final_request_obj["requestType"] = json!("image_gen");
     } else if is_agent_request {
         final_request_obj["requestType"] = json!("agent");
-        if let Some(obj) = final_request_obj.as_object_mut() {
-            // 强制注入 Google One AI 信用额度支持标号
-            obj.insert("enabledCreditTypes".to_string(), json!(["GOOGLE_ONE_AI"]));
-        }
     }
+
+    crate::proxy::pipeline::InboundThinkingPipeline::align_official_envelope(
+        &mut final_request_obj,
+    );
 
     final_request_obj
 }

@@ -768,23 +768,22 @@ pub fn transform_claude_request_in_timed(
     let is_agent_request =
         config.request_type != "image_gen" && (has_tools || has_tool_interactions);
 
-    // 构建最终请求体 (顶层键序稳定: project -> request -> model -> userAgent -> requestId)
+    // 构建最终请求体 (顶层键序对齐官方: project -> requestId -> request -> model -> userAgent -> requestType)
     let mut body = json!({
         "project": project_id,
+        "requestId": request_id,
         "request": reordered_inner,
         "model": config.final_model,
         "userAgent": official_user_agent,
-        "requestId": request_id,
     });
 
     if config.request_type == "image_gen" {
         body["requestType"] = json!("image_gen");
     } else if is_agent_request {
         body["requestType"] = json!("agent");
-        if let Some(obj) = body.as_object_mut() {
-            obj.insert("enabledCreditTypes".to_string(), json!(["GOOGLE_ONE_AI"]));
-        }
     }
+
+    crate::proxy::pipeline::InboundThinkingPipeline::align_official_envelope(&mut body);
 
     // [FIX #593] 最后一道防线: 递归深度清理所有 cache_control 字段
     // 确保发送给 Antigravity 的请求中不包含任何 cache_control

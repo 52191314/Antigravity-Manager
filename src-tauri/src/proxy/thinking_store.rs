@@ -2083,11 +2083,13 @@ pub fn extract_body_session_id(body: Option<&Value>) -> Option<String> {
     let body = body?;
     for field in [
         "session_id",
+        "sessionId",
         "conversation_id",
         "chat_id",
         "thread_id",
         "client_session_id",
         "previous_response_id",
+        "_session_thinking_id",
     ] {
         if let Some(v) = body.get(field).and_then(|v| v.as_str()) {
             let v = v.trim();
@@ -2099,8 +2101,27 @@ pub fn extract_body_session_id(body: Option<&Value>) -> Option<String> {
             }
         }
     }
+    if let Some(req) = body.get("request") {
+        for field in ["sessionId", "session_id"] {
+            if let Some(v) = req.get(field).and_then(|v| v.as_str()) {
+                let v = v.trim();
+                if !v.is_empty() {
+                    let sanitized = sanitize_session_id(v);
+                    if !sanitized.is_empty() && sanitized != "sid-unknown" {
+                        return Some(sanitized);
+                    }
+                }
+            }
+        }
+    }
     if let Some(metadata) = body.get("metadata") {
-        for field in ["conversation_id", "chat_id", "session_id", "thread_id"] {
+        for field in [
+            "conversation_id",
+            "chat_id",
+            "session_id",
+            "sessionId",
+            "thread_id",
+        ] {
             if let Some(v) = metadata.get(field).and_then(|v| v.as_str()) {
                 let v = v.trim();
                 if !v.is_empty() && !v.contains("session-") {

@@ -1319,22 +1319,19 @@ pub fn transform_openai_request_with_session(
 
     let mut final_body = json!({
         "project": project_id,
-        // [CACHE] 使用重排后的字段顺序，稳定前缀在前
+        "requestId": request_id,
         "request": reordered_request,
         "model": config.final_model,
         "userAgent": official_user_agent,
-        // [CACHE] requestId stays last so its per-attempt value does not disturb the stable prefix.
-        "requestId": request_id,
     });
 
     if config.request_type == "image_gen" {
         final_body["requestType"] = json!("image_gen");
     } else if is_agent_request {
         final_body["requestType"] = json!("agent");
-        if let Some(obj) = final_body.as_object_mut() {
-            obj.insert("enabledCreditTypes".to_string(), json!(["GOOGLE_ONE_AI"]));
-        }
     }
+
+    crate::proxy::pipeline::InboundThinkingPipeline::align_official_envelope(&mut final_body);
 
     // [CACHE:L3] 使用多层级缓存的 compute_prefix_hash 计算组合哈希
     // Layer 1 + Layer 2 的独立 hash 组合 → Layer 3 key

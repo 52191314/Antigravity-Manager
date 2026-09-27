@@ -183,13 +183,17 @@ pub async fn handle_generate(
 
         // 3. 模型路由解析
         let mapped_model = initial_mapped_model.clone();
-        // 提取 tools 列表以进行联网探测 (Gemini 风格可能是嵌套的)
-        let tools_val: Option<Vec<Value>> =
-            body.get("tools").and_then(|t| t.as_array()).map(|arr| {
+        // 提取 tools 列表以进行联网探测 (Gemini 风格可能是嵌套的，支持已带 request 包装的客户端)
+        let effective_req = body.get("request").unwrap_or(&body);
+        let tools_val: Option<Vec<Value>> = effective_req
+            .get("tools")
+            .and_then(|t| t.as_array())
+            .map(|arr| {
                 let mut flattened = Vec::new();
                 for tool_entry in arr {
                     if let Some(decls) = tool_entry
                         .get("functionDeclarations")
+                        .or_else(|| tool_entry.get("function_declarations"))
                         .and_then(|v| v.as_array())
                     {
                         flattened.extend(decls.iter().cloned());
@@ -204,10 +208,10 @@ pub async fn handle_generate(
             &model_name,
             &mapped_model,
             &tools_val,
-            None,        // size (not applicable for Gemini native protocol)
-            None,        // quality
-            None,        // [NEW] image_size
-            Some(&body), // [NEW] Pass request body for imageConfig parsing
+            None,                // size (not applicable for Gemini native protocol)
+            None,                // quality
+            None,                // [NEW] image_size
+            Some(effective_req), // [NEW] Pass request body for imageConfig parsing
         );
 
         // 4. 获取 Token (使用准确的 request_type)

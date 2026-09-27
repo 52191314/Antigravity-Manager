@@ -810,55 +810,62 @@ impl InboundThinkingPipeline {
         resolved_budget
     }
 
-    /// 统一规范化与对齐四大协议转译后的 Google Request 前缀拓扑（Pipeline First 核心归一节点）
-    /// 确保 OpenAI Chat, OpenAI Responses, Claude 与 Gemini 在上游呈现 100% 字节级同构的前缀：
-    /// 1. systemInstruction: 统一规整内部 role -> parts 键序
-    /// 2. tools: 清理 Schema，递归转大写 type，绝不拦截任何客户端工具，统一按 name 字母序稳定排序
-    /// 3. toolConfig & tool_config: 存在工具时统一补齐并规范模式为 VALIDATED，并开启 includeServerSideToolInvocations
-    /// 4. generationConfig: 稳定键序与标准 topK/topP
-    /// 5. safetySettings: 缺省统一补齐 4 项 OFF 安全等级，彻底避免跨协议缺失漂移
+    /// 统一规范化与对齐四大协议转译后的 Google Request 内部拓扑（Pipeline First 核心归一节点）
+    /// 确保 OpenAI Chat, OpenAI Responses, Claude 与 Gemini 在上游呈现 100% 严格对齐官方 Antigravity 的结构：
+    /// 1. contents: 上下文历史置于首位
+    /// 2. systemInstruction: 统一规整内部 role ("user") -> parts 键序
+    /// 3. tools: 清理 Schema，递归转大写 type，绝不拦截任何客户端工具，统一拆分为单函数独立包装形态并按 name 字母序稳定排序
+    /// 4. labels: 官方上下文标签元数据
+    /// 5. generationConfig: 吸收根节点 thinkingConfig，配齐 maxOutputTokens: 65536，杜绝伪造 topK/topP
     /// 6. sessionId: 会话标识
-    /// 7. contents: 动态上下文历史
-    /// 8. 严格前缀顺序重组: systemInstruction -> tools -> toolConfig -> tool_config -> generationConfig -> safetySettings -> sessionId -> contents
+    /// 7. 严格顺序重组: contents -> systemInstruction -> tools -> labels -> generationConfig -> sessionId -> 其余
     pub fn align_google_request_prefix_topology(inner_request: &mut Value) {
-        if !inner_request.is_object() {
-            return;
-        }
+        let req_obj = match inner_request.as_object_mut() {
+            Some(o) => o,
+            None => return,
+        };
 
-        // 1. systemInstruction (规范化统一键序: role -> parts -> 其余)
-        let canonical_si = if let Some(si) = inner_request.get("systemInstruction") {
+        // 1. contents (官方报文中 contents 置于首位)
+        let canonical_contents = req_obj.remove("contents").unwrap_or(json!([]));
+
+        // 2. systemInstruction (规范化统一键序: role -> parts -> 其余)
+        let canonical_si = if let Some(si) = req_obj.remove("systemInstruction") {
             if let Some(si_obj) = si.as_object() {
-                let mut c = json!({});
-                c["role"] = si_obj.get("role").cloned().unwrap_or(json!("user"));
+                let mut c = serde_json::Map::new();
+                let role = si_obj.get("role").cloned().unwrap_or_else(|| json!("user"));
+                c.insert("role".to_string(), role);
                 if let Some(parts) = si_obj.get("parts") {
-                    c["parts"] = parts.clone();
+                    c.insert("parts".to_string(), parts.clone());
                 }
                 for (k, v) in si_obj {
                     if k != "role" && k != "parts" {
-                        c[k] = v.clone();
+                        c.insert(k.clone(), v.clone());
                     }
                 }
-                Some(c)
+                Some(Value::Object(c))
             } else {
-                Some(si.clone())
+                Some(si)
             }
         } else {
             None
         };
 
-        // 2. tools: 规范化 parameters 并按 name 严格字典序排序，杜绝任何工具拦截过滤
-        let canonical_tools = if let Some(tools) = inner_request.get_mut("tools") {
-            if let Some(tools_arr) = tools.as_array_mut() {
-                for tool in tools_arr.iter_mut() {
-                    let decls_opt = if tool.get("functionDeclarations").is_some() {
-                        tool.get_mut("functionDeclarations")
-                    } else {
-                        tool.get_mut("function_declarations")
-                    };
-                    if let Some(decls) = decls_opt {
-                        if let Some(decls_arr) = decls.as_array_mut() {
-                            for decl in decls_arr.iter_mut() {
-                                if let Some(decl_obj) = decl.as_object_mut() {
+        // 3. tools: 规范化 parameters，按官方规范拆解为单函数独立对象 [ { functionDeclarations: [tool] } ]，按 name 严格字典序排序
+        let canonical_tools = if let Some(tools) = req_obj.remove("tools") {
+            if let Some(tools_arr) = tools.as_array() {
+                let mut expanded_tools: Vec<Value> = Vec::new();
+                let mut decls_list: Vec<Value> = Vec::new();
+
+                for tool in tools_arr {
+                    if let Some(obj) = tool.as_object() {
+                        let decls_opt = obj
+                            .get("functionDeclarations")
+                            .or_else(|| obj.get("function_declarations"))
+                            .and_then(|v| v.as_array());
+
+                        if let Some(decls) = decls_opt {
+                            for decl in decls {
+                                if let Some(mut decl_obj) = decl.as_object().cloned() {
                                     if let Some(params_json_schema) =
                                         decl_obj.remove("parametersJsonSchema")
                                     {
@@ -878,97 +885,262 @@ impl InboundThinkingPipeline {
                                             params,
                                         );
                                     }
+                                    decls_list.push(Value::Object(decl_obj));
                                 }
                             }
-                            decls_arr.sort_by(|a, b| {
-                                let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                                let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                                name_a.cmp(name_b)
-                            });
+                        } else {
+                            // 非 functionDeclaration 工具（如 googleSearch, codeExecution）
+                            expanded_tools.push(tool.clone());
                         }
                     }
                 }
+
+                decls_list.sort_by(|a, b| {
+                    let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    name_a.cmp(name_b)
+                });
+
+                for decl in decls_list {
+                    expanded_tools.push(json!({
+                        "functionDeclarations": [decl]
+                    }));
+                }
+
+                if !expanded_tools.is_empty() {
+                    Some(Value::Array(expanded_tools))
+                } else {
+                    None
+                }
+            } else {
+                None
             }
-            Some(tools.clone())
         } else {
             None
         };
 
-        // [REMOVED v4.8.2] 不再注入 [CRITICAL DISPATCH DISCIPLINE] / 异步派发工具 NOTE：
-        // 网关不改动客户端提供的工具描述与系统提示词，提示词保持客户端原样。
+        // 移除 toolConfig / tool_config (官方 Antigravity 报文不携带)
+        req_obj.remove("toolConfig");
+        req_obj.remove("tool_config");
 
-        // 3. [REMOVED v4.8.2] toolConfig / tool_config: 官方 Antigravity 报文不携带该字段，
-        //    且历史实现同时写出 camelCase 与 snake_case 双份、mode 值自相矛盾 (AUTO vs VALIDATED)。
-        //    统一在协议无关节点移除，对齐官方信封形状。
-        inner_request.as_object_mut().map(|m| {
-            m.remove("toolConfig");
-            m.remove("tool_config");
-        });
+        // 4. labels 提取保留
+        let canonical_labels = req_obj.remove("labels");
 
-        // 4. generationConfig (对齐默认 topK/topP)
-        let canonical_gc = inner_request.get_mut("generationConfig").map(|gc| {
-            if let Some(gc_obj) = gc.as_object_mut() {
-                if !gc_obj.contains_key("topK") {
-                    gc_obj.insert("topK".to_string(), json!(40));
+        // 5. thinkingConfig 归一吸收与 generationConfig 拓扑对齐:
+        // 如果 inner_request 根节点携带 thinkingConfig / thinking_config (如 JeikCode 客户端行为)，
+        // 必须将其抽取吸收到 generationConfig.thinkingConfig 中，并从根节点彻底清除。
+        let root_tc = req_obj
+            .remove("thinkingConfig")
+            .or_else(|| req_obj.remove("thinking_config"));
+
+        let mut gc_obj = req_obj
+            .remove("generationConfig")
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+
+        if let Some(mut tc) = root_tc {
+            if !gc_obj.contains_key("thinkingConfig") {
+                if let Some(tc_obj) = tc.as_object_mut() {
+                    if let Some(tb) = tc_obj.remove("thinking_budget") {
+                        if !tc_obj.contains_key("thinkingBudget") {
+                            tc_obj.insert("thinkingBudget".to_string(), tb);
+                        }
+                    }
                 }
-                if !gc_obj.contains_key("topP") {
-                    gc_obj.insert("topP".to_string(), json!(1.0));
+                gc_obj.insert("thinkingConfig".to_string(), tc);
+            }
+        }
+
+        // 官方标准：存在 thinkingConfig 时必须配齐 maxOutputTokens: 65536
+        if gc_obj.contains_key("thinkingConfig") && !gc_obj.contains_key("maxOutputTokens") {
+            gc_obj.insert("maxOutputTokens".to_string(), json!(65536));
+        }
+
+        // 规范化 generationConfig 内部键序: candidateCount -> maxOutputTokens -> thinkingConfig -> 其余
+        let canonical_gc = if !gc_obj.is_empty() {
+            let mut ordered_gc = serde_json::Map::new();
+            for key in &[
+                "candidateCount",
+                "maxOutputTokens",
+                "thinkingConfig",
+                "temperature",
+                "topP",
+                "topK",
+            ] {
+                if let Some(val) = gc_obj.remove(*key) {
+                    ordered_gc.insert((*key).to_string(), val);
                 }
             }
-            gc.clone()
-        });
-
-        // 5. safetySettings (统一补齐 4 项 OFF 安全等级，彻底避免跨协议缺失漂移)
-        let canonical_safety = if let Some(ss) = inner_request
-            .get("safetySettings")
-            .and_then(|v| v.as_array())
-            .filter(|a| !a.is_empty())
-        {
-            Some(Value::Array(ss.clone()))
+            for (k, v) in gc_obj {
+                ordered_gc.insert(k, v);
+            }
+            Some(Value::Object(ordered_gc))
         } else {
-            Some(json!([
-                { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF" },
-                { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "OFF" },
-                { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF" },
-                { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "OFF" },
-            ]))
+            None
         };
 
-        // 6. sessionId
-        let canonical_sid = inner_request.get("sessionId").cloned();
+        // 6. sessionId 提取
+        let canonical_sid = req_obj.remove("sessionId");
 
-        // 7. contents
-        let canonical_contents = inner_request.get("contents").cloned().unwrap_or(json!([]));
+        // 7. safetySettings (仅当客户端显式传递且非空时保留，官方默认不携带，杜绝伪造 4 项 OFF)
+        let canonical_safety = req_obj
+            .remove("safetySettings")
+            .filter(|v| v.as_array().map_or(false, |a| !a.is_empty()));
 
-        // 8. 严格前缀顺序重组:
-        // systemInstruction -> tools -> toolConfig -> tool_config -> generationConfig -> safetySettings -> sessionId -> contents
-        let mut reordered = json!({});
+        // 8. 严格对齐官方 Topology 键序:
+        // contents -> systemInstruction -> tools -> labels -> generationConfig -> sessionId -> safetySettings -> 其余
+        let mut reordered = serde_json::Map::new();
+        reordered.insert("contents".to_string(), canonical_contents);
         if let Some(si) = canonical_si {
-            reordered["systemInstruction"] = si;
+            reordered.insert("systemInstruction".to_string(), si);
         }
         if let Some(tools) = canonical_tools {
-            reordered["tools"] = tools;
+            reordered.insert("tools".to_string(), tools);
+        }
+        if let Some(labels) = canonical_labels {
+            reordered.insert("labels".to_string(), labels);
         }
         if let Some(gc) = canonical_gc {
-            reordered["generationConfig"] = gc;
-        }
-        if let Some(ss) = canonical_safety {
-            reordered["safetySettings"] = ss;
+            reordered.insert("generationConfig".to_string(), gc);
         }
         if let Some(sid) = canonical_sid {
-            reordered["sessionId"] = sid;
+            reordered.insert("sessionId".to_string(), sid);
         }
-        reordered["contents"] = canonical_contents;
+        if let Some(ss) = canonical_safety {
+            reordered.insert("safetySettings".to_string(), ss);
+        }
 
         // 保留其余未知/特定扩展字段在末尾
-        if let Some(obj) = inner_request.as_object() {
-            for (k, v) in obj {
-                if !reordered.as_object().map_or(false, |o| o.contains_key(k)) {
-                    reordered[k] = v.clone();
-                }
+        for (k, v) in std::mem::take(req_obj) {
+            if !reordered.contains_key(&k) {
+                reordered.insert(k, v);
             }
         }
-        *inner_request = reordered;
+        *inner_request = Value::Object(reordered);
+    }
+
+    /// 统一规范化出站顶层信封结构（Pipeline First 核心归一出口）
+    /// 确保输出至 Google v1internal 接口的报文 100% 完美对齐官方 Antigravity 报文结构:
+    /// 1. 消除 _session_thinking_id (若 requestId 缺失则提升为 requestId)
+    /// 2. 移除违规计费标号 enabledCreditTypes
+    /// 3. 对齐统一 project ("aicode-consumers")、userAgent ("antigravity") 与 requestType ("agent")
+    /// 4. 统一处理内部 request 拓扑对齐
+    /// 5. 顶层键序严格对齐: project -> requestId -> request -> model -> userAgent -> requestType -> 其余
+    pub fn align_official_envelope(body: &mut Value) {
+        if !body.is_object() {
+            return;
+        }
+
+        let body_obj = match body.as_object_mut() {
+            Some(obj) => obj,
+            None => return,
+        };
+
+        // 1. 处理 _session_thinking_id
+        let session_thinking_id = body_obj.remove("_session_thinking_id");
+
+        // 2. 移除 enabledCreditTypes
+        body_obj.remove("enabledCreditTypes");
+
+        // 3. 处理 requestId
+        let mut request_id = body_obj.remove("requestId");
+        if request_id
+            .as_ref()
+            .and_then(|v| v.as_str())
+            .map_or(true, |s| s.is_empty())
+        {
+            if let Some(stid) = session_thinking_id {
+                request_id = Some(stid);
+            }
+        }
+
+        // 4. 处理 project (默认对齐官方 aicode-consumers)
+        let project = body_obj
+            .remove("project")
+            .unwrap_or_else(|| json!("aicode-consumers"));
+
+        // 5. 处理 userAgent (默认对齐官方 antigravity)
+        let user_agent = body_obj
+            .remove("userAgent")
+            .unwrap_or_else(|| json!("antigravity"));
+
+        // 6. 处理 model
+        let model = body_obj.remove("model");
+
+        // 7. 处理 requestType
+        let mut request_type = body_obj.remove("requestType");
+
+        // 8. 规范化内部 request
+        if let Some(inner_req) = body_obj.get_mut("request") {
+            Self::align_google_request_prefix_topology(inner_req);
+
+            // 若 requestType 缺失，根据 tools 或 contents 判定是否为 agent 请求
+            if request_type.is_none() {
+                let has_tools = inner_req
+                    .get("tools")
+                    .and_then(|t| t.as_array())
+                    .map_or(false, |a| !a.is_empty());
+                let has_tool_interactions = inner_req
+                    .get("contents")
+                    .map(crate::proxy::mappers::common_utils::contents_has_tool_interactions)
+                    .unwrap_or(false);
+                if has_tools || has_tool_interactions {
+                    request_type = Some(json!("agent"));
+                }
+            }
+
+            // 若 requestId 仍未生成，根据 sessionId 与 contents 步数构建官方 requestId
+            if request_id
+                .as_ref()
+                .and_then(|v| v.as_str())
+                .map_or(true, |s| s.is_empty())
+            {
+                let sid = inner_req
+                    .get("sessionId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("default");
+                let step = inner_req
+                    .get("contents")
+                    .and_then(|c| c.as_array())
+                    .map_or(0, |a| a.len() as u64);
+                request_id = Some(json!(
+                    crate::proxy::mappers::common_utils::build_official_request_id(sid, step)
+                ));
+            }
+        } else {
+            // 如果顶层没有 request 包装，直接规范化 body 自身
+            Self::align_google_request_prefix_topology(body);
+            return;
+        }
+
+        let inner_request = body_obj.remove("request");
+
+        // 9. 顶层严格键序重排:
+        // project -> requestId -> request -> model -> userAgent -> requestType -> 其余
+        let mut reordered = serde_json::Map::new();
+        reordered.insert("project".to_string(), project);
+        if let Some(rid) = request_id {
+            reordered.insert("requestId".to_string(), rid);
+        }
+        if let Some(req) = inner_request {
+            reordered.insert("request".to_string(), req);
+        }
+        if let Some(m) = model {
+            reordered.insert("model".to_string(), m);
+        }
+        reordered.insert("userAgent".to_string(), user_agent);
+        if let Some(rt) = request_type {
+            reordered.insert("requestType".to_string(), rt);
+        }
+
+        // 其余未知顶层扩展字段保留在末尾
+        for (k, v) in std::mem::take(body_obj) {
+            if !reordered.contains_key(&k) {
+                reordered.insert(k, v);
+            }
+        }
+
+        *body = Value::Object(reordered);
     }
 
     /// 剥离遗留思考块的前缀标记 (**Thinking**)

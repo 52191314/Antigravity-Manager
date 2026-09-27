@@ -3,6 +3,18 @@
 > 完整版本历史记录。返回项目主页请查看 [README.md](README.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.5-beta.3 (2026-09-28)**:
+        -   **[出站报文拓扑与请求头官方严密对齐] 规范四大协议出口拓扑同构，升级官方 Hub User-Agent 与出口纯净化**:
+            -   **官方原生出站 User-Agent 对齐**: 将出站请求头 `User-Agent` 升级为官方 Antigravity Hub 原生格式：`antigravity/hub/2.17.0 (aidev_client; os_type={windows/darwin/linux}; arch={amd64/arm64}; cl=986210228)`；并在 `constants.rs` 中抽象独立常量 `OFFICIAL_HUB_VERSION` 与 `OFFICIAL_HUB_CL`，统一且精确对齐 Google Piper 内部构建点。
+            -   **出站请求头特征去噪与纯净化**: 彻底移除发往 Google 上游时注入的 `x-client-name`、`x-client-version`、`x-machine-id`、`x-vscode-sessionid` 等前端或内部识别标头，严格过滤 `x-session-id` 等非标请求头，使网关出口请求头与官方语言服务 Hub 100% 同构，彻底规避 WAF 异常标记。
+            -   **顶层信封拓扑严格对齐**: 出口信封严格遵循官方键序排布：`project` -> `requestId` -> `request` -> `model` -> `userAgent` -> `requestType`；清除根节点 `_session_thinking_id` 并将其提升为标准 `requestId`，剔除旧版残留的 `enabledCreditTypes` 注入。
+            -   **内部 request 结构拓扑归一**:
+                - `contents` 上下文历史强制复位至内部 `request` 首位。
+                - `systemInstruction` 规范化补齐为 `{"role": "user", "parts": [...]}`。
+                - `tools` 数组统一拆解为官方标准的单函数独立包装形态 `[{"functionDeclarations": [single_decl]}]`，并按名称字典序稳定排序。
+                - 自动吸收入站 `request` 根节点的 `thinkingConfig` 至 `generationConfig.thinkingConfig`，补齐官方标配 `maxOutputTokens: 65536`，并移除强行注入的 `safetySettings`、`topK` 与 `topP`。
+            -   **四大协议统一流水线出口归一**: 在 `UpstreamClient::call_v1_internal_with_headers` 与 `call_v1_internal_auxiliary` 物理咽喉处统一执行 `align_official_envelope`，确保无论是 OpenAI、Claude 还是 Gemini 原生请求，发往 Google 上游前均达成协议无关的严格官方对齐。
+
     *   **v4.8.5-beta.2 (2026-09-28)**:
         -   **[Gemini 签名多轮终极治理] 确立客户端验签反向入库、纯思考轮签名暂存交接与哨兵占位兜底黄金法则 (Fixes #3529, Thanks to @BLACK-BIRTHDAY, @Mortalit)**:
             -   **实测抓包与根因确诊**: 针对社区提出的“多步工具调用（A -> B）时 Gemini 0 reasoning tokens 不下发新签名需前端继承”假说，通过对多份官方时序报文及现场连续调用抓包进行逐字节比对，证实 Google 上游在每一步工具调用中均会签发独一无二的 102 字节独立签名，官方链路中相邻轮次及任意轮次之间签名相等数为 0。报错 400 的根因为部分第三方客户端在接收上游响应后丢弃了签名，或在多轮带回时上送了空签名/破损占位符。

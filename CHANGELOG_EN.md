@@ -3,6 +3,18 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.5-beta.3 (2026-09-28)**:
+        -   **[Outbound Payload Topology & Egress Header Official Alignment] Uniform Protocol Egress Topology Alignment, Official Hub User-Agent Upgrade & Request Sanitization**:
+            -   **Official Native Egress User-Agent Alignment**: Upgraded outbound `User-Agent` to official Antigravity Hub native signature: `antigravity/hub/2.17.0 (aidev_client; os_type={windows/darwin/linux}; arch={amd64/arm64}; cl=986210228)`. Extracted `OFFICIAL_HUB_VERSION` and `OFFICIAL_HUB_CL` as independent constants in `constants.rs` to accurately match Google's internal Piper monorepo build changelist.
+            -   **Egress Request Header Sanitization**: Completely removed frontend and internal headers (`x-client-name`, `x-client-version`, `x-machine-id`, `x-vscode-sessionid`) from upstream dispatches and filtered non-standard `x-session-id` headers, ensuring gateway egress headers are 100% isomorphic with official language server Hub egress to prevent WAF anomalies.
+            -   **Strict Top-level Envelope Key Ordering**: Reordered top-level envelope keys strictly: `project` -> `requestId` -> `request` -> `model` -> `userAgent` -> `requestType`. Removed root `_session_thinking_id` (promoting to `requestId` when missing) and stripped legacy `enabledCreditTypes` injection.
+            -   **Inner Request Topology Canonicalization**:
+                - Restored `contents` context history strictly to the first position of `request`.
+                - Ensured `systemInstruction` contains `{"role": "user", "parts": [...]}`.
+                - Unpacked aggregated `functionDeclarations` into the official single-declaration format `[{"functionDeclarations": [single_decl]}]`, sorted alphabetically by name.
+                - Absorbed root-level `thinkingConfig` into `generationConfig.thinkingConfig`, enforced `maxOutputTokens: 65536`, and stripped synthetic `safetySettings`, `topK`, and `topP`.
+            -   **Unified Four-Protocol Pipeline Egress Alignment**: Applied `align_official_envelope` at `UpstreamClient::call_v1_internal_with_headers` and `call_v1_internal_auxiliary`, guaranteeing all requests across OpenAI, Claude, and Gemini protocols are strictly aligned before being dispatched upstream.
+
     *   **v4.8.5-beta.2 (2026-09-28)**:
         -   **[Gemini Multi-turn Thought Signature Ultimate Hardening] Establish Client Signature Validation, Reverse Storage, Pure Thinking Turn Handover, and Sentinel Fallback Golden Rules (Fixes #3529, Thanks to @BLACK-BIRTHDAY, @Mortalit)**:
             -   **Empirical inspection & root cause verified**: Investigated the hypothesis that Gemini emits 0 reasoning tokens and omits new signatures in multi-step tool calls (A -> B). Byte-by-byte inspection of official captures confirmed that Google upstream consistently issues fresh, unique 102-byte signatures for every tool turn, with zero signature collisions across any adjacent turns. HTTP 400 errors stem from third-party clients dropping signatures upon receiving upstream responses or sending corrupted/empty placeholders in multi-turn payloads.

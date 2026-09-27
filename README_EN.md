@@ -286,6 +286,21 @@ env WEBKIT_DISABLE_DMABUF_RENDERER=1 ANTIGRAVITY_FORCE_WAYLAND=1 antigravity-too
 
 > Note: the auth URL contains a one-time local callback port. Always use the latest URL shown in the dialog. If the app isn’t running or the dialog is closed during auth, the browser may show `localhost refused connection`.
 
+### How to use with JeikCode? (Recommended)
+[JeikCode](https://github.com/jeikl/JeikCode) is a modern terminal AI Coding Agent crafted by the core maintainer of this project, featuring native deep integration with Antigravity-Manager, delivering **95%+ KV-Cache hit rate** and seamless reasoning level control.
+1. **One-Click Sync via GUI (Recommended)**:
+   - Launch Antigravity-Manager and ensure the **API Proxy** service is running.
+   - Switch to the **`>_ Agent Tools One-Click Configuration`** tab.
+   - Locate the **JeikCode** card, choose your desired default model (e.g. `gemini-3.8-flash-high`), and click **`🔄 Sync Now`**.
+   - Simply run `jeikcode` in your terminal for the TUI, **and type `/webui` to instantly launch the modern WebUI in your browser for a richer visual coding experience out of the box!**
+2. **Temporary Environment Variables**:
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8045"
+export ANTHROPIC_API_KEY="sk-antigravity"
+jeikcode --model claude-sonnet-4-6-thinking
+```
+> For complete manual configuration and tuning, see the [JeikCode Integration Guide](./docs/jeikcode_integration.md).
+
 ### How to use with Claude Code CLI?
 1. Start Antigravity service in the "API Proxy" tab.
 2. In your terminal:

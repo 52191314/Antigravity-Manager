@@ -3,6 +3,18 @@
 > 完整版本历史记录。返回项目主页请查看 [README.md](README.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.4-beta.1 (2026-09-27)**:
+        -   **[签名保真与自愈根治] 根除 Claude 适配层破坏性 Base64 解码，支持原始 Protobuf 签名并引入反向入库优化自愈机制**:
+            -   **根除破坏性 Base64 解码**: 彻底移除 `claude/streaming.rs` 与 `claude/response.rs` 中误将 Gemini 签名尝试用 `String::from_utf8` 转为原始字符串的逻辑。Gemini 的 `thoughtSignature` 为原始 Protobuf 二进制（首字节为 `0x12`），当字节序列全在 ASCII 范围时曾被硬解为 40 字节控制字符，导致下轮带回时因长度 `< 50` 被当做无效数据过滤而引发 Google 上游 `Function call is missing a thought_signature (400)` 报错。
+            -   **阈值放宽与 Protobuf 自动容错**: 全协议统一将最小有效签名校验长度从 50 放宽至 32；在 `SignatureCache`、`ThinkingStore` 和 `proxy_db` 增加对首字节 `0x12` 的二进制 Protobuf 签名的特征识别与自动转码标准 Base64 兜底保护。
+            -   **全链路反向入库自愈写回 (In-Place Self-Healing Write-Back)**:
+                - `tool_signatures` 表：`load_tool_signature` 读取历史记录时若命中旧版损坏或二进制签名，就地自动修复并通过 `save_tool_signature` 反向覆写更新 SQLite。
+                - `thinking_records` 表：`load_thinking_by_tool_id`、`load_thinking_by_signature`、`load_thinking_by_fingerprint` 与 UI 兜底展示检索时，若命中脏签名，立即在位执行 `UPDATE thinking_records SET signature = ? WHERE id = ?` 治愈历史数据。
+                - 轮次签名锚定时，若锚点为工具调用，通过 `cache_tool_signature` 同步热刷入 L1 内存缓存并反向持久化。
+        -   **[首个非思考 Part 锚点签名保障] 严格对齐官方报文，杜绝占位思考块注入**:
+            -   **杜绝占位思考块**: 严格遵守官方形态，无实质思考内容（占位/空思考）时绝不强行注入 `...` 等占位思考块。
+            -   **权威锚点保真**: 确保每轮第一个非思考 part（无论正文还是工具调用）作为权威锚点，均稳定携带有效的 `thoughtSignature`，杜绝 Gemini 上游签名校验失败。
+
     *   **v4.8.4-beta.0 (2026-09-27)**:
         -   **[流水线通用归一化] Tool Call ID 全链路规范化，彻底根除 thought_signature 丢失 400 报错**:
             -   **根因根治**: 客户端（如 Antigravity IDE）回传工具调用时常剥离下划线（例如将 `call_573077` 剥离为 `call573077`），由于字符串不匹配导致网关无法从缓存匹配签名，发往 Gemini 上游引发 `Function call is missing a thought_signature... (400)`。

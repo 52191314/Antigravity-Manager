@@ -3,6 +3,18 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.4-beta.1 (2026-09-27)**:
+        -   **[Signature Fidelity & Healing] Eliminate Destructive Base64 Decoding in Claude Adapter, Support Raw Protobuf Signatures, and Introduce In-Place Database Write-Back Healing**:
+            -   **Root cause eliminated**: Completely eliminated the flawed logic in `claude/streaming.rs` and `claude/response.rs` that attempted `String::from_utf8` on decoded Gemini signatures. Gemini `thoughtSignature` payloads are raw Protobuf bytes (initial byte `0x12`). When all byte values fell in ASCII range, `from_utf8` succeeded and corrupted 56-char Base64 signatures into 40-byte raw control characters, causing next-turn lookups to drop them for length `< 50`, resulting in upstream `Function call is missing a thought_signature (400)`.
+            -   **Relaxed threshold & auto-protobuf resilience**: Relaxed the minimum signature validation threshold across all protocols from 50 to 32. Added automatic Protobuf signature byte-pattern detection (`0x12`) and Base64 re-encoding in `SignatureCache`, `ThinkingStore`, and `proxy_db`.
+            -   **In-Place database write-back self-healing**:
+                - `tool_signatures` table: `load_tool_signature` automatically heals legacy raw binary or dirty signatures upon lookup and immediately calls `save_tool_signature` to overwrite and fix SQLite records.
+                - `thinking_records` table: `load_thinking_by_tool_id`, `load_thinking_by_signature`, `load_thinking_by_fingerprint`, and UI lookup methods execute `UPDATE thinking_records SET signature = ? WHERE id = ?` upon encountering dirty signatures to repair database state in place.
+                - When anchoring turn signatures in `place_turn_signature`, function calls trigger `cache_tool_signature` to synchronize L1 cache and persist to SQLite.
+        -   **[Anchor Signature Guarantee on First Non-Thought Part] Strictly Align with Official Payloads, Eliminate Synthesized Placeholder Blocks**:
+            -   **No placeholder thinking blocks**: When turns lack substantial thinking text (placeholder or empty), no `...` placeholder blocks are synthesized or injected.
+            -   **Deterministic anchor fidelity**: Guaranteed that the first non-thinking part of every turn (text or function call) carries the authoritative `thoughtSignature`, preventing upstream Google 400 signature errors.
+
     *   **v4.8.4-beta.0 (2026-09-27)**:
         -   **[Pipeline Tool Normalization] Universal Tool Call ID Canonicalization across Pipeline, Cache, and DB to Eliminate 400 'Missing a thought_signature'**:
             -   **Root cause resolved**: Clients (such as Antigravity IDE) frequently strip underscores from tool call IDs (e.g., converting `call_573077` to `call573077`), causing string mismatch when looking up cached signatures. This left tool calls without signatures and caused upstream Gemini to fail with `Function call is missing a thought_signature... (400)`.

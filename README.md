@@ -296,6 +296,21 @@ env WEBKIT_DISABLE_DMABUF_RENDERER=1 ANTIGRAVITY_FORCE_WAYLAND=1 antigravity-too
 
 > 提示：授权链接包含一次性回调端口，请始终使用弹窗里生成的最新链接；如果授权时应用未运行或弹窗已关闭，浏览器可能会提示 `localhost refused connection`。
 
+### 如何接入 JeikCode? (推荐)
+[JeikCode](https://github.com/jeikl/JeikCode) 是由本项目核心维护者深度打造的现代终端 AI Coding Agent 工具，原生深度兼容本网关，实现 **95%+ 的超高 KV-Cache 缓存命中率**与深度思维链支持。
+1. **界面一键同步（最推荐）**：
+   - 打开 Antigravity-Manager 并开启 **API 反代** 服务。
+   - 切换至 **`>_ Agent工具一键配置`** 标签页。
+   - 在首个 **JeikCode** 卡片选择默认模型（如 `gemini-3.8-flash-high`），点击 **`🔄 立即同步配置`**。
+   - 终端直接运行 `jeikcode` 即可运行 TUI，**强烈推荐在终端输入 `/webui` 即可打开精美的网页端，开箱即用，享受更棒的可视化编程体验！**
+2. **环境变量临时接入**：
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8045"
+export ANTHROPIC_API_KEY="sk-antigravity"
+jeikcode --model claude-sonnet-4-6-thinking
+```
+> 更多高级配置与排查指南参见：[JeikCode 接入 Antigravity-Manager 指南](./docs/jeikcode_integration.md)
+
 ### 如何接入 Claude Code CLI?
 1.  启动 Antigravity，并在“API 反代”页面开启服务。
 2.  在终端执行：

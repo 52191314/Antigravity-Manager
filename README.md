@@ -186,10 +186,11 @@ brew install --cask antigravity-tools
 ### 选项 C: Docker 部署 (推荐用于 NAS/服务器)
 如果您希望在容器化环境中运行，我们提供了原生的 Docker 镜像。该镜像内置了对 v4.0.2 原生 Headless 架构的支持，可自动托管前端静态资源，并通过浏览器直接进行管理。
 
+#### 方式 1: 直接运行 (推荐)
+- **API_KEY**: 必填。用于所有协议的 AI 请求鉴权。
+- **WEB_PASSWORD**: 可选。用于管理后台登录。若不设置则默认使用 API_KEY。
+
 ```bash
-# 方式 1: 直接运行 (推荐)
-# - API_KEY: 必填。用于所有协议的 AI 请求鉴定。
-# - WEB_PASSWORD: 可选。用于管理后台登录。若不设置则默认使用 API_KEY。
 docker run -d --name antigravity-manager \
   -p 8045:8045 \
   -e API_KEY=sk-your-api-key \
@@ -199,6 +200,7 @@ docker run -d --name antigravity-manager \
   lbjlaq/antigravity-manager:latest
 
 # 忘记密钥？执行 docker logs antigravity-manager 或 grep -E '"api_key"|"admin_password"' ~/.antigravity_tools/gui_config.json
+```
 
 > [!TIP]
 > **🧪 Beta / 预览版镜像拉取**：
@@ -239,10 +241,10 @@ docker run -d --name antigravity-manager \
 > - **第二优先级 (配置文件)**: `gui_config.json` 中的 `admin_password` 字段。UI 的“保存”操作会更新此值。
 > - **保底回退 (向后兼容)**: 若上述均未设置，则回退使用 `API_KEY` 作为登录密码。
 
-# 方式 2: 使用 Docker Compose
-# 1. 进入项目的 docker 目录
+#### 方式 2: 使用 Docker Compose
+1. 进入项目的 `docker` 目录并启动服务：
+```bash
 cd docker
-# 2. 启动服务
 docker compose up -d
 ```
 > **日志轮转**: Compose 默认将 JSON 日志限制为单文件 `100m`、保留 `3` 个文件，避免日志无限增长。

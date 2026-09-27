@@ -185,10 +185,11 @@ Download from [GitHub Releases](https://github.com/lbjlaq/Antigravity-Manager/re
 ### Option C: Docker Deployment (Recommended for NAS/Servers)
 If you prefer running in a containerized environment, we provide a native Docker image. This image supports the v4.0.3 Native Headless architecture, automatically hosts frontend static resources, and allows for direct browser-based management.
 
+#### Option 1: Direct Run (Recommended)
+- **API_KEY**: Required. Used for AI request authentication.
+- **WEB_PASSWORD**: Optional. Used for Web UI login. Defaults to API_KEY if NOT set.
+
 ```bash
-# Option 1: Direct Run (Recommended)
-# - API_KEY: Required. Used for AI request authentication.
-# - WEB_PASSWORD: Optional. Used for Web UI login. Defaults to API_KEY if NOT set.
 docker run -d --name antigravity-manager \
   -p 8045:8045 \
   -e API_KEY=sk-your-api-key \
@@ -198,6 +199,7 @@ docker run -d --name antigravity-manager \
   lbjlaq/antigravity-manager:latest
 
 # Forgot keys? Run `docker logs antigravity-manager` or `grep -E '"api_key"|"admin_password"' ~/.antigravity_tools/gui_config.json`
+```
 
 > [!TIP]
 > **🧪 Pulling Beta / Preview Images**:
@@ -238,10 +240,10 @@ If you are upgrading from v4.0.1 or earlier, your installation won't have a `WEB
 > - **Configuration File** (`gui_config.json`) is used for persistent storage. When you change the password via Web UI and save, it is written here.
 > - **Fallback**: If neither is set, it falls back to `API_KEY`; if even `API_KEY` is missing, a random one is generated.
 
-# Option 2: Use Docker Compose
-# 1. Enter the Docker directory
+#### Option 2: Use Docker Compose
+1. Enter the `docker` directory and start the service:
+```bash
 cd docker
-# 2. Start the service
 docker compose up -d
 ```
 > **Log rotation**: Compose limits JSON logs to `100m` per file and keeps `3` files by default to prevent unbounded growth.

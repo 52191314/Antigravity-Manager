@@ -301,18 +301,17 @@ impl InboundThinkingPipeline {
                                     crate::proxy::thinking_store::extract_think_tags(raw_text)
                                 {
                                     if thinking_part.is_none() && is_thinking_enabled {
-                                        let final_thought = if extracted_thought.is_empty() {
-                                            "..."
-                                        } else {
-                                            extracted_thought.as_str()
-                                        };
-                                        // 铁律 I4：思考块绝不携带签名
-                                        // （官方报文里 thought:true 的 part 没有 thoughtSignature）
-                                        let t_obj = json!({
-                                            "text": final_thought,
-                                            "thought": true,
-                                        });
-                                        thinking_part = Some(t_obj);
+                                        if crate::proxy::thinking_store::is_meaningful_thought(
+                                            &extracted_thought,
+                                        ) {
+                                            // 铁律 I4：思考块绝不携带签名
+                                            // （官方报文里 thought:true 的 part 没有 thoughtSignature）
+                                            let t_obj = json!({
+                                                "text": extracted_thought.as_str(),
+                                                "thought": true,
+                                            });
+                                            thinking_part = Some(t_obj);
+                                        }
                                     }
                                     if !clean_visible.is_empty() {
                                         other_parts.push(json!({ "text": clean_visible }));
@@ -323,19 +322,17 @@ impl InboundThinkingPipeline {
                                 // 协议无关自愈：检查是否夹带旧版遗留思考前缀 (如 **Thinking**)
                                 if raw_text.trim_start().starts_with("**Thinking**") {
                                     let clean_thought = Self::strip_thinking_prefix(raw_text);
-                                    if thinking_part.is_none() {
-                                        // 历史无原生思考块时，将遗留思考文字提炼为合法的首位思考块
-                                        let final_thought = if clean_thought.trim().is_empty() {
-                                            "..."
-                                        } else {
-                                            &clean_thought
-                                        };
-                                        // 铁律 I4：思考块绝不携带签名
-                                        let t_obj = json!({
-                                            "text": final_thought,
-                                            "thought": true,
-                                        });
-                                        thinking_part = Some(t_obj);
+                                    if thinking_part.is_none() && is_thinking_enabled {
+                                        if crate::proxy::thinking_store::is_meaningful_thought(
+                                            &clean_thought,
+                                        ) {
+                                            // 铁律 I4：思考块绝不携带签名
+                                            let t_obj = json!({
+                                                "text": clean_thought,
+                                                "thought": true,
+                                            });
+                                            thinking_part = Some(t_obj);
+                                        }
                                     }
                                     // 若已有思考块，该遗留思考块作为陈旧副本剥离，防止二次污染正文
                                     continue;

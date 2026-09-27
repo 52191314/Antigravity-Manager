@@ -819,21 +819,21 @@ impl ThinkingStore {
 
             parts.retain(|p| p.get("thought").and_then(|t| t.as_bool()) != Some(true));
 
-            let thought_text =
-                if is_placeholder_thought(&rec.thought) || rec.thought.trim().is_empty() {
-                    "..."
-                } else {
-                    rec.thought.as_str()
-                };
+            let has_meaningful_thought =
+                !is_placeholder_thought(&rec.thought) && !rec.thought.trim().is_empty();
 
-            let mut thought_part = json!({
-                "text": thought_text,
-                "thought": true,
-            });
+            let is_claude_target = target_model
+                .map(|m| m.to_lowercase().contains("claude"))
+                .unwrap_or_else(|| store_key.to_lowercase().contains("claude"));
 
-            // [DE-DUPLICATION & ELEVATION] 正文残留思考文本切除与去重：
-            // 解决关思考时降级到正文的思考文本，在重新开思考时被再次提升复活后，导致正文残留双份复读的问题！
-            if !is_placeholder_thought(&rec.thought) && !rec.thought.trim().is_empty() {
+            if has_meaningful_thought {
+                let mut thought_part = json!({
+                    "text": rec.thought.as_str(),
+                    "thought": true,
+                });
+
+                // [DE-DUPLICATION & ELEVATION] 正文残留思考文本切除与去重：
+                // 解决关思考时降级到正文的思考文本，在重新开思考时被再次提升复活后，导致正文残留双份复读的问题！
                 let rec_thought_trimmed = rec.thought.trim();
                 let rec_thought_norm = normalize_ws(&rec.thought);
 
@@ -885,51 +885,65 @@ impl ThinkingStore {
                     cleaned_parts.push(part);
                 }
                 *parts = cleaned_parts;
-            }
-            let is_claude_target = target_model
-                .map(|m| m.to_lowercase().contains("claude"))
-                .unwrap_or_else(|| store_key.to_lowercase().contains("claude"));
 
-            if is_claude_target {
-                // Claude 模型：上游对接 Anthropic 官方验签引擎！
-                // Anthropic 官方规范：签名必须且只能在思考块 (thinking block) 上 (映射为 messages[x].content[0].signature)！
-                // 工具调用 (tool_use / functionCall) 绝不携带签名，亦绝对不可注入假哨兵！
-                if let Some(sig) = rec.signature.as_ref().filter(|s| is_real_signature(s)) {
-                    // 关键门禁：只有当历史签名确属 Claude 签名时，才挂载到 thought_part！
-                    // 若是 Gemini 等异构模型生成的签名，绝对禁止注入给 Claude，避免 400 Invalid signature
-                    if is_claude_signature(sig) {
-                        thought_part["thoughtSignature"] =
-                            json!(ensure_google_claude_thought_signature(sig));
-                    } else {
-                        tracing::warn!(
-                            "[ThinkingStore] Bypassing foreign non-Claude signature (len: {}) during restore for Claude model",
-                            sig.len()
-                        );
+                if is_claude_target {
+                    // Claude 模型：上游对接 Anthropic 官方验签引擎！
+                    // Anthropic 官方规范：签名必须且只能在思考块 (thinking block) 上 (映射为 messages[x].content[0].signature)！
+                    // 工具调用 (tool_use / functionCall) 绝不携带签名，亦绝对不可注入假哨兵！
+                    if let Some(sig) = rec.signature.as_ref().filter(|s| is_real_signature(s)) {
+                        // 关键门禁：只有当历史签名确属 Claude 签名时，才挂载到 thought_part！
+                        // 若是 Gemini 等异构模型生成的签名，绝对禁止注入给 Claude，避免 400 Invalid signature
+                        if is_claude_signature(sig) {
+                            thought_part["thoughtSignature"] =
+                                json!(ensure_google_claude_thought_signature(sig));
+                        } else {
+                            tracing::warn!(
+                                "[ThinkingStore] Bypassing foreign non-Claude signature (len: {}) during restore for Claude model",
+                                sig.len()
+                            );
+                        }
                     }
-                }
-                for part in parts.iter_mut() {
-                    if let Some(obj) = part.as_object_mut() {
-                        obj.remove("thoughtSignature");
-                        obj.remove("thought_signature");
+                    for part in parts.iter_mut() {
+                        if let Some(obj) = part.as_object_mut() {
+                            obj.remove("thoughtSignature");
+                            obj.remove("thought_signature");
+                        }
                     }
+                } else {
+                    // Gemini 原生：把本轮捕获到的真实签名归位到「该轮第一个非思考 part」。
+                    //
+                    // 首位思考块保持纯净思考文本（铁律 I4：思考块绝不携带签名），随后由
+                    // `parts.insert(0, thought_part)` 插入 index 0 —— 锚点自然落到 index 1，
+                    // 正好复现官方的「思考块 + 带签名正文」排列。
+                    let fallback = rec
+                        .signature
+                        .as_deref()
+                        .filter(|s| is_real_signature(s) && is_likely_gemini_signature(s));
+                    place_turn_signature(&mut *parts, fallback);
                 }
+                parts.insert(0, thought_part);
+                restored += 1;
             } else {
-                // Gemini 原生：把本轮捕获到的真实签名归位到「该轮第一个非思考 part」。
-                //
-                // 首位思考块保持纯净思考文本（铁律 I4：思考块绝不携带签名），随后由
-                // `parts.insert(0, thought_part)` 插入 index 0 —— 锚点自然落到 index 1，
-                // 正好复现官方的「思考块 + 带签名正文」排列。
-                //
-                // 缺签名时留空：真机报文里哨兵出现 0 次，绝不发明。
-                // 因此 has_function_call 不再影响落位 —— 锚点规则对所有轮次一致。
-                let fallback = rec
-                    .signature
-                    .as_deref()
-                    .filter(|s| is_real_signature(s) && is_likely_gemini_signature(s));
-                place_turn_signature(&mut *parts, fallback);
+                // 【2026-09-27】无实质思考内容（占位/空思考）：绝不注入 "..." 占位思考块！
+                // 官方标准形态为「无思考块 + 锚点带签名」（baogao.txt 9/24 轮）。
+                // 首个非思考 part 作为锚点正常承接该轮签名。
+                if is_claude_target {
+                    for part in parts.iter_mut() {
+                        if let Some(obj) = part.as_object_mut() {
+                            obj.remove("thoughtSignature");
+                            obj.remove("thought_signature");
+                        }
+                    }
+                } else {
+                    let fallback = rec
+                        .signature
+                        .as_deref()
+                        .filter(|s| is_real_signature(s) && is_likely_gemini_signature(s));
+                    if place_turn_signature(&mut *parts, fallback).is_some() {
+                        restored += 1;
+                    }
+                }
             }
-            parts.insert(0, thought_part);
-            restored += 1;
         }
 
         if restored > 0 {

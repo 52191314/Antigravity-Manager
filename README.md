@@ -200,6 +200,24 @@ docker run -d --name antigravity-manager \
 
 # 忘记密钥？执行 docker logs antigravity-manager 或 grep -E '"api_key"|"admin_password"' ~/.antigravity_tools/gui_config.json
 
+> [!TIP]
+> **🧪 Beta / 预览版镜像拉取**：
+> 若需使用最新的 Beta 预发布特性，请直接指定对应的 Beta 版本 Tag（预发布版本独立发布，不会覆盖 `latest` 稳定版标签）：
+> ```bash
+> # 拉取指定 Beta 预发布版本 (可在 Docker Hub 查看所有可用版本)
+> docker pull lbjlaq/antigravity-manager:v4.8.2-beta.0
+> 
+> # 运行 Beta 容器
+> docker run -d --name antigravity-manager-beta \
+>   -p 8045:8045 \
+>   -e API_KEY=sk-your-api-key \
+>   -e WEB_PASSWORD=your-login-password \
+>   -e ABV_MAX_BODY_SIZE=104857600 \
+>   -v ~/.antigravity_tools:/root/.antigravity_tools \
+>   lbjlaq/antigravity-manager:v4.8.2-beta.0
+> ```
+> 查看所有已发布的 Beta 镜像：[Docker Hub Tags](https://hub.docker.com/r/lbjlaq/antigravity-manager/tags)；若需直接运行未发版 Tag 的最新 `beta` 分支源码，可在本地直接构建：`docker build -t lbjlaq/antigravity-manager:beta -f docker/Dockerfile .`。
+
 #### 🔐 鉴权逻辑说明
 *   **场景 A：仅设置了 `API_KEY`**
     - **Web 登录**：使用 `API_KEY` 进入后台。

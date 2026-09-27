@@ -3,6 +3,31 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.4 (2026-09-27)**:
+        -   **[Pipeline Tool Normalization & Signature Fidelity] Universal Tool Call ID Canonicalization across Pipeline, Cache, and DB to Eliminate 400 'Missing a thought_signature' (Fixes #3529, #3531, Thanks to @Mortalit, @ddmixi)**:
+            -   **Root cause eliminated**: Clients (such as OpenCode and Antigravity IDE) strip underscores from tool call IDs when sending tool responses (e.g. converting `call_573077` to `call573077`), causing string mismatch when looking up cached signatures and resulting in upstream Gemini errors: `Function call is missing a thought_signature in functionCall parts (400)`.
+            -   **Pipeline Step 0 Pre-sanitization**: Normalized all `functionCall.id` and `functionResponse.id` entries across the context to canonical `call_<digits>` format in `InboundThinkingPipeline` as the very first step, ensuring all subsequent hydration, signature caching, and gatekeeper passes operate on clean data.
+            -   **Bi-directional Cache & DB Compatibility**: Standardized `tool_signatures` and `thinking_records` persistence to normalized IDs, while transparently matching unnormalized legacy records on lookup with silent self-healing.
+            -   **ThinkingStore Restoration Hardened**: Aligned `by_tool` index and Phase 1 tool ID anchoring in `restore_gemini_contents_with_model` with normalized IDs to prevent tool call signature disconnection.
+        -   **[Signature Fidelity & In-Place Healing] Eliminate Destructive Base64 Decoding in Claude Adapter, Support Raw Protobuf Signatures, and Introduce In-Place Database Write-Back Healing**:
+            -   **Root cause eliminated**: Completely eliminated the flawed logic in `claude/streaming.rs` and `claude/response.rs` that attempted `String::from_utf8` on decoded Gemini signatures. Gemini `thoughtSignature` payloads are raw Protobuf bytes (initial byte `0x12`). When all byte values fell in ASCII range, `from_utf8` succeeded and corrupted 56-char Base64 signatures into 40-byte raw control characters, causing next-turn lookups to drop them for length `< 50`, resulting in upstream `Function call is missing a thought_signature (400)`.
+            -   **Relaxed threshold & auto-protobuf resilience**: Relaxed the minimum signature validation threshold across all protocols from 50 to 32. Added automatic Protobuf signature byte-pattern detection (`0x12`) and Base64 re-encoding in `SignatureCache`, `ThinkingStore`, and `proxy_db`.
+            -   **In-Place database write-back self-healing**:
+                - `tool_signatures` table: `load_tool_signature` automatically heals legacy raw binary or dirty signatures upon lookup and immediately calls `save_tool_signature` to overwrite and fix SQLite records.
+                - `thinking_records` table: `load_thinking_by_tool_id`, `load_thinking_by_signature`, `load_thinking_by_fingerprint`, and UI lookup methods execute `UPDATE thinking_records SET signature = ? WHERE id = ?` upon encountering dirty signatures to repair database state in place.
+                - When anchoring turn signatures in `place_turn_signature`, function calls trigger `cache_tool_signature` to synchronize L1 cache and persist to SQLite.
+        -   **[Anchor Signature Guarantee on First Non-Thought Part] Strictly Align with Official Payloads, Eliminate Synthesized Placeholder Blocks**:
+            -   **No placeholder thinking blocks**: When turns lack substantial thinking text (placeholder or empty), no `...` placeholder blocks are synthesized or injected.
+            -   **Deterministic anchor fidelity**: Guaranteed that the first non-thinking part of every turn (text or function call) carries the authoritative `thoughtSignature`, preventing upstream Google 400 signature errors.
+            -   **Dead code elimination**: Removed obsolete Layer-2 placeholder compression logic that collapsed historical reasoning into `"..."`.
+        -   **[Native Auto-Update Hardening] Support Custom Update Endpoints, Native Updater Checker, and Browser Fallback**:
+            -   **Multi-endpoint native update check**: Added `check_native_update` Tauri command, supporting dynamic detection and dispatch of active `updater_json_url` endpoints (supporting both Beta preview and Stable production updater targets).
+            -   **SemVer version comparator extension**: Integrated pre-release version comparison logic in the native updater and provided graceful fallback to external browser download links on update failure.
+        -   **[Docker Documentation & Formatting] Add Beta Docker Pull Instructions & Fix Code Block Boundaries**:
+            -   Added explicit documentation and command examples in `README.md`, `README_EN.md`, and `docker/README.md` for pulling and running isolated Beta pre-release Docker images (e.g. `lbjlaq/antigravity-manager:v4.8.4-beta.1`).
+            -   Fixed Markdown code block fences in Docker deployment sections to prevent text descriptions and alert banners from rendering as Bash script comments.
+            -   Added JeikCode integration guide and quickstart examples.
+
     *   **v4.8.4-beta.1 (2026-09-27)**:
         -   **[Signature Fidelity & Healing] Eliminate Destructive Base64 Decoding in Claude Adapter, Support Raw Protobuf Signatures, and Introduce In-Place Database Write-Back Healing**:
             -   **Root cause eliminated**: Completely eliminated the flawed logic in `claude/streaming.rs` and `claude/response.rs` that attempted `String::from_utf8` on decoded Gemini signatures. Gemini `thoughtSignature` payloads are raw Protobuf bytes (initial byte `0x12`). When all byte values fell in ASCII range, `from_utf8` succeeded and corrupted 56-char Base64 signatures into 40-byte raw control characters, causing next-turn lookups to drop them for length `< 50`, resulting in upstream `Function call is missing a thought_signature (400)`.

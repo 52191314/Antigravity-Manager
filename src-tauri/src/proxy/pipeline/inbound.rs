@@ -270,12 +270,34 @@ impl InboundThinkingPipeline {
                             }
                         } else {
                             if target_model.to_lowercase().contains("gemini") {
-                                // Gemini 原生：客户端自带的真实签名**原样透传**，绝不发明哨兵。
-                                // 依据（3 份官方报文 / 23 处签名）：哨兵出现 0 次，它不属于
-                                // Antigravity 协议；而签名缺失是被上游容忍的（在飞轮即缺席）。
-                                // 归位（含清除非锚点签名）统一交给终审 place_turn_signature。
+                                // 规范化字段：若客户端携带蛇形 thought_signature 且无驼峰字段，平滑重命名为标准 thoughtSignature 保留
                                 if let Some(obj) = part.as_object_mut() {
-                                    obj.remove("thought_signature");
+                                    if let Some(sig) = obj.remove("thought_signature") {
+                                        if !obj.contains_key("thoughtSignature") {
+                                            obj.insert("thoughtSignature".to_string(), sig);
+                                        }
+                                    }
+                                    // 黄金法则 2.1：根据模型家校验签名合法性，若合法采纳并反向入库，不合法则丢弃由流水线补充
+                                    if let Some(sig_str) =
+                                        obj.get("thoughtSignature").and_then(|s| s.as_str())
+                                    {
+                                        if crate::proxy::thinking_store::is_real_signature(sig_str)
+                                            && crate::proxy::thinking_store::is_likely_gemini_signature(sig_str)
+                                        {
+                                            if let Some(fc) = obj.get("functionCall") {
+                                                if let Some(id) = fc.get("id").and_then(|v| v.as_str()) {
+                                                    crate::proxy::SignatureCache::global()
+                                                        .cache_tool_signature(id, sig_str.to_string());
+                                                }
+                                            }
+                                            if let Some(sid) = session_id {
+                                                crate::proxy::SignatureCache::global()
+                                                    .cache_session_signature(sid, sig_str.to_string(), msg_idx);
+                                            }
+                                        } else {
+                                            obj.remove("thoughtSignature");
+                                        }
+                                    }
                                 }
                             } else if is_claude {
                                 if let Some(obj) = part.as_object_mut() {
@@ -306,6 +328,7 @@ impl InboundThinkingPipeline {
                                             .and_then(|s| s.as_str())
                                             .filter(|s| {
                                                 crate::proxy::thinking_store::is_real_signature(s)
+                                                    && crate::proxy::thinking_store::is_likely_gemini_signature(s)
                                             })
                                         {
                                             placeholder_sig = Some(sig.to_string());
@@ -442,10 +465,11 @@ impl InboundThinkingPipeline {
         }
 
         // 3. 终审把关与脱敏规范化 (Finalize)
-        crate::proxy::thinking_store::finalize_gemini_contents_thinking_with_model(
+        crate::proxy::thinking_store::finalize_gemini_contents_thinking_with_session(
             contents,
             is_thinking_enabled,
             Some(target_model),
+            session_id,
         );
 
         // 4. 工具回执 role 归一化（对齐官方 Antigravity 形态）。

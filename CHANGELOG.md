@@ -3,6 +3,20 @@
 > 完整版本历史记录。返回项目主页请查看 [README.md](README.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.4-beta.0 (2026-09-27)**:
+        -   **[流水线通用归一化] Tool Call ID 全链路规范化，彻底根除 thought_signature 丢失 400 报错**:
+            -   **根因根治**: 客户端（如 Antigravity IDE）回传工具调用时常剥离下划线（例如将 `call_573077` 剥离为 `call573077`），由于字符串不匹配导致网关无法从缓存匹配签名，发往 Gemini 上游引发 `Function call is missing a thought_signature... (400)`。
+            -   **流水线 Step 0 统一前置清洗**: 在入站流水线 `InboundThinkingPipeline` 第一道节点将上下文内所有 `functionCall.id` 与 `functionResponse.id` 全量规范化为带下划线的标准格式（`call_<digits>`），使得后续所有水合、签名缓存与终审门禁均运行在纯净规范上下文之上。
+            -   **缓存与持久化双向兼容**: 统一 `tool_signatures` 与 `thinking_records` 表及 L1 内存缓存以归一化 ID 存储；点查时自动兼容未归一化的历史遗留记录并执行静默自愈。
+            -   **思考还原强关联**: `ThinkingStore` 的 `by_tool` 索引与 Phase 1 工具调用锚定匹配统一对齐归一化 ID，杜绝工具调用轮次签名断链。
+        -   **[对齐官方报文标准] 全面清理占位思考块，签名纯净转移至锚点**:
+            -   **废除假占位符**: 严格对齐官方报文结构，全面剔除网关内部历史各适配器与流水线合成的 `"..."` / `"."` / `"·"` 等无实质思考占位块。
+            -   **真实签名安全转移**: 占位思考块被丢弃时，其携带的真实思考签名自动转移至该轮次的首个非思考锚点（正文或工具调用），确保上游签名校验 100% 通过。
+            -   **清理无用压缩逻辑**: 移除旧版将历史思考块压缩为 `"..."` 的 Layer-2 占位压缩代码，保留纯净的上下文回退与摘要机制。
+        -   **[Docker 部署与文档规范] 补充预览版镜像拉取指引并修复代码块排版**:
+            -   在 `README.md`、`README_EN.md` 与 `docker/README.md` 明确增加拉取和运行独立 Beta 预览版 Docker 镜像（如 `lbjlaq/antigravity-manager:v4.8.2-beta.0`）的说明与命令示例。
+            -   修复 Docker 部署章节 Markdown 围栏未独立闭合导致后续说明文字与标题被误高亮为 Bash 代码的问题。
+
     *   **v4.8.3 (2026-09-27)**:
         -   **[重新逆向上游报文结构变动，彻底对齐官方] 修正签名摆动算法，根除思维断链死循环 (9.25 晚上游更新)**:
             -   **重新逆向 9.25 晚 Antigravity 上游报文结构变动**: 官方更新了工具回执（`functionResponse`）的承载形态——从 `role: "user"` 轮迁移至 `role: "model"` 轮（连续 Model 轮成为常态），且上游放宽了签名返回规则：**任何 Model 轮的第一个非思考 part（正文或工具调用）都可能携带 `thoughtSignature`**，不再局限于工具轮。网关原"末尾必须 User 轮""签名只挂在工具上"的旧世界观全部失效。

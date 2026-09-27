@@ -3,6 +3,20 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.4-beta.0 (2026-09-27)**:
+        -   **[Pipeline Tool Normalization] Universal Tool Call ID Canonicalization across Pipeline, Cache, and DB to Eliminate 400 'Missing a thought_signature'**:
+            -   **Root cause resolved**: Clients (such as Antigravity IDE) frequently strip underscores from tool call IDs (e.g., converting `call_573077` to `call573077`), causing string mismatch when looking up cached signatures. This left tool calls without signatures and caused upstream Gemini to fail with `Function call is missing a thought_signature... (400)`.
+            -   **Pipeline Step 0 Pre-sanitization**: Normalized all `functionCall.id` and `functionResponse.id` entries across the context to canonical `call_<digits>` format in `InboundThinkingPipeline` as the very first step, ensuring all subsequent hydration, signature caching, and gatekeeper passes operate on clean data.
+            -   **Bi-directional Cache & DB Compatibility**: Standardized `tool_signatures` and `thinking_records` persistence to normalized IDs, while transparently matching unnormalized legacy records on lookup with silent self-healing.
+            -   **ThinkingStore Restoration Hardened**: Aligned `by_tool` index and Phase 1 tool ID anchoring in `restore_gemini_contents_with_model` with normalized IDs to prevent tool call signature disconnection.
+        -   **[Official Payload Alignment] Drop Placeholder Thinking Blocks & Safely Transfer Signatures to Anchors**:
+            -   **Placeholder removal**: Strictly aligned with official Antigravity payloads by eliminating synthesized placeholder thinking blocks (`"..."` / `"."` / `"·"` / empty) produced by legacy adapters and inbound pipeline stages.
+            -   **Anchor signature transfer**: When placeholder blocks are dropped, their real signatures are safely preserved and transferred to the turn's first non-thinking anchor part (text or functionCall), ensuring 100% compliance with upstream signature checks.
+            -   **Dead code elimination**: Removed obsolete Layer-2 placeholder compression logic that collapsed historical reasoning into `"..."`.
+        -   **[Docker Documentation & Formatting] Add Beta Docker Pull Instructions & Fix Code Block Boundaries**:
+            -   Added explicit documentation and command examples in `README.md`, `README_EN.md`, and `docker/README.md` for pulling and running isolated Beta pre-release Docker images (e.g. `lbjlaq/antigravity-manager:v4.8.2-beta.0`).
+            -   Fixed Markdown code block fences in Docker deployment sections to prevent text descriptions and alert banners from rendering as Bash script comments.
+
     *   **v4.8.3 (2026-09-27)**:
         -   **[Reversed Upstream Payload Structure Change, Fully Aligned with Official] Fixed Signature Swing Algorithm, Eliminated Thinking-Chain Break & Dead Loops (upstream update on 9.25 night)**:
             -   **Re-reversed the 9.25-night Antigravity upstream payload restructuring**: the official format moved tool responses (`functionResponse`) from `role: "user"` turns into `role: "model"` turns (consecutive model turns are now the norm), and upstream relaxed the signature rule — the first non-thinking part of any model turn (text or tool call) may carry `thoughtSignature`, no longer limited to tool turns. The gateway's old assumptions ("payload must end with a user turn", "signatures only live on tool calls") are all obsolete.

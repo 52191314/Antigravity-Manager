@@ -3531,12 +3531,15 @@ mod tests {
         })];
         finalize_gemini_contents_thinking(&mut contents, true);
         let parts = contents[0]["parts"].as_array().unwrap();
-        assert_eq!(parts.len(), 2);
-        assert_eq!(parts[0]["thought"], true, "thought must be parts[0]");
-        assert_eq!(parts[0]["text"], "...");
-        assert!(parts[0].get("thoughtSignature").is_none());
-        assert!(parts[1].get("functionCall").is_some());
-        assert_eq!(parts[1]["thoughtSignature"], real_sig);
+        // 【2026-09-27】无思考文本时不再注入 "..." 占位思考块（官方标准形态：
+        // 「无思考块 + 锚点带签名」，9/24 轮）。签名落锚点 fc。
+        assert_eq!(
+            parts.len(),
+            1,
+            "no placeholder thinking block should be injected"
+        );
+        assert!(parts[0].get("functionCall").is_some());
+        assert_eq!(parts[0]["thoughtSignature"], real_sig);
 
         // Case 2: thinking disabled → signed functionCall must survive and preserve thoughtSignature for Gemini AST validator
         let mut contents_off = vec![json!({

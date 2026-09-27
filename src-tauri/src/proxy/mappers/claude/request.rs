@@ -1070,25 +1070,21 @@ fn build_contents(
                             signature
                         );
 
-                        // [FIX] Empty thinking blocks cause "Field required" errors.
-                        // We downgrade them to Text to avoid structural errors and signature mismatch.
-                        if thinking.is_empty() {
-                            tracing::warn!("[Claude-Request] Empty thinking block detected. Downgrading to Text.");
-                            parts.push(json!({
-                                "text": "..."
-                            }));
-                            saw_non_thinking = true;
-                            continue;
-                        }
-
-                        // Normalize placeholder thoughts (e.g. Claude Code "·", ".", "···") to "..."
+                        // [2026-09-27] 占位/空思考块直接丢弃（不写思考块、不降级为文本）。
+                        // 官方样本（baogao.txt）9/24 轮是「无思考块 + 锚点带签名」，
+                        // 空 / "." / "..." / 空格 / "·" 等占位思考无信息量；签名归位
+                        // 由流水线终审 place_turn_signature 按锚点规则处理（ inbound 已
+                        // 把占位块的签名转移给首个非思考 part）。
                         let is_placeholder =
                             crate::proxy::thinking_store::is_placeholder_thought(thinking);
-                        let final_thought_text = if is_placeholder && signature.is_none() {
-                            "..."
-                        } else {
-                            thinking.as_str()
-                        };
+                        if is_placeholder || thinking.trim().is_empty() {
+                            tracing::debug!(
+                                "[Claude-Request] Placeholder thinking block dropped (text={:?}).",
+                                &thinking[..thinking.len().min(20)],
+                            );
+                            continue;
+                        }
+                        let final_thought_text = thinking.as_str();
 
                         // [HOTFIX] Gemini Protocol Enforcement: Thinking block MUST be the first block.
                         // If we already have content (like Text), we must downgrade this thinking block to Text.

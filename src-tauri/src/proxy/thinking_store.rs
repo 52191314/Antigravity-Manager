@@ -2326,6 +2326,14 @@ pub fn place_turn_signature(parts: &mut [Value], fallback_sig: Option<&str>) -> 
         sig
     };
     parts[anchor]["thoughtSignature"] = json!(final_sig);
+
+    // 反向入库优化：如果锚点是工具调用，反向更新/修补回签名缓存与 SQLite tool_signatures 库！
+    if let Some(fc) = parts[anchor].get("functionCall") {
+        if let Some(id) = fc.get("id").and_then(|v| v.as_str()) {
+            crate::proxy::SignatureCache::global().cache_tool_signature(id, final_sig.clone());
+        }
+    }
+
     Some(final_sig)
 }
 

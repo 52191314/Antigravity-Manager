@@ -14,11 +14,29 @@ static TOOL_SIGNATURE_DB: OnceLock<Mutex<Option<(PathBuf, Connection)>>> = OnceL
 const THOUGHT_RAW_MAGIC: &[u8] = b"RAW1";
 const THOUGHT_GZIP_MAGIC: &[u8] = b"AGZ1";
 const MIN_GZIP_THOUGHT: usize = 384;
-const SENTINEL_SIGNATURE: &str = "skip_thought_signature_validator";
-const MIN_REAL_SIGNATURE: usize = 50;
+pub const SENTINEL_SIGNATURE: &str = "skip_thought_signature_validator";
+pub const MIN_REAL_SIGNATURE: usize = 32;
 
-fn persist_signature(signature: Option<&str>) -> Option<&str> {
-    signature.filter(|s| s.len() >= MIN_REAL_SIGNATURE && *s != SENTINEL_SIGNATURE)
+pub fn normalize_and_heal_signature(sig: &str) -> Option<String> {
+    if sig.is_empty() || sig == SENTINEL_SIGNATURE {
+        return None;
+    }
+    // 自愈防裂化：若签名被误传或脏存储为原始 Protobuf 二进制 (首字节 0x12)，自动纠正编码为标准 Base64
+    let normalized = if sig.as_bytes().first() == Some(&0x12) {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(sig.as_bytes())
+    } else {
+        sig.to_string()
+    };
+    if normalized.len() >= MIN_REAL_SIGNATURE {
+        Some(normalized)
+    } else {
+        None
+    }
+}
+
+fn persist_signature(signature: Option<&str>) -> Option<String> {
+    signature.and_then(normalize_and_heal_signature)
 }
 
 /// Tool turns match by tool_id at fill time — visible/tool_names are in the request JSON.
@@ -508,11 +526,15 @@ pub fn save_tool_signature(tool_id: &str, signature: &str) -> Result<(), String>
         return Ok(());
     }
     let norm_id = crate::proxy::common::utils::normalize_tool_id(tool_id);
+    let healed_sig = match normalize_and_heal_signature(signature) {
+        Some(s) => s,
+        None => return Ok(()),
+    };
     let conn = connect_db()?;
     let now = chrono::Utc::now().timestamp_millis();
     conn.execute(
         "INSERT OR REPLACE INTO tool_signatures (tool_id, signature, created_at) VALUES (?1, ?2, ?3)",
-        params![norm_id.as_ref(), signature, now],
+        params![norm_id.as_ref(), healed_sig, now],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -524,45 +546,56 @@ pub fn load_tool_signature(tool_id: &str) -> Result<Option<String>, String> {
     }
     let norm_id = crate::proxy::common::utils::normalize_tool_id(tool_id);
     let db_path = get_proxy_db_path()?;
-    let mut db = TOOL_SIGNATURE_DB
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .map_err(|e| format!("tool signature db lock: {e}"))?;
-    if db.as_ref().map(|(path, _)| path) != Some(&db_path) {
-        let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|e| e.to_string())?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))
-            .map_err(|e| e.to_string())?;
-        *db = Some((db_path, conn));
-    }
-    let conn = &db
-        .as_ref()
-        .ok_or("tool signature db was not initialized")?
-        .1;
-    // Dropping rows and the cached statement ends the read before releasing the lock.
-    let mut stmt = conn
-        .prepare_cached("SELECT signature FROM tool_signatures WHERE tool_id = ?1 LIMIT 1")
-        .map_err(|e| e.to_string())?;
     let found = {
-        let mut rows = stmt
-            .query(params![norm_id.as_ref()])
+        let mut db = TOOL_SIGNATURE_DB
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .map_err(|e| format!("tool signature db lock: {e}"))?;
+        if db.as_ref().map(|(path, _)| path) != Some(&db_path) {
+            let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(|e| e.to_string())?;
+            conn.busy_timeout(std::time::Duration::from_secs(5))
+                .map_err(|e| e.to_string())?;
+            *db = Some((db_path, conn));
+        }
+        let conn = &db
+            .as_ref()
+            .ok_or("tool signature db was not initialized")?
+            .1;
+        let mut stmt = conn
+            .prepare_cached("SELECT signature FROM tool_signatures WHERE tool_id = ?1 LIMIT 1")
             .map_err(|e| e.to_string())?;
-        if let Some(row) = rows.next().map_err(|e| e.to_string())? {
-            let sig: String = row.get(0).map_err(|e| e.to_string())?;
-            Some(sig)
+        let res: Option<String> = {
+            let mut rows = stmt
+                .query(params![norm_id.as_ref()])
+                .map_err(|e| e.to_string())?;
+            if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+                let sig: String = row.get(0).map_err(|e| e.to_string())?;
+                Some(sig)
+            } else {
+                None
+            }
+        };
+        if res.is_some() {
+            res
+        } else if norm_id.as_ref() != tool_id {
+            let mut rows = stmt.query(params![tool_id]).map_err(|e| e.to_string())?;
+            if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+                let sig: String = row.get(0).map_err(|e| e.to_string())?;
+                Some(sig)
+            } else {
+                None
+            }
         } else {
             None
         }
     };
     if let Some(sig) = found {
-        return Ok(Some(sig));
-    }
-    // 兼容历史未归一化的脏数据 (若带下划线未命中，尝试原始格式)
-    if norm_id.as_ref() != tool_id {
-        let mut rows = stmt.query(params![tool_id]).map_err(|e| e.to_string())?;
-        if let Some(row) = rows.next().map_err(|e| e.to_string())? {
-            let sig: String = row.get(0).map_err(|e| e.to_string())?;
-            return Ok(Some(sig));
+        if let Some(healed) = normalize_and_heal_signature(&sig) {
+            if healed != sig {
+                let _ = save_tool_signature(norm_id.as_ref(), &healed);
+            }
+            return Ok(Some(healed));
         }
     }
     Ok(None)
@@ -680,7 +713,8 @@ pub fn save_thinking_record(
         let old_is_dummy = old_thought_len <= 10; // "RAW1..." 或占位符非常短
 
         let should_update_thought = incoming_has_meaningful_thought || old_is_dummy;
-        let effective_sig = signature.or(old_sig.as_deref());
+        let healed_old_sig = old_sig.as_deref().and_then(normalize_and_heal_signature);
+        let effective_sig = signature.as_deref().or(healed_old_sig.as_deref());
 
         if should_update_thought {
             let mut stmt = conn
@@ -701,8 +735,10 @@ pub fn save_thinking_record(
                 id,
             ])
             .map_err(|e| e.to_string())?;
-        } else if signature.is_some() && signature != old_sig.as_deref() {
-            // 仅更新签名，保留已有的高质量实质思考
+        } else if (signature.is_some() && signature.as_deref() != old_sig.as_deref())
+            || (healed_old_sig.as_deref() != old_sig.as_deref())
+        {
+            // 仅更新签名，保留已有的高质量实质思考（同时修复旧签名的脏数据）
             let mut stmt = conn
                 .prepare_cached(
                     "UPDATE thinking_records
@@ -710,7 +746,7 @@ pub fn save_thinking_record(
                      WHERE id = ?3",
                 )
                 .map_err(|e| e.to_string())?;
-            stmt.execute(params![signature, now, id])
+            stmt.execute(params![effective_sig, now, id])
                 .map_err(|e| e.to_string())?;
         }
     } else {
@@ -725,7 +761,7 @@ pub fn save_thinking_record(
             session_key,
             fingerprint,
             packed_thought.as_slice(),
-            signature,
+            signature.as_deref(),
             &tool_ids_json,
             visible_persist,
             now,
@@ -787,7 +823,7 @@ pub fn load_thinking_records(session_key: &str) -> Result<Vec<PersistedThinkingR
             result.push(PersistedThinkingRecord {
                 fingerprint: fp,
                 thought: unpack_thought(&thought_raw),
-                signature: persist_signature(signature.as_deref()).map(str::to_string),
+                signature: persist_signature(signature.as_deref()),
                 tool_ids,
                 tool_names,
                 visible,
@@ -818,7 +854,7 @@ pub fn load_thinking_by_tool_id(
         // 1. Track 1 (Fastest Path): 优先按因果伪哈希 ID 走 idx_thinking_rec_causal 专属局部索引 (0.02ms 纳秒级命中)
         let mut causal_stmt = conn
             .prepare_cached(
-                "SELECT fingerprint, thought, signature, tool_ids, tool_names, visible
+                "SELECT id, fingerprint, thought, signature, tool_ids, tool_names, visible
                  FROM thinking_records
                  WHERE session_key = ?1 AND causal_tool_id = ?2
                  ORDER BY id DESC LIMIT 1",
@@ -830,18 +866,31 @@ pub fn load_thinking_by_tool_id(
             .map_err(|e| e.to_string())?;
 
         if let Some(row) = causal_rows.next().map_err(|e| e.to_string())? {
-            let fp: String = row.get(0).map_err(|e| e.to_string())?;
-            let thought_raw: Vec<u8> = row.get(1).map_err(|e| e.to_string())?;
-            let signature: Option<String> = row.get(2).map_err(|e| e.to_string())?;
-            let tool_ids_str: String = row.get(3).map_err(|e| e.to_string())?;
-            let tool_names_str: String = row.get(4).map_err(|e| e.to_string())?;
-            let visible: String = row.get(5).map_err(|e| e.to_string())?;
+            let rec_id: i64 = row.get(0).map_err(|e| e.to_string())?;
+            let fp: String = row.get(1).map_err(|e| e.to_string())?;
+            let thought_raw: Vec<u8> = row.get(2).map_err(|e| e.to_string())?;
+            let raw_signature: Option<String> = row.get(3).map_err(|e| e.to_string())?;
+            let tool_ids_str: String = row.get(4).map_err(|e| e.to_string())?;
+            let tool_names_str: String = row.get(5).map_err(|e| e.to_string())?;
+            let visible: String = row.get(6).map_err(|e| e.to_string())?;
             let tool_ids: Vec<String> = serde_json::from_str(&tool_ids_str).unwrap_or_default();
             let tool_names: Vec<String> = serde_json::from_str(&tool_names_str).unwrap_or_default();
+            let healed_sig = persist_signature(raw_signature.as_deref());
+
+            // 反向写回优化：若数据库中存储了损坏/非标准签名，命中后自愈并写回更新 SQLite
+            if let Some(ref h_sig) = healed_sig {
+                if raw_signature.as_ref() != Some(h_sig) {
+                    let _ = conn.execute(
+                        "UPDATE thinking_records SET signature = ?1 WHERE id = ?2",
+                        params![h_sig, rec_id],
+                    );
+                }
+            }
+
             return Ok(Some(PersistedThinkingRecord {
                 fingerprint: fp,
                 thought: unpack_thought(&thought_raw),
-                signature: persist_signature(signature.as_deref()).map(str::to_string),
+                signature: healed_sig,
                 tool_ids,
                 tool_names,
                 visible,
@@ -866,12 +915,13 @@ pub fn load_thinking_by_tool_id(
             let rec_id: i64 = row.get(0).map_err(|e| e.to_string())?;
             let fp: String = row.get(1).map_err(|e| e.to_string())?;
             let thought_raw: Vec<u8> = row.get(2).map_err(|e| e.to_string())?;
-            let signature: Option<String> = row.get(3).map_err(|e| e.to_string())?;
+            let raw_signature: Option<String> = row.get(3).map_err(|e| e.to_string())?;
             let tool_ids_str: String = row.get(4).map_err(|e| e.to_string())?;
             let tool_names_str: String = row.get(5).map_err(|e| e.to_string())?;
             let visible: String = row.get(6).map_err(|e| e.to_string())?;
             let tool_ids: Vec<String> = serde_json::from_str(&tool_ids_str).unwrap_or_default();
             let tool_names: Vec<String> = serde_json::from_str(&tool_names_str).unwrap_or_default();
+            let healed_sig = persist_signature(raw_signature.as_deref());
 
             // 3. Track 3 (In-Place Self-Healing): 若当前请求使用的是因果伪哈希 ID，顺手静默修复老数据
             if is_synthetic_tool_id(candidate) {
@@ -880,11 +930,19 @@ pub fn load_thinking_by_tool_id(
                     params![candidate, rec_id],
                 );
             }
+            if let Some(ref h_sig) = healed_sig {
+                if raw_signature.as_ref() != Some(h_sig) {
+                    let _ = conn.execute(
+                        "UPDATE thinking_records SET signature = ?1 WHERE id = ?2",
+                        params![h_sig, rec_id],
+                    );
+                }
+            }
 
             return Ok(Some(PersistedThinkingRecord {
                 fingerprint: fp,
                 thought: unpack_thought(&thought_raw),
-                signature: persist_signature(signature.as_deref()).map(str::to_string),
+                signature: healed_sig,
                 tool_ids,
                 tool_names,
                 visible,
@@ -910,12 +968,13 @@ pub fn load_thinking_by_tool_id(
             let rec_id: i64 = row.get(0).map_err(|e| e.to_string())?;
             let fp: String = row.get(1).map_err(|e| e.to_string())?;
             let thought_raw: Vec<u8> = row.get(2).map_err(|e| e.to_string())?;
-            let signature: Option<String> = row.get(3).map_err(|e| e.to_string())?;
+            let raw_signature: Option<String> = row.get(3).map_err(|e| e.to_string())?;
             let tool_ids_str: String = row.get(4).map_err(|e| e.to_string())?;
             let tool_names_str: String = row.get(5).map_err(|e| e.to_string())?;
             let visible: String = row.get(6).map_err(|e| e.to_string())?;
             let tool_ids: Vec<String> = serde_json::from_str(&tool_ids_str).unwrap_or_default();
             let tool_names: Vec<String> = serde_json::from_str(&tool_names_str).unwrap_or_default();
+            let healed_sig = persist_signature(raw_signature.as_deref());
 
             if is_synthetic_tool_id(candidate) {
                 let _ = conn.execute(
@@ -923,11 +982,19 @@ pub fn load_thinking_by_tool_id(
                     params![candidate, rec_id],
                 );
             }
+            if let Some(ref h_sig) = healed_sig {
+                if raw_signature.as_ref() != Some(h_sig) {
+                    let _ = conn.execute(
+                        "UPDATE thinking_records SET signature = ?1 WHERE id = ?2",
+                        params![h_sig, rec_id],
+                    );
+                }
+            }
 
             return Ok(Some(PersistedThinkingRecord {
                 fingerprint: fp,
                 thought: unpack_thought(&thought_raw),
-                signature: persist_signature(signature.as_deref()).map(str::to_string),
+                signature: healed_sig,
                 tool_ids,
                 tool_names,
                 visible,
@@ -949,7 +1016,7 @@ pub fn load_thinking_by_signature(
     let conn = thinking_db()?;
     let mut stmt = conn
         .prepare_cached(
-            "SELECT fingerprint, thought, signature, tool_ids, tool_names, visible
+            "SELECT id, fingerprint, thought, signature, tool_ids, tool_names, visible
              FROM thinking_records
              WHERE session_key = ?1 AND signature = ?2
              ORDER BY id DESC LIMIT 1",
@@ -961,18 +1028,30 @@ pub fn load_thinking_by_signature(
         .map_err(|e| e.to_string())?;
 
     if let Some(row) = rows.next().map_err(|e| e.to_string())? {
-        let fp: String = row.get(0).map_err(|e| e.to_string())?;
-        let thought_raw: Vec<u8> = row.get(1).map_err(|e| e.to_string())?;
-        let signature: Option<String> = row.get(2).map_err(|e| e.to_string())?;
-        let tool_ids_str: String = row.get(3).map_err(|e| e.to_string())?;
-        let tool_names_str: String = row.get(4).map_err(|e| e.to_string())?;
-        let visible: String = row.get(5).map_err(|e| e.to_string())?;
+        let rec_id: i64 = row.get(0).map_err(|e| e.to_string())?;
+        let fp: String = row.get(1).map_err(|e| e.to_string())?;
+        let thought_raw: Vec<u8> = row.get(2).map_err(|e| e.to_string())?;
+        let raw_signature: Option<String> = row.get(3).map_err(|e| e.to_string())?;
+        let tool_ids_str: String = row.get(4).map_err(|e| e.to_string())?;
+        let tool_names_str: String = row.get(5).map_err(|e| e.to_string())?;
+        let visible: String = row.get(6).map_err(|e| e.to_string())?;
         let tool_ids: Vec<String> = serde_json::from_str(&tool_ids_str).unwrap_or_default();
         let tool_names: Vec<String> = serde_json::from_str(&tool_names_str).unwrap_or_default();
+        let healed_sig = persist_signature(raw_signature.as_deref());
+
+        if let Some(ref h_sig) = healed_sig {
+            if raw_signature.as_ref() != Some(h_sig) {
+                let _ = conn.execute(
+                    "UPDATE thinking_records SET signature = ?1 WHERE id = ?2",
+                    params![h_sig, rec_id],
+                );
+            }
+        }
+
         Ok(Some(PersistedThinkingRecord {
             fingerprint: fp,
             thought: unpack_thought(&thought_raw),
-            signature: persist_signature(signature.as_deref()).map(str::to_string),
+            signature: healed_sig,
             tool_ids,
             tool_names,
             visible,
@@ -989,15 +1068,26 @@ pub fn lookup_latest_thinking_signature(session_id: &str) -> Option<String> {
     }
     let conn = thinking_db().ok()?;
     let suffix = format!("%:{}", session_id.trim());
-    conn.query_row(
-        "SELECT signature FROM thinking_records 
+    let (id, raw_sig): (i64, String) = conn
+        .query_row(
+            "SELECT id, signature FROM thinking_records 
          WHERE (session_key = ?1 OR session_key LIKE ?2) 
            AND signature IS NOT NULL 
          ORDER BY id DESC LIMIT 1",
-        rusqlite::params![session_id.trim(), suffix],
-        |r| r.get(0),
-    )
-    .ok()
+            rusqlite::params![session_id.trim(), suffix],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok()?;
+    let healed = normalize_and_heal_signature(&raw_sig);
+    if let Some(ref h) = healed {
+        if h != &raw_sig {
+            let _ = conn.execute(
+                "UPDATE thinking_records SET signature = ?1 WHERE id = ?2",
+                rusqlite::params![h, id],
+            );
+        }
+    }
+    healed
 }
 
 /// 为 UI 展示层兜底提供：按思考内容片段模糊查找权威签名
@@ -1008,14 +1098,25 @@ pub fn lookup_signature_by_thought_snippet(snippet: &str) -> Option<String> {
     }
     let conn = thinking_db().ok()?;
     let pattern = format!("%{}%", clean);
-    conn.query_row(
-        "SELECT signature FROM thinking_records 
+    let (id, raw_sig): (i64, String) = conn
+        .query_row(
+            "SELECT id, signature FROM thinking_records 
          WHERE thought LIKE ?1 AND signature IS NOT NULL 
          ORDER BY id DESC LIMIT 1",
-        rusqlite::params![pattern],
-        |r| r.get(0),
-    )
-    .ok()
+            rusqlite::params![pattern],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok()?;
+    let healed = normalize_and_heal_signature(&raw_sig);
+    if let Some(ref h) = healed {
+        if h != &raw_sig {
+            let _ = conn.execute(
+                "UPDATE thinking_records SET signature = ?1 WHERE id = ?2",
+                rusqlite::params![h, id],
+            );
+        }
+    }
+    healed
 }
 
 /// 根据 fingerprint 精准穿透点查纯文本历史思考（利用 idx_thinking_rec_fp 索引）
@@ -1029,7 +1130,7 @@ pub fn load_thinking_by_fingerprint(
     let conn = thinking_db()?;
     let mut stmt = conn
         .prepare_cached(
-            "SELECT fingerprint, thought, signature, tool_ids, tool_names, visible
+            "SELECT id, fingerprint, thought, signature, tool_ids, tool_names, visible
              FROM thinking_records
              WHERE session_key = ?1 AND fingerprint = ?2
              ORDER BY id DESC LIMIT 1",
@@ -1041,18 +1142,30 @@ pub fn load_thinking_by_fingerprint(
         .map_err(|e| e.to_string())?;
 
     if let Some(row) = rows.next().map_err(|e| e.to_string())? {
-        let fp: String = row.get(0).map_err(|e| e.to_string())?;
-        let thought_raw: Vec<u8> = row.get(1).map_err(|e| e.to_string())?;
-        let signature: Option<String> = row.get(2).map_err(|e| e.to_string())?;
-        let tool_ids_str: String = row.get(3).map_err(|e| e.to_string())?;
-        let tool_names_str: String = row.get(4).map_err(|e| e.to_string())?;
-        let visible: String = row.get(5).map_err(|e| e.to_string())?;
+        let rec_id: i64 = row.get(0).map_err(|e| e.to_string())?;
+        let fp: String = row.get(1).map_err(|e| e.to_string())?;
+        let thought_raw: Vec<u8> = row.get(2).map_err(|e| e.to_string())?;
+        let raw_signature: Option<String> = row.get(3).map_err(|e| e.to_string())?;
+        let tool_ids_str: String = row.get(4).map_err(|e| e.to_string())?;
+        let tool_names_str: String = row.get(5).map_err(|e| e.to_string())?;
+        let visible: String = row.get(6).map_err(|e| e.to_string())?;
         let tool_ids: Vec<String> = serde_json::from_str(&tool_ids_str).unwrap_or_default();
         let tool_names: Vec<String> = serde_json::from_str(&tool_names_str).unwrap_or_default();
+        let healed_sig = persist_signature(raw_signature.as_deref());
+
+        if let Some(ref h_sig) = healed_sig {
+            if raw_signature.as_ref() != Some(h_sig) {
+                let _ = conn.execute(
+                    "UPDATE thinking_records SET signature = ?1 WHERE id = ?2",
+                    params![h_sig, rec_id],
+                );
+            }
+        }
+
         Ok(Some(PersistedThinkingRecord {
             fingerprint: fp,
             thought: unpack_thought(&thought_raw),
-            signature: persist_signature(signature.as_deref()).map(str::to_string),
+            signature: healed_sig,
             tool_ids,
             tool_names,
             visible,
@@ -1825,6 +1938,95 @@ mod thinking_sqlite_tests {
         let loaded_text = load_thinking_by_fingerprint(session_key, text_fp).unwrap();
         assert!(loaded_text.is_some());
         assert_eq!(loaded_text.unwrap().thought, "Pure text reasoning");
+    }
+
+    #[test]
+    fn test_signature_healing_and_write_back() {
+        use base64::Engine;
+        let _dir = TestDataDir::new();
+        init_db().unwrap();
+
+        let session_key = "test_tenant:sess-healing";
+        let tool_id = "call_corrupted_1";
+
+        // 构造一个典型的被错误解码为 UTF-8 原始 Protobuf 二进制的签名 (首字节 0x12)
+        let raw_proto_bytes = [
+            0x12, 0x26, 0x0a, 0x24, b'e', b'2', b'4', b'8', b'3', b'0', b'a', b'7', b'-', b'5',
+            b'c', b'd', b'6', b'-', b'4', b'2', b'f', b'e', b'-', b'9', b'9', b'8', b'b', b'-',
+            b'e', b'e', b'5', b'3', b'9', b'e', b'7', b'2', b'b', b'9', b'c', b'3',
+        ];
+        let raw_corrupted_sig = String::from_utf8(raw_proto_bytes.to_vec()).unwrap();
+        let expected_base64 = base64::engine::general_purpose::STANDARD.encode(raw_proto_bytes);
+        assert_eq!(
+            expected_base64,
+            "EiYKJGUyNDgzMGE3LTVjZDYtNDJmZS05OThiLWVlNTM5ZTcyYjljMw=="
+        );
+
+        // 1. normalize_and_heal_signature 单测
+        assert_eq!(
+            normalize_and_heal_signature(&raw_corrupted_sig),
+            Some(expected_base64.clone())
+        );
+        assert_eq!(
+            normalize_and_heal_signature(&expected_base64),
+            Some(expected_base64.clone())
+        );
+        assert_eq!(normalize_and_heal_signature(SENTINEL_SIGNATURE), None);
+        assert_eq!(normalize_and_heal_signature("short"), None);
+
+        // 2. save_tool_signature 会自动自愈为 Base64 存储
+        save_tool_signature(tool_id, &raw_corrupted_sig).unwrap();
+        let loaded_tool_sig = load_tool_signature(tool_id).unwrap();
+        assert_eq!(loaded_tool_sig, Some(expected_base64.clone()));
+
+        // 3. 模拟底层 SQLite 已经脏存了原始二进制签名的历史数据
+        let conn = connect_db().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO tool_signatures (tool_id, signature, created_at) VALUES (?1, ?2, ?3)",
+            params!["call_legacy_dirty", &raw_corrupted_sig, 1000],
+        ).unwrap();
+        drop(conn);
+
+        // load_tool_signature 读出时自动识别并修复，且反向写回 SQLite
+        let loaded_dirty = load_tool_signature("call_legacy_dirty").unwrap();
+        assert_eq!(loaded_dirty, Some(expected_base64.clone()));
+
+        // 验证 SQLite 中确实已被写回替换为标准 Base64 格式
+        let conn = connect_db().unwrap();
+        let in_db: String = conn
+            .query_row(
+                "SELECT signature FROM tool_signatures WHERE tool_id = 'call_legacy_dirty'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(in_db, expected_base64);
+
+        // 4. thinking_records 自愈与反向写回测试
+        let think_conn = thinking_db().unwrap();
+        think_conn.execute(
+            "INSERT INTO thinking_records (session_key, fingerprint, thought, signature, tool_ids, tool_names, visible, created_at, primary_tool_id, causal_tool_id)
+             VALUES (?1, 'fp_dirty', ?2, ?3, '[\"call_corrupted_1\"]', '[]', 'vis', 1000, 'call_corrupted_1', 'call_corrupted_1')",
+            params![session_key, pack_thought("thinking content"), &raw_corrupted_sig],
+        ).unwrap();
+        drop(think_conn);
+
+        // load_thinking_by_tool_id 点查时触发反向自愈写回
+        let loaded_rec = load_thinking_by_tool_id(session_key, "call_corrupted_1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded_rec.signature, Some(expected_base64.clone()));
+
+        // 验证 thinking_records 表中 signature 字段已被更新为自愈后的 Base64
+        let think_conn = thinking_db().unwrap();
+        let sig_in_db: String = think_conn
+            .query_row(
+                "SELECT signature FROM thinking_records WHERE session_key = ?1 AND primary_tool_id = 'call_corrupted_1'",
+                params![session_key],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(sig_in_db, expected_base64);
     }
 }
 

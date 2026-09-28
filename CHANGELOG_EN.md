@@ -3,6 +3,13 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.5-beta.6 (2026-09-28)**:
+        -   **[Context Fidelity & Search Mapping Fix] Stop Rewriting Client Context, Fix Pure Search Mapping, and Enhance Payload Monitor**:
+            -   **Context Rewriting Deprecated & Purged**: Completely stopped trimming, folding, or dropping tool calls and thought contents in client history, eliminating legacy experimental compression logic and ensuring 100% context fidelity and prefix cache stability when forwarding upstream.
+            -   **Precise Web Search Tool Mapping**: Injects official native `googleSearch` if and only if `web_search` is the sole tool provided; preserves client-declared `web_search` functions when mixed with other tools to prevent tool execution conflicts.
+            -   **Concise Mode Payload Monitor Enhancement**: Preserves the original hierarchical structure of outbound payloads in concise mode while prioritizing essential fields (request ID, model, thinking config, system prompt, conversation, and tools); safely omits bulky inline data like images.
+            -   **Code Quality & Test Gate Alignment**: Added unit test suites for concise payload rendering and resolved frontend typing and `cargo fmt` checks cleanly.
+
     *   **v4.8.5-beta.5 (2026-09-28)**:
         -   **[Official Model Catalog Resilience & Deserialization Hardening] Support Heterogeneous thinkingLevel Formats and Guard Against Catalog Parsing Failures**:
             -   **Flexible String Deserializer (`de_flexible_string`)**: Added a flexible deserializer supporting strings, numeric levels (e.g. `thinkingLevel: 3` emitted by Google's `fetchAvailableModels` for `gemini-2.5-flash`), and `null` values, preventing catalog deserialization errors caused by upstream type mismatches.

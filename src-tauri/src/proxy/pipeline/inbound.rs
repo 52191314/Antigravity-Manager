@@ -1,4 +1,3 @@
-use super::policy::ProxyProtocol;
 use serde_json::{json, Value};
 
 /// 客户端思考控制开关（三态枚举）
@@ -71,7 +70,7 @@ pub fn extract_client_thinking_switch(
 
 /// 统一进站思考管线（InboundThinkingPipeline）
 /// 接收任何协议转译成的 Google contents 统一报文，单向流转执行：
-/// 1. 协议策略签名清洗 (Chat 协议丢弃客户端签名，其他协议验签)
+/// 1. 签名校验只看目标模型与签名本身，四个协议同一规则
 /// 2. 思考块首位强制排序与占位符规范化
 /// 3. 状态机历史思维链无损复活 (Hydration)
 /// 4. 终审脱敏与前缀缓存格式规范化 (Finalize)
@@ -81,13 +80,11 @@ impl InboundThinkingPipeline {
     /// 执行统一进站处理
     pub fn process_contents(
         contents: &mut Vec<Value>,
-        protocol: ProxyProtocol,
         target_model: &str,
         is_thinking_enabled: bool,
         session_id: Option<&str>,
         is_retry: bool,
     ) {
-        let trusts_signature = protocol.trusts_client_signature();
         let is_claude = target_model.to_lowercase().contains("claude");
 
         // 0. 工具调用 ID 统一归一化治理（Pipeline First）：
@@ -166,7 +163,7 @@ impl InboundThinkingPipeline {
                                     if !is_claude {
                                         effective_sig = Some(sig.to_string());
                                     }
-                                } else if trusts_signature && sig.len() >= 50 {
+                                } else if sig.len() >= 50 {
                                     let cached_family = crate::proxy::SignatureCache::global()
                                         .get_signature_family(sig);
                                     let compatible = match cached_family {
@@ -1459,7 +1456,6 @@ mod tests {
 
         InboundThinkingPipeline::process_contents(
             &mut contents,
-            ProxyProtocol::OpenAIResponses,
             "gemini-2.5-pro",
             true,
             None,
@@ -1494,7 +1490,6 @@ mod tests {
 
         InboundThinkingPipeline::process_contents(
             &mut contents,
-            ProxyProtocol::OpenAIChat,
             "gemini-2.5-pro",
             false,
             None,
@@ -1526,7 +1521,6 @@ mod tests {
 
         InboundThinkingPipeline::process_contents(
             &mut contents,
-            ProxyProtocol::OpenAIResponses,
             "gemini-2.5-pro",
             true,
             None,
@@ -1564,7 +1558,6 @@ mod tests {
 
         InboundThinkingPipeline::process_contents(
             &mut contents,
-            ProxyProtocol::AnthropicClaude,
             "claude-opus-4-6-thinking",
             true,
             None,
@@ -1599,7 +1592,6 @@ mod tests {
 
         InboundThinkingPipeline::process_contents(
             &mut contents,
-            ProxyProtocol::OpenAIResponses,
             "claude-sonnet-4-6",
             true,
             None,
@@ -1635,7 +1627,6 @@ mod tests {
 
         InboundThinkingPipeline::process_contents(
             &mut contents,
-            ProxyProtocol::GeminiNative,
             "gemini-3.8-flash-high",
             true,
             None,
@@ -1672,7 +1663,6 @@ mod tests {
 
         InboundThinkingPipeline::process_contents(
             &mut contents,
-            ProxyProtocol::AnthropicClaude,
             "gemini-3.7-flash-high",
             true,
             None,
@@ -1725,7 +1715,6 @@ mod tests {
 
         InboundThinkingPipeline::process_contents(
             &mut contents,
-            ProxyProtocol::OpenAIChat,
             "claude-opus-4-6-thinking",
             true,
             None,
@@ -1768,7 +1757,6 @@ mod tests {
 
         InboundThinkingPipeline::process_contents(
             &mut contents,
-            ProxyProtocol::GeminiNative,
             "gemini-2.5-flash",
             false,
             None,
@@ -1967,7 +1955,6 @@ mod tests {
 
         InboundThinkingPipeline::process_contents(
             &mut contents,
-            ProxyProtocol::AnthropicClaude,
             "gemini-3.8-flash-tiered",
             true,
             None,

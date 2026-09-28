@@ -181,7 +181,7 @@ pub fn transform_openai_request_with_session(
     token: Option<&ProxyToken>,
     routing_session_id: &str,
     _signature_read_key: Option<&str>,
-    is_responses_api: bool,
+    _is_responses_api: bool,
 ) -> (Value, String, usize, String) {
     let remember_cwd =
         |text: &str| crate::proxy::adapters::apply_patch_preflight::remember_cwd_from_text(text);
@@ -828,14 +828,8 @@ pub fn transform_openai_request_with_session(
     // 并不要求严格交替；实测（2026-09-26，`gemini-3.8-flash-tiered` @ daily）
     // 两种形态均 200 且上下文理解一致。
     let mut merged_contents = contents;
-    let protocol = if is_responses_api {
-        crate::proxy::pipeline::ProxyProtocol::OpenAIResponses
-    } else {
-        crate::proxy::pipeline::ProxyProtocol::OpenAIChat
-    };
     crate::proxy::pipeline::InboundThinkingPipeline::process_contents(
         &mut merged_contents,
-        protocol,
         mapped_model,
         actual_include_thinking,
         Some(&thinking_store_key),
@@ -869,12 +863,10 @@ pub fn transform_openai_request_with_session(
 
     // 3. 构建请求体
 
-    let mut gen_config = json!({
-        // [CHANGED v4.1.24] Default topP from 0.95 → 1.0 to match native behavior
-        "topP": request.top_p.unwrap_or(1.0),
-        // [ADDED v4.1.24] topK=40 aligns with official client generationConfig
-        "topK": 40,
-    });
+    let mut gen_config = json!({});
+    if let Some(top_p) = request.top_p {
+        gen_config["topP"] = json!(top_p);
+    }
     if let Some(temp) = request.temperature {
         gen_config["temperature"] = json!(temp);
     }
@@ -972,12 +964,7 @@ pub fn transform_openai_request_with_session(
                     8192
                 };
 
-                if mapped_model_lower.contains("claude-opus-4-6-thinking") {
-                    gen_config["maxOutputTokens"] = json!(57344);
-                    tracing::debug!(
-                        "[Opus-Alignment] Enforcing maxOutputTokens 57344 for Opus 4.6 (OpenAI)"
-                    );
-                } else if let Some(max_tokens) = request.max_tokens {
+                if let Some(max_tokens) = request.max_tokens {
                     if (max_tokens as i64) <= final_budget {
                         gen_config["maxOutputTokens"] = json!(final_budget + min_overhead);
                     }
@@ -2554,15 +2541,14 @@ mod tests {
             .expect("thought part");
         // Reasoning content is preserved (Anthropic alignment)
         assert_eq!(thought["text"], client_thought);
-        // Signature is backfilled by server (sentinel or cache), ignoring client signature
-        assert_eq!(
-            thought["thoughtSignature"].as_str(),
-            Some(crate::proxy::thinking_store::SENTINEL_SIGNATURE)
+        assert!(
+            thought.get("thoughtSignature").is_none(),
+            "Gemini thought parts do not carry signatures"
         );
         let dumped = serde_json::to_string(&result).unwrap();
         assert!(
             !dumped.contains("fake_client_sig_that_must_be_ignored"),
-            "client signature in chat API must be ignored and backfilled by server"
+            "invalid client signature must not be forwarded"
         );
     }
 
@@ -2887,7 +2873,7 @@ mod tests {
             ..Default::default()
         };
 
-        // 1. Responses API (is_responses_api = true): honors client signature and reasoning content
+        // Chat 与 Responses 对同一份历史使用同一套签名规则
         let (resp_result, _, _, _) = transform_openai_request_with_session(
             &req,
             "test-proj",
@@ -2895,20 +2881,8 @@ mod tests {
             None,
             "routing-1",
             None,
-            true, // is_responses_api
+            true,
         );
-        let resp_contents = resp_result["request"]["contents"].as_array().unwrap();
-        let resp_model_msg = resp_contents.iter().find(|m| m["role"] == "model").unwrap();
-        let resp_thought = resp_model_msg["parts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|p| p.get("thought") == Some(&json!(true)))
-            .unwrap();
-        assert_eq!(resp_thought["text"], client_thought);
-        assert_eq!(resp_thought["thoughtSignature"], valid_client_sig);
-
-        // 2. Chat API (is_responses_api = false): honors reasoning content, but ignores client signature
         let (chat_result, _, _, _) = transform_openai_request_with_session(
             &req,
             "test-proj",
@@ -2916,21 +2890,28 @@ mod tests {
             None,
             "routing-chat",
             None,
-            false, // is_responses_api
+            false,
         );
-        let chat_contents = chat_result["request"]["contents"].as_array().unwrap();
-        let chat_model_msg = chat_contents.iter().find(|m| m["role"] == "model").unwrap();
-        let chat_thought = chat_model_msg["parts"]
+        let model_parts = |body: &serde_json::Value| {
+            let contents = body["request"]["contents"].as_array().unwrap();
+            let model_msg = contents.iter().find(|m| m["role"] == "model").unwrap();
+            model_msg["parts"].clone()
+        };
+        let resp_parts = model_parts(&resp_result);
+        let chat_parts = model_parts(&chat_result);
+        let thought = resp_parts
             .as_array()
             .unwrap()
             .iter()
             .find(|p| p.get("thought") == Some(&json!(true)))
             .unwrap();
-        assert_eq!(chat_thought["text"], client_thought);
-        // Chat API signature must be server-filled (sentinel), not client signature
-        assert_eq!(
-            chat_thought["thoughtSignature"].as_str(),
-            Some(crate::proxy::thinking_store::SENTINEL_SIGNATURE)
+        assert_eq!(thought["text"], client_thought);
+        assert!(thought.get("thoughtSignature").is_none());
+        assert_eq!(resp_parts, chat_parts);
+        let dumped = serde_json::to_string(&resp_parts).unwrap();
+        assert!(
+            !dumped.contains(&valid_client_sig),
+            "a signature that fails Gemini validation must not survive on either protocol"
         );
     }
 

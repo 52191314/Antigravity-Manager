@@ -123,8 +123,8 @@ impl OfficialModelCatalog {
         }
     }
 
-    /// 根据用户传入的模型 ID (支持官方标准 ID、别名映射与容错匹配)
-    /// 动态获取对应的官方模型结构体
+    /// 根据用户传入的模型 ID（官方标准 ID、别名、路由结果，以及大小写不敏感的精确名）
+    /// 获取对应的官方模型结构体。未命中时返回 None，由调用方使用 `default_model()`。
     pub fn get(model_id: &str) -> Option<OfficialModelInfo> {
         let lock = DYNAMIC_CATALOG.read().ok()?;
 
@@ -145,18 +145,10 @@ impl OfficialModelCatalog {
             return Some(info.clone());
         }
 
-        // 3. 忽略大小写精确匹配
+        // 3. 忽略大小写的精确匹配
         let lower = model_id.to_lowercase();
         for (k, v) in lock.iter() {
             if k.to_lowercase() == lower {
-                return Some(v.clone());
-            }
-        }
-
-        // 4. 家族子串/模式容错匹配
-        for (k, v) in lock.iter() {
-            let k_lower = k.to_lowercase();
-            if lower.contains(&k_lower) || k_lower.contains(&lower) {
                 return Some(v.clone());
             }
         }

@@ -1647,7 +1647,6 @@ fn build_google_contents(
     let think_start = std::time::Instant::now();
     crate::proxy::pipeline::InboundThinkingPipeline::process_contents(
         &mut contents,
-        crate::proxy::pipeline::ProxyProtocol::AnthropicClaude,
         mapped_model,
         should_finalize_thinking,
         Some(session_id),
@@ -1833,96 +1832,28 @@ fn build_generation_config(
             token,
         );
     } else if is_thinking_enabled && !crate::proxy::model_specs::is_gemini_under_v3(mapped_model) {
-        let mut thinking_config = json!({"includeThoughts": true});
-
-        let global_mode_is_adaptive = matches!(
-            tb_config.mode,
-            crate::proxy::config::ThinkingBudgetMode::Adaptive
+        crate::proxy::pipeline::InboundThinkingPipeline::configure_inbound_thinking(
+            mapped_model,
+            &mut config,
+            client_switch,
+            client_effort,
+            client_budget,
+            token,
         );
-        let user_is_adaptive = claude_req
-            .thinking
-            .as_ref()
-            .map(|t| t.type_ == "adaptive")
-            .unwrap_or(false);
-        let should_use_adaptive = (user_is_adaptive || global_mode_is_adaptive)
-            && mapped_model.to_lowercase().contains("claude");
-
-        if should_use_adaptive {
-            let mapped_level = match effort.map(|e| e.to_lowercase()).as_deref() {
-                Some("low") => "LOW",
-                Some("medium") => "MEDIUM",
-                Some("high") | Some("max") | Some("xhigh") => "HIGH",
-                _ => "HIGH",
-            };
-            tracing::debug!(
-                "[Claude-Request] Mapping adaptive mode to thinkingLevel: {} for Claude model",
-                mapped_level
-            );
-            thinking_config["thinkingLevel"] = json!(mapped_level);
-            config["thinkingConfig"] = thinking_config;
-        } else {
-            // 协议无关：思考预算与 thinkingConfig 统一由进站流水线节点治理
-            crate::proxy::pipeline::InboundThinkingPipeline::configure_inbound_thinking(
-                mapped_model,
-                &mut config,
-                client_switch,
-                client_effort,
-                client_budget,
-                token,
-            );
-        }
     }
 
-    // 其他参数
     if let Some(temp) = claude_req.temperature {
         config["temperature"] = json!(temp);
     }
     if let Some(top_p) = claude_req.top_p {
         config["topP"] = json!(top_p);
-    } else {
-        config["topP"] = json!(1.0); // [CHANGED v4.1.24] Default topP=1.0 to match official client
     }
     if let Some(top_k) = claude_req.top_k {
         config["topK"] = json!(top_k);
-    } else {
-        config["topK"] = json!(40); // [ADDED v4.1.24] Default topK=40 to match official client
     }
 
-    // web_search 强制 candidateCount=1
-    /*if has_web_search {
-        config["candidateCount"] = json!(1);
-    }*/
-
-    // max_tokens 映射为 maxOutputTokens
-    // [FIX] 不再默认设置 81920，防止非思维模型 (如 claude-sonnet-4-6) 报 400 Invalid Argument
+    // max_tokens 映射为 maxOutputTokens。客户端没传时留给流水线按官方模型结构体补齐。
     let mut final_max_tokens: Option<i64> = claude_req.max_tokens.map(|t| t as i64);
-
-    // [NEW] 确保 maxOutputTokens 大于 thinkingBudget (API 强约束)
-    // [NEW] 确保 maxOutputTokens 大于 thinkingBudget (API 强约束)
-    let model_lower = mapped_model.to_lowercase();
-    // 重新计算 should_use_adaptive (因为上面定义的作用域仅在其 if 块内有效，或者我们可以假设在这里也需要同样的逻辑)
-    // 但为了简洁和解耦，我们这里重新从 config 读取
-    let tb_config_chk = crate::proxy::config::get_thinking_budget_config();
-    let global_adaptive = matches!(
-        tb_config_chk.mode,
-        crate::proxy::config::ThinkingBudgetMode::Adaptive
-    );
-    let req_adaptive = claude_req
-        .thinking
-        .as_ref()
-        .map(|t| t.type_ == "adaptive")
-        .unwrap_or(false);
-
-    let is_adaptive_effective = (req_adaptive || global_adaptive) && model_lower.contains("claude");
-    // [FIX] Lower default overhead to keep total under 65536
-    let final_overhead = if is_adaptive_effective { 64000 } else { 32768 };
-
-    // [FIX #2007] Opus 4.6 Thinking Alignment
-    // OpenAI logs show maxOutputTokens = 57344 (24576 + 32768)
-    if model_lower.contains("claude-opus-4-6-thinking") && is_thinking_enabled {
-        final_max_tokens = Some(57344);
-        tracing::debug!("[Opus-Alignment] Enforcing maxOutputTokens 57344 for Opus 4.6");
-    }
 
     if let Some(thinking_config) = config.get("thinkingConfig") {
         if let Some(budget) = thinking_config
@@ -1931,29 +1862,18 @@ fn build_generation_config(
         {
             let current = final_max_tokens.unwrap_or(0);
             if current <= budget as i64 {
-                // [FIX #1675] 针对图像模型使用更小的增量 (2048)
                 let overhead = if mapped_model.contains("-image") {
                     2048
                 } else {
                     8192
                 };
-                let boosted = (budget + overhead).min(65536); // [FIX] Never exceed hard limit
-                final_max_tokens = Some(boosted as i64);
+                let boosted = (budget as i64 + overhead).min(65536);
+                final_max_tokens = Some(boosted);
                 tracing::info!(
-                    "[Generation-Config] Bumping maxOutputTokens to {} due to thinking budget of {}", 
+                    "[Generation-Config] Bumping maxOutputTokens to {} due to thinking budget of {}",
                     boosted, budget
                 );
             }
-        } else if is_adaptive_effective {
-            // [FIX] Adaptive mode (no budget set in thinkingConfig), apply default maxOutputTokens
-            if final_max_tokens.is_none() {
-                final_max_tokens = Some(final_overhead as i64);
-            }
-        }
-    } else {
-        // No thinkingConfig
-        if final_max_tokens.is_none() && is_adaptive_effective {
-            final_max_tokens = Some(final_overhead as i64);
         }
     }
 
@@ -3017,16 +2937,15 @@ mod tests {
         let gen_config = result["request"]["generationConfig"].as_object().unwrap();
         let thinking_config = gen_config["thinkingConfig"].as_object().unwrap();
 
-        // Check injection: Claude models use thinkingLevel in adaptive mode
+        // 网关模式下 Claude 模型走流水线：effort=high 对应 claude_high，不再按协议写 thinkingLevel
         assert_eq!(thinking_config["includeThoughts"], true);
-        assert_eq!(thinking_config["thinkingLevel"], "HIGH");
-        assert!(thinking_config.get("thinkingBudget").is_none());
-        assert!(thinking_config.get("thinkingType").is_none());
-        assert!(thinking_config.get("effort").is_none());
+        assert_eq!(thinking_config["thinkingBudget"], 16384);
+        assert!(thinking_config.get("thinkingLevel").is_none());
+        assert!(gen_config.get("topP").is_none());
+        assert!(gen_config.get("topK").is_none());
 
-        // Check maxOutputTokens default for adaptive
         let max_output_tokens = gen_config["maxOutputTokens"].as_i64().unwrap();
-        assert_eq!(max_output_tokens, 64000);
+        assert_eq!(max_output_tokens, 24576);
     }
 
     #[test]

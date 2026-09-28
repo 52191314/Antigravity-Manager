@@ -509,7 +509,6 @@ pub fn wrap_request_v2(
         }
         crate::proxy::pipeline::InboundThinkingPipeline::process_contents(
             contents,
-            crate::proxy::pipeline::ProxyProtocol::GeminiNative,
             &final_model_name,
             should_inject,
             session_id,

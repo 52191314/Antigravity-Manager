@@ -220,6 +220,15 @@ mod tests {
         assert!(!gpt.is_claude());
         assert!(gpt.is_non_gemini());
         assert_eq!(gpt.max_output_tokens, Some(32768));
+
+        // 大小写不同的精确名仍然命中同一条
+        let g38_case = OfficialModelCatalog::get("Gemini-3.8-Flash-High").unwrap();
+        assert_eq!(g38_case.model, "MODEL_PLACEHOLDER_M318");
+
+        // 空名、短名、以及只是包含已知键的近邻名必须未命中，避免随机选中别的结构体
+        assert!(OfficialModelCatalog::get("").is_none());
+        assert!(OfficialModelCatalog::get("flash").is_none());
+        assert!(OfficialModelCatalog::get("gemini-2.5-flash-lite-preview").is_none());
     }
 
     #[test]

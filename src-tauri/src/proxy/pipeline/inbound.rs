@@ -432,8 +432,6 @@ impl InboundThinkingPipeline {
                     }
 
                     *parts = new_parts;
-                }
-
                 // 全协议通用工具回执与多模态解构治理（无论当前外层 role 是 user 还是 model）：
                 // 1. 若客户端回传的 functionCall.args 为 JSON 字符串，尝试反序列化为 Object，防上游 400
                 // 2. 若客户端回传的 functionResponse.response 为非 Object，自动包装为 {"output": response}
@@ -452,6 +450,15 @@ impl InboundThinkingPipeline {
                         }
                     }
                     if let Some(fr) = part.get_mut("functionResponse") {
+                        let tool_name =
+                            fr.get("name").and_then(Value::as_str).unwrap_or_default();
+                        // 对齐官方原生 IDE：终端执行与代码/文件工具输出必须 100% 保持纯文本透传，
+                        // 绝不提取多模态，杜绝代码/日志被误切为坏图片导致上游 400
+                        if crate::proxy::mappers::common_utils::is_terminal_or_code_tool(
+                            tool_name,
+                        ) {
+                            continue;
+                        }
                         if let Some(resp) = fr.get_mut("response") {
                             if !resp.is_object() {
                                 *resp = json!({ "output": resp.clone() });
@@ -1885,6 +1892,45 @@ mod tests {
             .unwrap();
         assert!(!output_text.contains(fake_b64));
         assert!(output_text.contains("[Image: forwarded to visual input (image/png)]"));
+    }
+
+    #[test]
+    fn test_inbound_pipeline_never_lifts_images_from_terminal_tools() {
+        let fake_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        let mut contents = vec![json!({
+            "role": "user",
+            "parts": [{
+                "functionResponse": {
+                    "name": "run_command",
+                    "response": {
+                        "output": format!("image_url prefix: data:image/png;base64,{} len: 100", fake_b64)
+                    }
+                }
+            }]
+        })];
+
+        InboundThinkingPipeline::process_contents(
+            &mut contents,
+            "gemini-2.5-flash",
+            false,
+            None,
+            false,
+        );
+
+        let parts = contents[0]["parts"].as_array().expect("parts array");
+        assert_eq!(
+            parts.len(),
+            1,
+            "Terminal command output must remain 100% text without lifting inlineData"
+        );
+        assert!(parts[0].get("functionResponse").is_some());
+        let output_text = parts[0]["functionResponse"]["response"]["output"]
+            .as_str()
+            .unwrap();
+        assert!(
+            output_text.contains(fake_b64),
+            "Terminal command output must be 100% transparent and untainted"
+        );
     }
 
     #[test]

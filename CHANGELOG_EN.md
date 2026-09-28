@@ -3,6 +3,11 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.5-beta.5 (2026-09-28)**:
+        -   **[Official Model Catalog Resilience & Deserialization Hardening] Support Heterogeneous thinkingLevel Formats and Guard Against Catalog Parsing Failures**:
+            -   **Flexible String Deserializer (`de_flexible_string`)**: Added a flexible deserializer supporting strings, numeric levels (e.g. `thinkingLevel: 3` emitted by Google's `fetchAvailableModels` for `gemini-2.5-flash`), and `null` values, preventing catalog deserialization errors caused by upstream type mismatches.
+            -   **Defensive Catalog Fallback**: Enhanced `official_models.json` parsing with robust error handling, gracefully falling back to default model structures with structured error logging instead of panicking on malformed upstream manifests.
+
     *   **v4.8.5-beta.4 (2026-09-28)**:
         -   **[Model Routing & Thinking Budget Deep Alignment] Dynamic Effort-Based Routing for 3.X Flash Bare Models, Tiered Preservation & Official Budget Infilling**:
             -   **Dynamic Effort Routing for Bare 3.X Flash Models**: When clients request bare Flash models (`gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3-flash`, etc.), the gateway intelligently routes to the canonical variant based on the client's reasoning effort (`reasoning_effort` / `effort` / `thinkingLevel`):

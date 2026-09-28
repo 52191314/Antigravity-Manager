@@ -1425,7 +1425,7 @@
       "upstream_request_payload": "Forwarded Request Payload",
       "concise_mode": "Concise Mode",
       "full_mode": "Full Mode",
-      "concise_desc": "Tool arguments and verbose metadata are omitted, highlighting thinking, tokens, and messages",
+      "concise_desc": "Keeps the outbound payload hierarchy, with id, model, thinking config, system prompt, conversation, and tools first. Bulky inline data is omitted.",
       "search_placeholder": "Search payload...",
       "search_placeholder_with_shortcut": "Search payload... (Enter next, Shift+Enter prev)",
       "case_sensitive": "Match Case",

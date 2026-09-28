@@ -1389,7 +1389,7 @@
       "upstream_request_payload": "전달 페이로드 (Forwarded)",
       "concise_mode": "간약 모드",
       "full_mode": "전체 모드",
-      "concise_desc": "도구 매개변수와 중복 필드를 생략하고 생각 블록, 사용량 및 대화 내용을 강조합니다.",
+      "concise_desc": "전달 페이로드의 계층을 유지하고, ID·모델·사고 설정·시스템 프롬프트·대화·도구를 앞에 둡니다. 이미지 등 큰 데이터는 생략합니다.",
       "search_placeholder": "페이로드 검색...",
       "search_placeholder_with_shortcut": "페이로드 검색... (Enter 다음, Shift+Enter 이전)",
       "case_sensitive": "대소문자 구분",

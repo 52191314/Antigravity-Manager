@@ -1475,7 +1475,7 @@
       "payload_empty": "无数据",
       "concise_mode": "简要模式",
       "full_mode": "完整模式",
-      "concise_desc": "已为您精简工具参数与冗余字段，突出思考块、用量与对话主体",
+      "concise_desc": "保留转出报文的原始层级，并将标识、模型、思考配置、系统提示词、对话与工具前置；图片等大体积内容已省略",
       "search_placeholder": "搜索此报文...",
       "search_placeholder_with_shortcut": "搜索此报文... (Enter 下一个, Shift+Enter 上一个)",
       "case_sensitive": "区分大小写",

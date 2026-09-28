@@ -3,6 +3,11 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.5-beta.10 (2026-09-29)**:
+        -   **[Claude Signature Anchor] Keep the signature on the first non-thought part, and add the IDE capture (Thanks to @jeikl)**:
+            -   **Claude and Gemini use different anchors**: For Claude, `thoughtSignature` stays on the first non-thought part of the turn. If visible text comes first, the signature stays on that text and is not moved onto a later `functionCall` or onto the thought block. Gemini is unchanged: a tool call carries the signature on the first `functionCall`; a text-only turn carries it on the text; thought text is not replayed.
+            -   **IDE capture**: `docs/claude样本.txt` now appends an IDE session after the desktop payload. The thought block is kept, and the signature sits on the text, not on the call.
+
     *   **v4.8.5-beta.9 (2026-09-28)**:
         -   **[Desktop Capture Take-Less and Tool-Output Images] Drop toolConfig injection and name-sorting, keep signatures on the first non-thought part, and stop extracting images by tool name (PR #3544, Thanks to @jeikl)**:
             -   **No toolConfig, client tool order kept**: Windows desktop agent payloads have no `toolConfig` and are not sorted by name. The gateway no longer injects `VALIDATED`. One function per declaration object remains, in client order.

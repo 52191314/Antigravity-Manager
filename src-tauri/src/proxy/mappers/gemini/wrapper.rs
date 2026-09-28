@@ -61,7 +61,6 @@ pub fn wrap_request_v2(
     // [FIX #1522] Inject dummy IDs for Claude models in Gemini protocol
     let is_target_claude = final_model_name.to_lowercase().contains("claude");
 
-
     let lower_model = final_model_name.to_lowercase();
     let tb_config = crate::proxy::config::get_thinking_budget_config();
     let is_client_control =
@@ -1750,7 +1749,6 @@ mod tests {
             "Should NOT contain googleSearch due to functionDeclarations presence (preventing client tool dispatch conflicts)"
         );
     }
-
 
     #[test]
     fn test_gemini_anthropic_alignment_thinking_and_signatures() {

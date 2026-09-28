@@ -684,7 +684,6 @@ pub async fn handle_messages(
     // 若在此处注入 "[System: Tool execution completed...]" 等合成消息，会导致对话历史前缀在轮次间突变，
     // 进而彻底破坏 Google Gemini 上游的 Prompt Caching（缓存崩塌）。
 
-
     // ===== [Issue #467 Fix] 拦截 Claude Code Warmup 请求 =====
     // Claude Code 会每 10 秒发送一次 warmup 请求来保持连接热身，
     // 这些请求会消耗大量配额。检测到 warmup 请求后直接返回模拟响应。
@@ -962,7 +961,6 @@ pub async fn handle_messages(
 
         // 方案 A：移除后台任务静默降级策略，请求直通客户端指定的模型，与 OpenAI 协议保持一致
         let mut request_with_mapped = request_for_body.clone();
-
 
         // [FIX] Estimate AFTER purification to get accurate token count for calibrator learning
         let raw_estimated = ContextManager::estimate_token_usage(&request_with_mapped);

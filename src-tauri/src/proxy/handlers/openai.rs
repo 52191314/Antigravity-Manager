@@ -3765,7 +3765,6 @@ pub async fn handle_completions(
     // SignatureCache. OpenAI mapping ignores client/cached reasoning text and fills
     // placeholders via ThinkingStore hydrate + finalize instead.
 
-
     let effort_hint = openai_req
         .reasoning_effort
         .as_deref()
@@ -3808,7 +3807,6 @@ pub async fn handle_completions(
         }
     }
     let token_manager = state.token_manager.clone();
-
 
     let assistant_turn_index = openai_req
         .messages

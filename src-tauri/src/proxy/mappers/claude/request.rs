@@ -1694,7 +1694,8 @@ fn build_tools(
         };
         // 只有搜索工具时，改映射为上游 googleSearch，不进客户端函数列表。
         // 旁边还有 Bash/Read 等函数工具时，web_search 与其他协议一样留在 functionDeclarations。
-        let search_only = !tools_list.is_empty() && tools_list.iter().all(|tool| is_search_tool(tool));
+        let search_only =
+            !tools_list.is_empty() && tools_list.iter().all(|tool| is_search_tool(tool));
 
         for tool in tools_list {
             if search_only && is_search_tool(tool) {

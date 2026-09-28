@@ -1111,9 +1111,7 @@ mod tests {
     #[test]
     fn gemini_parallel_calls_are_not_trimmed() {
         let fc = |id: &str| json!({"functionCall": {"id": id, "name": "tool", "args": {}}});
-        let fr = |id: &str| {
-            json!({"functionResponse": {"id": id, "name": "tool", "response": {"result": "ok"}}})
-        };
+        let fr = |id: &str| json!({"functionResponse": {"id": id, "name": "tool", "response": {"result": "ok"}}});
         let mut body = json!({
             "contents": [
                 {"role": "user", "parts": [{"text": "go"}]},

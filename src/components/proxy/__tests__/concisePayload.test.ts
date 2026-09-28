@@ -2,7 +2,6 @@
  * 简要模式必须保留转出报文层级，只把核心段落提前。
  * Run: npx tsx src/components/proxy/__tests__/concisePayload.test.ts
  */
-import assert from 'node:assert/strict';
 import { extractConcisePayload } from '../concisePayload';
 
 let passed = 0;
@@ -20,9 +19,25 @@ function test(description: string, fn: () => void): void {
     }
 }
 
+function assertEqual<T>(actual: T, expected: T): void {
+    if (actual !== expected) {
+        throw new Error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    }
+}
+
+function assertDeepEqual(actual: unknown, expected: unknown): void {
+    const left = JSON.stringify(actual);
+    const right = JSON.stringify(expected);
+    if (left !== right) {
+        throw new Error(`expected ${right}, got ${left}`);
+    }
+}
+
 function keys(value: unknown): string[] {
-    assert.ok(value && typeof value === 'object' && !Array.isArray(value));
-    return Object.keys(value as object);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`expected object, got ${JSON.stringify(value)}`);
+    }
+    return Object.keys(value);
 }
 
 test('官方信封：思考配置留在 generationConfig 内，系统提示词保留 role', () => {
@@ -77,7 +92,7 @@ test('官方信封：思考配置留在 generationConfig 内，系统提示词�
 
     const out = JSON.parse(extractConcisePayload(JSON.stringify(raw), 'upstream'));
 
-    assert.deepEqual(keys(out), [
+    assertDeepEqual(keys(out), [
         'requestId',
         'model',
         'request',
@@ -85,12 +100,12 @@ test('官方信封：思考配置留在 generationConfig 内，系统提示词�
         'userAgent',
         'requestType',
     ]);
-    assert.equal(out._session_thinking_id, undefined);
-    assert.equal(out.thinkingConfig, undefined);
-    assert.equal(out.model, 'gemini-3.8-flash-high');
-    assert.equal(out.requestId, raw.requestId);
+    assertEqual(out._session_thinking_id, undefined);
+    assertEqual(out.thinkingConfig, undefined);
+    assertEqual(out.model, 'gemini-3.8-flash-high');
+    assertEqual(out.requestId, raw.requestId);
 
-    assert.deepEqual(keys(out.request), [
+    assertDeepEqual(keys(out.request), [
         'generationConfig',
         'systemInstruction',
         'contents',
@@ -98,16 +113,16 @@ test('官方信封：思考配置留在 generationConfig 内，系统提示词�
         'labels',
         'sessionId',
     ]);
-    assert.deepEqual(keys(out.request.generationConfig), ['maxOutputTokens', 'thinkingConfig']);
-    assert.equal(out.request.generationConfig.maxOutputTokens, 65536);
-    assert.deepEqual(out.request.generationConfig.thinkingConfig, {
+    assertDeepEqual(keys(out.request.generationConfig), ['maxOutputTokens', 'thinkingConfig']);
+    assertEqual(out.request.generationConfig.maxOutputTokens, 65536);
+    assertDeepEqual(out.request.generationConfig.thinkingConfig, {
         includeThoughts: true,
         thinkingBudget: -1,
     });
-    assert.deepEqual(keys(out.request.systemInstruction), ['role', 'parts']);
-    assert.equal(out.request.systemInstruction.role, 'user');
-    assert.equal(out.request.systemInstruction.parts[0].text, 'You are a coding agent.');
-    assert.deepEqual(keys(out.request.labels), [
+    assertDeepEqual(keys(out.request.systemInstruction), ['role', 'parts']);
+    assertEqual(out.request.systemInstruction.role, 'user');
+    assertEqual(out.request.systemInstruction.parts[0].text, 'You are a coding agent.');
+    assertDeepEqual(keys(out.request.labels), [
         'last_step_index',
         'model_enum',
         'request_id',
@@ -116,13 +131,13 @@ test('官方信封：思考配置留在 generationConfig 内，系统提示词�
         'used_claude_conservative',
         'used_non_gemini_model',
     ]);
-    assert.equal(out.request.contents[1].parts[0].thoughtSignature, 'sig');
-    assert.deepEqual(keys(out.request.contents[1].parts[0]), ['thought', 'text', 'thoughtSignature']);
-    assert.equal(out.request.contents[1].parts[1].functionCall.name, 'view_file');
-    assert.equal(out.request.tools[0].functionDeclarations[0].parameters.properties.path.type, 'STRING');
-    assert.equal(out.project, 'aicode-consumers');
-    assert.equal(out.userAgent, 'antigravity');
-    assert.equal(out.requestType, 'agent');
+    assertEqual(out.request.contents[1].parts[0].thoughtSignature, 'sig');
+    assertDeepEqual(keys(out.request.contents[1].parts[0]), ['thought', 'text', 'thoughtSignature']);
+    assertEqual(out.request.contents[1].parts[1].functionCall.name, 'view_file');
+    assertEqual(out.request.tools[0].functionDeclarations[0].parameters.properties.path.type, 'STRING');
+    assertEqual(out.project, 'aicode-consumers');
+    assertEqual(out.userAgent, 'antigravity');
+    assertEqual(out.requestType, 'agent');
 });
 
 test('扁平 Gemini 报文不把 thinkingConfig 抬到根上，也不丢掉 role', () => {
@@ -137,17 +152,17 @@ test('扁平 Gemini 报文不把 thinkingConfig 抬到根上，也不丢掉 role
         tools: [{ functionDeclarations: [{ name: 'bash' }] }],
     };
     const out = JSON.parse(extractConcisePayload(JSON.stringify(raw), 'request'));
-    assert.deepEqual(keys(out), [
+    assertDeepEqual(keys(out), [
         'model',
         'generationConfig',
         'systemInstruction',
         'contents',
         'tools',
     ]);
-    assert.equal(out.thinkingConfig, undefined);
-    assert.equal(out._session_thinking_id, undefined);
-    assert.equal(out.generationConfig.thinkingConfig.thinkingBudget, -1);
-    assert.equal(out.systemInstruction.role, 'user');
+    assertEqual(out.thinkingConfig, undefined);
+    assertEqual(out._session_thinking_id, undefined);
+    assertEqual(out.generationConfig.thinkingConfig.thinkingBudget, -1);
+    assertEqual(out.systemInstruction.role, 'user');
 });
 
 test('根上若本就有 requestId，用原字段名前置，不改写成 _session_thinking_id', () => {
@@ -161,8 +176,8 @@ test('根上若本就有 requestId，用原字段名前置，不改写成 _sessi
         systemInstruction: { role: 'user', parts: [{ text: 'sys' }] },
     };
     const out = JSON.parse(extractConcisePayload(JSON.stringify(raw), 'upstream'));
-    assert.deepEqual(keys(out), ['requestId', 'model', 'generationConfig', 'systemInstruction']);
-    assert.equal(out.requestId, raw.requestId);
+    assertDeepEqual(keys(out), ['requestId', 'model', 'generationConfig', 'systemInstruction']);
+    assertEqual(out.requestId, raw.requestId);
 });
 
 test('Claude / OpenAI 客户端字段保持各自层级', () => {
@@ -175,9 +190,9 @@ test('Claude / OpenAI 客户端字段保持各自层级', () => {
         tools: [{ name: 'bash', input_schema: { type: 'object' } }],
     };
     const out = JSON.parse(extractConcisePayload(JSON.stringify(claude), 'request'));
-    assert.deepEqual(keys(out), ['model', 'thinking', 'system', 'messages', 'tools', 'max_tokens']);
-    assert.deepEqual(out.thinking, { type: 'enabled', budget_tokens: 1024 });
-    assert.equal(out.tools[0].input_schema.type, 'object');
+    assertDeepEqual(keys(out), ['model', 'thinking', 'system', 'messages', 'tools', 'max_tokens']);
+    assertDeepEqual(out.thinking, { type: 'enabled', budget_tokens: 1024 });
+    assertEqual(out.tools[0].input_schema.type, 'object');
 
     const responses = {
         model: 'gpt-5',
@@ -186,9 +201,9 @@ test('Claude / OpenAI 客户端字段保持各自层级', () => {
         max_output_tokens: 1024,
     };
     const responsesOut = JSON.parse(extractConcisePayload(JSON.stringify(responses), 'request'));
-    assert.deepEqual(keys(responsesOut), ['model', 'instructions', 'input', 'max_output_tokens']);
-    assert.equal(responsesOut.instructions, 'You are Codex.');
-    assert.equal(responsesOut.input[0].content, 'hi');
+    assertDeepEqual(keys(responsesOut), ['model', 'instructions', 'input', 'max_output_tokens']);
+    assertEqual(responsesOut.instructions, 'You are Codex.');
+    assertEqual(responsesOut.input[0].content, 'hi');
 });
 
 test('只替换 inline base64，不改动所在层级', () => {
@@ -205,7 +220,7 @@ test('只替换 inline base64，不改动所在层级', () => {
         ],
     };
     const out = JSON.parse(extractConcisePayload(JSON.stringify(raw), 'request'));
-    assert.deepEqual(out.contents[0].parts[1].inlineData, {
+    assertDeepEqual(out.contents[0].parts[1].inlineData, {
         mimeType: 'image/png',
         data: '[base64 image: 4 bytes]',
     });
@@ -226,12 +241,14 @@ test('响应报文不拆掉 candidates 层级', () => {
         modelVersion: 'gemini-3.8-flash-high',
     };
     const out = JSON.parse(extractConcisePayload(JSON.stringify(raw), 'response'));
-    assert.equal(out.thinking, undefined);
-    assert.equal(out.content, undefined);
-    assert.equal(out.candidates[0].content.parts[1].text, 'answer');
-    assert.equal(out.usageMetadata.promptTokenCount, 10);
-    assert.deepEqual(keys(out), ['candidates', 'usageMetadata', 'modelVersion']);
+    assertEqual(out.thinking, undefined);
+    assertEqual(out.content, undefined);
+    assertEqual(out.candidates[0].content.parts[1].text, 'answer');
+    assertEqual(out.usageMetadata.promptTokenCount, 10);
+    assertDeepEqual(keys(out), ['candidates', 'usageMetadata', 'modelVersion']);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
+if (failed > 0) {
+    throw new Error(`${failed} test(s) failed`);
+}

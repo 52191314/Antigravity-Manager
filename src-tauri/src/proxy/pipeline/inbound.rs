@@ -526,7 +526,10 @@ impl InboundThinkingPipeline {
         }
 
         fn kind_of(content: &Value) -> BlockKind {
-            let role = content.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+            let role = content
+                .get("role")
+                .and_then(|r| r.as_str())
+                .unwrap_or("user");
             let Some(parts) = content.get("parts").and_then(|p| p.as_array()) else {
                 return BlockKind::Other;
             };
@@ -551,10 +554,8 @@ impl InboundThinkingPipeline {
         let mut merged_count = 0usize;
         for content in contents.drain(..) {
             let kind = kind_of(&content);
-            let can_absorb = kind != BlockKind::Other
-                && merged
-                    .last()
-                    .is_some_and(|prev| kind_of(prev) == kind);
+            let can_absorb =
+                kind != BlockKind::Other && merged.last().is_some_and(|prev| kind_of(prev) == kind);
             if can_absorb {
                 let prev = merged.last_mut().unwrap();
                 if kind == BlockKind::Model {
@@ -2300,7 +2301,10 @@ mod tests {
         assert_eq!(contents[0]["parts"].as_array().unwrap().len(), 2);
         assert_eq!(contents[1]["role"], "model");
         let parts = contents[1]["parts"].as_array().unwrap();
-        assert!(parts[0].get("thought").and_then(|v| v.as_bool()).unwrap_or(false));
+        assert!(parts[0]
+            .get("thought")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false));
         assert_eq!(parts[1]["text"], "I'll look.");
         assert_eq!(parts[2]["functionCall"]["name"], "tool_a");
         assert_eq!(parts[3]["functionCall"]["name"], "tool_b");
@@ -2325,9 +2329,11 @@ mod tests {
         assert_eq!(fr_parts[0]["functionResponse"]["id"], "c1");
         assert_eq!(fr_parts[1]["functionResponse"]["id"], "c2");
         assert!(contents.iter().all(|content| {
-            content["parts"].as_array().unwrap().iter().all(|part| {
-                part["functionResponse"]["id"].as_str() != Some("orphan")
-            })
+            content["parts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|part| part["functionResponse"]["id"].as_str() != Some("orphan"))
         }));
     }
 }

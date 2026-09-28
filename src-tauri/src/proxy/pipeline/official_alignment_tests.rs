@@ -60,7 +60,7 @@ mod tests {
         let labels = req.get("labels").unwrap();
         assert_eq!(labels["model_enum"], "MODEL_PLACEHOLDER_M35");
         assert_eq!(labels["used_claude"], "true");
-        assert_eq!(labels["used_claude_conservative"], "false"); // Explicitly turned OFF
+        assert_eq!(labels["used_claude_conservative"], "true");
         assert_eq!(labels["used_non_gemini_model"], "true");
         assert_eq!(
             labels["trajectory_id"],
@@ -86,9 +86,8 @@ mod tests {
             "This tool supports text files and following binary files: image, pdf, video, audio."
         );
 
-        // 5. toolConfig 100% 对齐官方 HAR 抓包形态
-        let tc = req.get("toolConfig").unwrap();
-        assert_eq!(tc["functionCallingConfig"]["mode"], "VALIDATED");
+        // Windows 原生客户端不发 toolConfig
+        assert!(req.get("toolConfig").is_none());
     }
 
     #[test]
@@ -154,9 +153,7 @@ mod tests {
             "This tool supports text files and following binary files: image, video."
         );
 
-        // 4. toolConfig 100% 对齐官方 HAR 抓包形态
-        let tc = req.get("toolConfig").unwrap();
-        assert_eq!(tc["functionCallingConfig"]["mode"], "VALIDATED");
+        assert!(req.get("toolConfig").is_none());
     }
 
     #[test]

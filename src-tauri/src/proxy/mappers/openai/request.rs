@@ -724,14 +724,10 @@ pub fn transform_openai_request_with_session(
 
                 let content_val = match &msg.content {
                     Some(OpenAIContent::String(s)) => {
-                        if crate::proxy::mappers::common_utils::is_terminal_or_code_tool(final_name) {
-                            s.clone()
-                        } else {
-                            crate::proxy::mappers::common_utils::extract_multimodal_from_tool_text(
-                                s,
-                                &mut extra_parts,
-                            )
-                        }
+                        crate::proxy::mappers::common_utils::extract_multimodal_from_tool_text(
+                            s,
+                            &mut extra_parts,
+                        )
                     }
                     Some(OpenAIContent::Array(blocks)) => {
                         let mut texts = Vec::new();
@@ -1209,12 +1205,7 @@ pub fn transform_openai_request_with_session(
         }
     } // end if !tools_layer_hit (includes the sort and insert below)
 
-    // [CACHE] 按 function name 稳定排序，确保跨请求的 tool schema 字节一致
-    function_declarations.sort_by(|a, b| {
-        let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        name_a.cmp(name_b)
-    });
+    // 保持客户端工具声明原序。按 name 重排会改掉前缀字节，Windows 原生客户端没有这一步。
 
     // Removed auto-inject since we handle it above now if Codex passes it.
 

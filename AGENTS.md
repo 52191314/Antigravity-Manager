@@ -12,6 +12,7 @@
   - *Prompt Sanitization Example*: For agent-client prompt sanitization, prioritize regex-based pattern matching over static keyword replacement, ensuring full coverage without stripping pipeline system prompts or user queries.
 - **Formatting & CI Discipline**:
   - **Unit Testing**: Keep focused — run targeted tests for touched modules locally; CI compiles test targets without executing them. Skip tests for trivial edits (constants, prompts, or config tweaks). No need to run the full suite locally.
+  - **Local Test Discretion**: For strings, constants, hardcoded values, or other trivial edits, ask after the task whether a small functional check is wanted rather than testing on your own. Self-test only when four or more core backend or frontend interaction files are involved; hardcoded-only edits do not count as core-file changes. In general, follow the user's preference on whether to test.
   - **Pre-flight Checks**: Run the essentials before submitting PRs or release tags:
     - `cd src-tauri && cargo fmt -- --check` (for Rust edits)
     - `cd src-tauri && cargo clippy --all-targets --all-features` (comprehensive Rust gate, already includes compilation — no separate `cargo check` needed)

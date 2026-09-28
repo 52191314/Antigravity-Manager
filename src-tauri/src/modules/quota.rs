@@ -31,7 +31,7 @@ const RETRY_DELAY_SECS: u64 = 30;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct QuotaResponse {
-    models: std::collections::HashMap<String, ModelInfo>,
+    models: std::collections::HashMap<String, crate::models::OfficialModelInfo>,
     #[serde(rename = "deprecatedModelIds")]
     deprecated_model_ids: Option<std::collections::HashMap<String, DeprecatedModelInfo>>,
 }
@@ -40,35 +40,6 @@ struct QuotaResponse {
 struct DeprecatedModelInfo {
     #[serde(rename = "newModelId")]
     new_model_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ModelInfo {
-    #[serde(rename = "quotaInfo")]
-    quota_info: Option<QuotaInfo>,
-    #[serde(rename = "displayName")]
-    display_name: Option<String>,
-    #[serde(rename = "supportsImages")]
-    supports_images: Option<bool>,
-    #[serde(rename = "supportsThinking")]
-    supports_thinking: Option<bool>,
-    #[serde(rename = "thinkingBudget")]
-    thinking_budget: Option<i32>,
-    recommended: Option<bool>,
-    #[serde(rename = "maxTokens")]
-    max_tokens: Option<i32>,
-    #[serde(rename = "maxOutputTokens")]
-    max_output_tokens: Option<i32>,
-    #[serde(rename = "supportedMimeTypes")]
-    supported_mime_types: Option<std::collections::HashMap<String, bool>>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct QuotaInfo {
-    #[serde(rename = "remainingFraction")]
-    remaining_fraction: Option<f64>,
-    #[serde(rename = "resetTime")]
-    reset_time: Option<String>,
 }
 
 // ---- retrieveUserQuotaSummary 响应反序列化结构 ----
@@ -392,6 +363,9 @@ pub async fn fetch_quota_with_cache(
                 // Use debug level for detailed info to avoid console noise
                 tracing::debug!("Quota API returned {} models", quota_response.models.len());
 
+                // 动态更新官方全量模型结构体目录缓存
+                crate::models::OfficialModelCatalog::update(quota_response.models.clone());
+
                 for (name, info) in quota_response.models {
                     if let Some(quota_info) = info.quota_info {
                         let percentage = quota_info
@@ -415,10 +389,11 @@ pub async fn fetch_quota_with_cache(
                                 display_name: info.display_name,
                                 supports_images: info.supports_images,
                                 supports_thinking: info.supports_thinking,
-                                thinking_budget: info.thinking_budget,
+                                thinking_budget: info.thinking_budget.map(|v| v as i32),
                                 recommended: info.recommended,
-                                max_tokens: info.max_tokens,
-                                max_output_tokens: info.max_output_tokens,
+                                max_tokens: info.max_tokens.map(|v| v as i32),
+                                max_output_tokens: info.max_output_tokens.map(|v| v as i32),
+                                model: Some(info.model),
                                 supported_mime_types: info.supported_mime_types,
                             };
                             quota_data.add_model(model_quota);

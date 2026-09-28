@@ -204,6 +204,18 @@ export default function ThinkingBudget({
         }
     }, [config]);
 
+    // 内存思考轮次与持久化天数输入框本地文本状态，允许自由编辑退格，失焦时自动校验归一化
+    const [memoryTurnsInput, setMemoryTurnsInput] = useState<string>(() => String(thinkingMaxMemoryTurns));
+    const [retentionDaysInput, setRetentionDaysInput] = useState<string>(() => String(thinkingRetentionDays));
+
+    useEffect(() => {
+        setMemoryTurnsInput(String(thinkingMaxMemoryTurns));
+    }, [thinkingMaxMemoryTurns]);
+
+    useEffect(() => {
+        setRetentionDaysInput(String(thinkingRetentionDays));
+    }, [thinkingRetentionDays]);
+
     const handleControlSourceChange = (source: ThinkingControlSource) => {
         onChange({
             ...currentConfig,
@@ -526,11 +538,23 @@ export default function ThinkingBudget({
                                         max={10000}
                                         step={50}
                                         className="input input-xs input-bordered w-20 text-center font-mono font-bold bg-gray-50 dark:bg-base-200 text-gray-900 dark:text-white"
-                                        value={thinkingMaxMemoryTurns}
+                                        value={memoryTurnsInput}
                                         onChange={(e) => {
-                                            const val = parseInt(e.target.value, 10);
-                                            if (!isNaN(val)) {
-                                                onThinkingMaxMemoryTurnsChange(Math.max(10, Math.min(10000, val)));
+                                            setMemoryTurnsInput(e.target.value);
+                                        }}
+                                        onBlur={() => {
+                                            const val = parseInt(memoryTurnsInput, 10);
+                                            if (isNaN(val)) {
+                                                setMemoryTurnsInput(String(thinkingMaxMemoryTurns));
+                                            } else {
+                                                const clamped = Math.max(10, Math.min(10000, val));
+                                                setMemoryTurnsInput(String(clamped));
+                                                onThinkingMaxMemoryTurnsChange(clamped);
+                                            }
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                (e.target as HTMLInputElement).blur();
                                             }
                                         }}
                                     />
@@ -570,11 +594,23 @@ export default function ThinkingBudget({
                                         min={1}
                                         max={365}
                                         className="input input-xs input-bordered w-20 text-center font-mono font-bold bg-gray-50 dark:bg-base-200 text-gray-900 dark:text-white"
-                                        value={thinkingRetentionDays}
+                                        value={retentionDaysInput}
                                         onChange={(e) => {
-                                            const val = parseInt(e.target.value, 10);
-                                            if (!isNaN(val)) {
-                                                onThinkingRetentionDaysChange(Math.max(1, Math.min(365, val)));
+                                            setRetentionDaysInput(e.target.value);
+                                        }}
+                                        onBlur={() => {
+                                            const val = parseInt(retentionDaysInput, 10);
+                                            if (isNaN(val)) {
+                                                setRetentionDaysInput(String(thinkingRetentionDays));
+                                            } else {
+                                                const clamped = Math.max(1, Math.min(365, val));
+                                                setRetentionDaysInput(String(clamped));
+                                                onThinkingRetentionDaysChange(clamped);
+                                            }
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                (e.target as HTMLInputElement).blur();
                                             }
                                         }}
                                     />

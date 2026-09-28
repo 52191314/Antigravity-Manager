@@ -165,7 +165,7 @@ export default function ApiProxy() {
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState<string | null>(null);
     const [selectedProtocol, setSelectedProtocol] = useState<'openai' | 'anthropic' | 'gemini'>('openai');
-    const [selectedModelId, setSelectedModelId] = useState('gemini-3-flash');
+    const [selectedModelId, setSelectedModelId] = useState('gemini-3.8-flash-tiered');
     const [zaiAvailableModels, setZaiAvailableModels] = useState<string[]>([]);
     const [zaiModelsLoading, setZaiModelsLoading] = useState(false);
     const [, setZaiModelsError] = useState<string | null>(null);
@@ -551,7 +551,7 @@ export default function ApiProxy() {
                 "gemini-3.8-flash": "gemini-3.8-flash-tiered",
                 "gemini-3.x-flash": "3.x-flash-tiered",
                 "gpt-4*": "gemini-3.1-pro-high",
-                "gpt-4o*": "gemini-3-flash",
+                "gpt-4o*": "gemini-3.8-flash-tiered",
                 "gpt-3.5*": "gemini-2.5-flash",
                 "o1-*": "gemini-3.1-pro-high",
                 "o3-*": "gemini-3.1-pro-high",
@@ -569,7 +569,7 @@ export default function ApiProxy() {
             mappings: {
                 "gpt-4*": "claude-opus-4-6-thinking",
                 "gpt-4o*": "claude-sonnet-4-6",
-                "gpt-3.5*": "gemini-3-flash",
+                "gpt-3.5*": "gemini-3.8-flash-tiered",
                 "o1-*": "claude-opus-4-6-thinking",
                 "o3-*": "claude-opus-4-6-thinking",
                 "claude-3-5-sonnet-*": "claude-sonnet-4-6",
@@ -584,14 +584,14 @@ export default function ApiProxy() {
             name: t('proxy.router.preset_cost'),
             description: t('proxy.router.preset_cost_desc'),
             mappings: {
-                "gpt-4*": "gemini-3-flash",
+                "gpt-4*": "gemini-3.8-flash-tiered",
                 "gpt-4o*": "gemini-2.5-flash",
                 "gpt-3.5*": "gemini-2.5-flash",
-                "o1-*": "gemini-3-flash",
-                "o3-*": "gemini-3-flash",
-                "claude-3-5-sonnet-*": "gemini-3-flash",
-                "claude-3-opus-*": "gemini-3-flash",
-                "claude-opus-4-*": "gemini-3-flash", // Cost-effective: map all opus 4 to flash
+                "o1-*": "gemini-3.8-flash-tiered",
+                "o3-*": "gemini-3.8-flash-tiered",
+                "claude-3-5-sonnet-*": "gemini-3.8-flash-tiered",
+                "claude-3-opus-*": "gemini-3.8-flash-tiered",
+                "claude-opus-4-*": "gemini-3.8-flash-tiered",
                 "claude-haiku-*": "gemini-2.5-flash",
                 "claude-3-haiku-*": "gemini-2.5-flash",
             }
@@ -602,14 +602,14 @@ export default function ApiProxy() {
             description: t('proxy.router.preset_balanced_desc'),
             mappings: {
                 "gpt-4*": "gemini-3.1-pro-high",
-                "gpt-4o*": "gemini-3-flash",
+                "gpt-4o*": "gemini-3.8-flash-tiered",
                 "gpt-3.5*": "gemini-2.5-flash",
                 "o1-*": "claude-sonnet-4-6",
                 "o3-*": "claude-sonnet-4-6",
                 "claude-3-5-sonnet-*": "claude-sonnet-4-6",
                 "claude-3-opus-*": "gemini-3.1-pro-high",
                 "claude-opus-4-5*": "gemini-3.1-pro-high",
-                "claude-opus-4-6*": "claude-opus-4-6-thinking", // Balanced: Keep 4.6 as itself (or map to high?) Let's map to itself for now to utilize header
+                "claude-opus-4-6*": "claude-opus-4-6-thinking",
                 "claude-haiku-*": "gemini-2.5-flash",
                 "claude-3-haiku-*": "gemini-2.5-flash",
             }

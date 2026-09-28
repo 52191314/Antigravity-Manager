@@ -8,6 +8,8 @@
 //! 出站不设统一流水线，保持协议发散的灵活性与流式稳定性。
 
 pub mod inbound;
+#[cfg(test)]
+mod official_alignment_tests;
 pub mod policy;
 pub mod usage;
 

@@ -1289,8 +1289,10 @@ pub fn transform_openai_request_with_session(
 
     // [CACHE] 重建 inner_request 字段顺序——稳定前缀在前，动态内容在后
     // [CACHE] 统一委托进站流水线进行前缀拓扑规范化与对齐（Pipeline First 核心归一）
-    crate::proxy::pipeline::InboundThinkingPipeline::align_google_request_prefix_topology(
+    crate::proxy::pipeline::InboundThinkingPipeline::align_google_request_prefix_topology_with_model(
         &mut inner_request,
+        &config.final_model,
+        None,
     );
     let reordered_request = inner_request;
 

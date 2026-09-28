@@ -95,7 +95,14 @@ impl InboundThinkingPipeline {
         // 将 `functionCall.id` 与 `functionResponse.id` 统一对齐为带 `_` 的标准形态 (`call_...`)。
         Self::normalize_tool_call_ids(contents);
 
-        // 0.1 统一上下文结构对齐（Pipeline First 统一治理）：
+        // 0.1 连续工具调用轮次合并（Pipeline First 统一治理）：
+        // 当客户端将并行工具调用拆散为多个连续的 assistant/model 轮次时，
+        // 必须将其合并为一个单一的 model content 轮次。
+        // 遵循 Google v1internal 规则：一个 model 轮次内仅首个部件需带签名，后续部件可不带签名；
+        // 若拆为多个 model 轮次，后续轮次将因缺失独立签名被直接拒收 400。
+        Self::merge_consecutive_function_call_turns(contents);
+
+        // 0.2 统一上下文结构对齐（Pipeline First 统一治理）：
         // 将连续的 user 消息直到下一个 model，统一合并为一个 user 轮次的多个 block (parts)，保持严格顺序。
         // 这彻底消除了 Adapter 层各自为政导致的轮次错位，使得四大协议进入流水线后结构 100% 同构！
         // 连续 user 轮**保持独立**（对齐官方形态）。
@@ -518,33 +525,76 @@ impl InboundThinkingPipeline {
         normalized_count
     }
 
-    /// 把工具回执（`functionResponse`）轮的 role 归一化为官方 Antigravity 形态。
+    /// 连续工具调用轮次合并（Pipeline First 统一治理）：
+    /// 当客户端将并行工具调用拆为多个连续的 assistant/model 轮次时，
+    /// 统一合并为一个单一的 model content 轮次。
+    /// 遵循 Google v1internal 规则：一个 model 轮次内仅首个部件需带签名，后续部件可不带签名；
+    /// 若拆为多个 model 轮次，后续轮次将因缺失独立签名被直接拒收 400。
+    pub fn merge_consecutive_function_call_turns(contents: &mut Vec<Value>) -> usize {
+        fn is_pure_tool_call_turn(content: &Value) -> bool {
+            let role = content.get("role").and_then(|r| r.as_str());
+            if !matches!(role, Some("model") | Some("assistant")) {
+                return false;
+            }
+            let parts = match content.get("parts").and_then(|p| p.as_array()) {
+                Some(p) if !p.is_empty() => p,
+                _ => return false,
+            };
+            let has_fc = parts.iter().any(|p| p.get("functionCall").is_some());
+            let has_plain_text = parts.iter().any(|p| {
+                p.get("functionCall").is_none()
+                    && p.get("functionResponse").is_none()
+                    && !crate::proxy::thinking_store::is_thought_part(p)
+                    && p.get("text").and_then(|t| t.as_str()).map_or(false, |s| {
+                        !crate::proxy::thinking_store::is_placeholder_thought(s)
+                            && !s.trim().is_empty()
+                    })
+            });
+            has_fc && !has_plain_text
+        }
+
+        let mut merged: Vec<Value> = Vec::with_capacity(contents.len());
+        let mut merged_count = 0;
+
+        for content in contents.drain(..) {
+            if is_pure_tool_call_turn(&content) {
+                if let Some(prev) = merged.last_mut() {
+                    if is_pure_tool_call_turn(prev) {
+                        if let (Some(prev_parts), Some(curr_parts)) = (
+                            prev.get_mut("parts").and_then(|p| p.as_array_mut()),
+                            content.get("parts").and_then(|p| p.as_array()),
+                        ) {
+                            for part in curr_parts {
+                                if !crate::proxy::thinking_store::is_thought_part(part) {
+                                    prev_parts.push(part.clone());
+                                }
+                            }
+                            merged_count += 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+            merged.push(content);
+        }
+        *contents = merged;
+        merged_count
+    }
+
+    /// 把工具回执（`functionResponse`）轮的 role 归一化为官方 Antigravity 形态，并将连续回执合并打包。
     ///
     /// **官方形态**（3 份实样本逐字核对）：`functionResponse` 恒位于 `role: "model"` 的
     /// content 中，紧跟同 role 的 `functionCall` content 之后。
-    /// 而 Gemini 原生协议与四大客户端协议都把工具回执放在 `role: "user"`。
+    /// 当上一轮为并行工具调用时，所有的工具回执无条件封装在**同一个单一的 `role: "model"` content 块中**。
+    /// 而 Gemini 原生协议与四大客户端协议都把工具回执放在 `role: "user"`，OpenAI 更把并行回执分拆为多条消息。
     ///
-    /// **实测**（2026-09-26，`gemini-3.8-flash-tiered` @ daily，魔数回执判据）：
+    /// **核心签名校验机理**：
+    /// Google v1internal 强制要求：一个 model 轮次内仅首个部件需带签名，后续部件可不带签名；
+    /// 但若分拆为多个独立 content 块，上游会判定每一个独立的 model 轮次都必须携带签名！
+    /// 回执部件本身绝不携带签名，故多个分散的回执 content 块必然触发 400 校验终止。
+    /// 将连续回执无条件聚合在同一个 content 块内，不仅与官方报文 100% 结构同构，而且彻底消除了签名报错根源！
     ///
-    /// ```text
-    /// fr @ role:user             → 200，回执被正确消费
-    /// fr @ role:model            → 200，回执被正确消费
-    /// fc + fr 同 content @ model → 200，回执被正确消费
-    /// ```
-    ///
-    /// 上游对两种 role **完全宽容**。故本归一化是「对齐官方形态 + 稳定前缀字节」，
-    /// 而不是「修复 400」；同时天然**向下兼容** user / model 两种入站形态。
-    ///
-    /// 行为：
-    ///
-    /// 1. 纯回执轮（parts 含 `functionResponse`，且无非回执 part）→ 就地改为 `role: "model"`；
-    /// 2. 混合轮（回执与可见文本同处一轮）→ 按 part 类型切段，回执段归 `model`、
-    ///    其余段保持原 role，**part 相对顺序与 content 相对顺序原样保持**；
-    /// 3. 已在 `model` 轮内的回执不动（幂等）；无回执的轮次完全不碰；
-    /// 4. `inlineData` 视为「随行媒体」——跟随其前驱 part 的族群，
-    ///    避免把 `user [inlineData, text]`（用户发图提问）误判为回执轮。
-    ///
-    /// 返回被改写的 content 数。
+    /// 返回被改写与合并的 content 数。
     pub fn normalize_function_response_roles(contents: &mut Vec<Value>) -> usize {
         /// part 是否携带工具回执本体。
         fn has_fr(p: &Value) -> bool {
@@ -640,7 +690,43 @@ impl InboundThinkingPipeline {
             rewritten += 1;
         }
 
-        *contents = out;
+        // 连续纯回执轮统一聚合（无条件对齐官方形态 + 消除多 content 独立校验签名报错）：
+        // 在官方 Antigravity 报文以及 Google v1internal 规范中，并行调用的所有工具回执必须封装在同一个单一的 `role: "model"` content 块中。
+        // 将连续的纯工具回执轮（含随行媒体）全部无条件合并进首个回执轮的 parts 中。
+        let mut merged: Vec<Value> = Vec::with_capacity(out.len());
+        for content in out {
+            let is_pure_response = content
+                .get("parts")
+                .and_then(|p| p.as_array())
+                .map_or(false, |parts| {
+                    !parts.is_empty() && parts.iter().all(|p| has_fr(p) || is_media(p))
+                });
+
+            if is_pure_response {
+                if let Some(prev) = merged.last_mut() {
+                    let prev_is_pure_response = prev
+                        .get("parts")
+                        .and_then(|p| p.as_array())
+                        .map_or(false, |parts| {
+                            !parts.is_empty() && parts.iter().all(|p| has_fr(p) || is_media(p))
+                        });
+
+                    if prev_is_pure_response {
+                        if let (Some(prev_parts), Some(curr_parts)) = (
+                            prev.get_mut("parts").and_then(|p| p.as_array_mut()),
+                            content.get("parts").and_then(|p| p.as_array()),
+                        ) {
+                            prev_parts.extend(curr_parts.clone());
+                            rewritten += 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+            merged.push(content);
+        }
+
+        *contents = merged;
         rewritten
     }
 
@@ -765,7 +851,33 @@ impl InboundThinkingPipeline {
             "includeThoughts": true
         });
 
-        if let Some(budget) = resolved_budget {
+        // 统一从官方模型结构体中读取权威默认值
+        let official_info = crate::models::OfficialModelCatalog::get(target_model);
+
+        // 如果官方模型结构体明确不支持思考（如纯图片生成模型），则不注入 thinkingConfig
+        if let Some(ref info) = official_info {
+            if info.supports_thinking == Some(false) {
+                if let Some(obj) = generation_config.as_object_mut() {
+                    obj.remove("thinkingConfig");
+                    obj.remove("thinking_config");
+                }
+                return None;
+            }
+        }
+
+        // 用户核心要求：
+        // "如果我网关模式的思考预算填-1 我的策略是不填模型预算。其实是不对的
+        // 应该是如果网关模式都填了-1 应该默认走官方模型结构体的默认值"
+        let final_budget = match resolved_budget {
+            Some(b) if b >= 0 => Some(b),
+            _ => {
+                // 网关模式下未显式配置自定义正数预算（填了 -1 或 Default 默认模式）：
+                // 默认走官方模型结构体的默认值 (official_model.thinking_budget)
+                official_info.as_ref().and_then(|info| info.thinking_budget)
+            }
+        };
+
+        if let Some(budget) = final_budget {
             if budget == 0 {
                 tc = json!({
                     "thinkingBudget": 0
@@ -773,21 +885,27 @@ impl InboundThinkingPipeline {
             } else {
                 tc["thinkingBudget"] = json!(budget);
 
-                // 确保 maxOutputTokens 大于 thinkingBudget 避免 400
-                let min_overhead = 8192;
-                let current_max = generation_config
-                    .get("maxOutputTokens")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(65536);
-                if current_max <= budget {
-                    generation_config["maxOutputTokens"] = json!(budget + min_overhead);
+                // 确保 maxOutputTokens 大于 thinkingBudget 避免 400 (仅当 budget > 0 时)
+                if budget > 0 {
+                    let min_overhead = 8192;
+                    let current_max = generation_config
+                        .get("maxOutputTokens")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(65536);
+                    if current_max <= budget {
+                        generation_config["maxOutputTokens"] = json!(budget + min_overhead);
+                    }
                 }
             }
+            generation_config["thinkingConfig"] = tc;
+            return Some(budget);
         } else if is_tiered {
-            // Tiered 模型未指定具体数字 budget 时，纯自适应模式：不注入 thinkingBudget
+            // Tiered 模型未指定具体数字 budget 且官方结构体无 thinking_budget 时：纯自适应模式
             tc = json!({
                 "includeThoughts": true
             });
+            generation_config["thinkingConfig"] = tc;
+            return None;
         }
 
         generation_config["thinkingConfig"] = tc;
@@ -819,7 +937,45 @@ impl InboundThinkingPipeline {
     /// 5. generationConfig: 吸收根节点 thinkingConfig，配齐 maxOutputTokens: 65536，杜绝伪造 topK/topP
     /// 6. sessionId: 会话标识
     /// 7. 严格顺序重组: contents -> systemInstruction -> tools -> labels -> generationConfig -> sessionId -> 其余
+    /// 从官方 requestId（形如 agent/<conv_id>/<timestamp>/<trajectory_id>/<step>）提取 trajectory_id，
+    /// 若无法提取则生成全新的标准 UUID
+    fn extract_or_generate_trajectory_id(
+        top_request_id: Option<&str>,
+        session_id: Option<&str>,
+    ) -> String {
+        if let Some(rid) = top_request_id {
+            let parts: Vec<&str> = rid.split('/').collect();
+            if parts.len() >= 5 && !parts[3].is_empty() {
+                return parts[3].to_string();
+            }
+        }
+        if let Some(sid) = session_id {
+            if sid.len() >= 32 && sid.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+                return sid.to_string();
+            }
+        }
+        uuid::Uuid::new_v4().to_string()
+    }
+
+    /// 统一对齐与规范化 Google Request 内部拓扑结构与稳定前缀（Pipeline First 核心归一）
     pub fn align_google_request_prefix_topology(inner_request: &mut Value) {
+        Self::align_google_request_prefix_topology_with_model(inner_request, "", None);
+    }
+
+    /// 支持传入 target_model 与 top_request_id 的增强版拓扑对齐:
+    /// 对齐官方标准:
+    /// 1. contents: 强行复位至最首位
+    /// 2. systemInstruction: 统一为 { role: "user", parts: [...] }
+    /// 3. tools: 拆解为单函数独立对象 [ { functionDeclarations: [single_decl] } ]，按 name 升序排序，对齐 Claude/Gemini 多模态能力描述
+    /// 4. labels: 官方模型标签，对齐 Claude 与 Gemini 家族的专属特征 (model_enum, used_claude, used_claude_conservative, used_non_gemini_model)
+    /// 5. generationConfig: 吸收根节点 thinkingConfig，按模型设置 maxOutputTokens (Claude: 64000, Gemini: 65536)，保留既有思考预算
+    /// 6. sessionId: 会话标识
+    /// 7. 严格顺序重组: contents -> systemInstruction -> tools -> labels -> generationConfig -> sessionId -> 其余
+    pub fn align_google_request_prefix_topology_with_model(
+        inner_request: &mut Value,
+        target_model: &str,
+        top_request_id: Option<&str>,
+    ) {
         let req_obj = match inner_request.as_object_mut() {
             Some(o) => o,
             None => return,
@@ -885,6 +1041,7 @@ impl InboundThinkingPipeline {
                                             params,
                                         );
                                     }
+
                                     decls_list.push(Value::Object(decl_obj));
                                 }
                             }
@@ -923,8 +1080,108 @@ impl InboundThinkingPipeline {
         req_obj.remove("toolConfig");
         req_obj.remove("tool_config");
 
-        // 4. labels 提取保留
-        let canonical_labels = req_obj.remove("labels");
+        // 4. labels 提取保留与官方模型家族严密对齐:
+        let mut canonical_labels = req_obj.remove("labels");
+
+        let mut labels_map = canonical_labels
+            .as_ref()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+
+        let step_idx_str = labels_map
+            .get("last_step_index")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                // 1. 优先从 top_request_id (形如 agent/.../.../<traj>/<step>) 解析 step 编号:
+                // last_step_index 即为上一步已完成的索引 (step - 1)
+                if let Some(rid) = top_request_id {
+                    let parts: Vec<&str> = rid.split('/').collect();
+                    if parts.len() >= 5 {
+                        if let Ok(step) = parts[4].parse::<u64>() {
+                            return step.saturating_sub(1).to_string();
+                        }
+                    }
+                }
+                // 2. 备用从 contents 历史对话中计算已完成的模型轮次数 (每轮 model 即为一个已完成 step)
+                let model_turns = canonical_contents
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter(|c| c.get("role").and_then(|r| r.as_str()) == Some("model"))
+                            .count()
+                    })
+                    .unwrap_or(0);
+                model_turns.to_string()
+            });
+
+        let traj_id = labels_map
+            .get("trajectory_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                Self::extract_or_generate_trajectory_id(
+                    top_request_id,
+                    req_obj.get("sessionId").and_then(|v| v.as_str()),
+                )
+            });
+
+        let req_id_in_labels = labels_map
+            .get("request_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("{}-{}", traj_id, step_idx_str));
+
+        labels_map.insert("last_step_index".to_string(), json!(step_idx_str));
+        labels_map.insert("request_id".to_string(), json!(req_id_in_labels));
+        labels_map.insert("trajectory_id".to_string(), json!(traj_id));
+
+        // 动态根据用户请求的目标模型 ID 从官方模型结构体中提取模型代号与元数据
+        let official_model = crate::models::OfficialModelCatalog::get(target_model)
+            .unwrap_or_else(crate::models::OfficialModelCatalog::default_model);
+
+        let model_code = official_model.model.as_str();
+        let is_claude = official_model.is_claude();
+        let is_non_gemini = official_model.is_non_gemini();
+
+        let has_valid_model_enum = labels_map
+            .get("model_enum")
+            .and_then(|v| v.as_str())
+            .map_or(false, |s| !s.is_empty());
+        if !has_valid_model_enum {
+            labels_map.insert("model_enum".to_string(), json!(model_code));
+        }
+
+        labels_map.insert(
+            "used_claude".to_string(),
+            json!(if is_claude { "true" } else { "false" }),
+        );
+        // 遵照指令: Claude 保守策略风控开关这个关掉 (false)
+        labels_map.insert("used_claude_conservative".to_string(), json!("false"));
+        labels_map.insert(
+            "used_non_gemini_model".to_string(),
+            json!(if is_non_gemini { "true" } else { "false" }),
+        );
+
+        // 按照官方标准排布 labels 键序 (字母顺序)
+        let mut ordered_labels = serde_json::Map::new();
+        for key in &[
+            "last_step_index",
+            "model_enum",
+            "request_id",
+            "trajectory_id",
+            "used_claude",
+            "used_claude_conservative",
+            "used_non_gemini_model",
+        ] {
+            if let Some(val) = labels_map.remove(*key) {
+                ordered_labels.insert((*key).to_string(), val);
+            }
+        }
+        for (k, v) in labels_map {
+            ordered_labels.insert(k, v);
+        }
+        canonical_labels = Some(Value::Object(ordered_labels));
 
         // 5. thinkingConfig 归一吸收与 generationConfig 拓扑对齐:
         // 如果 inner_request 根节点携带 thinkingConfig / thinking_config (如 JeikCode 客户端行为)，
@@ -951,8 +1208,16 @@ impl InboundThinkingPipeline {
             }
         }
 
-        // 官方标准：存在 thinkingConfig 时必须配齐 maxOutputTokens: 65536
-        if gc_obj.contains_key("thinkingConfig") && !gc_obj.contains_key("maxOutputTokens") {
+        // 官方标准：从官方模型结构体中动态读取 maxOutputTokens
+        // 用户规则明确指出："思考预算你不用动" (保持既有 thinkingConfig 预算)
+        if let Some(official_max_output) = official_model.max_output_tokens {
+            if !gc_obj.contains_key("maxOutputTokens")
+                || (is_claude
+                    && gc_obj.get("maxOutputTokens").and_then(Value::as_i64) == Some(65536))
+            {
+                gc_obj.insert("maxOutputTokens".to_string(), json!(official_max_output));
+            }
+        } else if gc_obj.contains_key("thinkingConfig") && !gc_obj.contains_key("maxOutputTokens") {
             gc_obj.insert("maxOutputTokens".to_string(), json!(65536));
         }
 
@@ -1066,13 +1331,26 @@ impl InboundThinkingPipeline {
 
         // 6. 处理 model
         let model = body_obj.remove("model");
+        let model_str = model
+            .as_ref()
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let top_rid_str = request_id
+            .as_ref()
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         // 7. 处理 requestType
         let mut request_type = body_obj.remove("requestType");
 
         // 8. 规范化内部 request
         if let Some(inner_req) = body_obj.get_mut("request") {
-            Self::align_google_request_prefix_topology(inner_req);
+            Self::align_google_request_prefix_topology_with_model(
+                inner_req,
+                &model_str,
+                top_rid_str.as_deref(),
+            );
 
             // 若 requestType 缺失，根据 tools 或 contents 判定是否为 agent 请求
             if request_type.is_none() {
@@ -1109,7 +1387,11 @@ impl InboundThinkingPipeline {
             }
         } else {
             // 如果顶层没有 request 包装，直接规范化 body 自身
-            Self::align_google_request_prefix_topology(body);
+            Self::align_google_request_prefix_topology_with_model(
+                body,
+                &model_str,
+                top_rid_str.as_deref(),
+            );
             return;
         }
 
@@ -1849,6 +2131,68 @@ mod tests {
         let n = InboundThinkingPipeline::normalize_function_response_roles(&mut contents);
         assert_eq!(n, 0);
         assert_eq!(contents[0]["role"], "user");
+    }
+
+    /// 连续纯回执轮合并：来自 OpenAI 等客户端的分离回执消息统一合并为单一 model content 块。
+    #[test]
+    fn test_fr_role_consecutive_responses_merged_into_single_model_turn() {
+        let mut contents = vec![
+            json!({"role": "user", "parts": [{"text": "run both"}]}),
+            json!({"role": "model", "parts": [fc_part("c1", "list_dir"), fc_part("c2", "run_command")]}),
+            json!({"role": "user", "parts": [fr_part("c1", "list_dir")]}),
+            json!({"role": "user", "parts": [fr_part("c2", "run_command")]}),
+            json!({"role": "model", "parts": [{"text": "all done"}]}),
+        ];
+        let _ = InboundThinkingPipeline::normalize_function_response_roles(&mut contents);
+        // contents[0]: user[text]
+        // contents[1]: model[fc1, fc2]
+        // contents[2]: model[fr1, fr2] (合并)
+        // contents[3]: model[text: "all done"]
+        assert_eq!(contents.len(), 4, "连续的 2 个回执应合并为 1 个 model 轮次");
+        assert_eq!(contents[2]["role"], "model");
+        let parts = contents[2]["parts"].as_array().unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["functionResponse"]["name"], "list_dir");
+        assert_eq!(parts[1]["functionResponse"]["name"], "run_command");
+        assert_eq!(contents[3]["role"], "model");
+        assert_eq!(contents[3]["parts"][0]["text"], "all done");
+    }
+
+    /// 已在 model 轮次内的连续回执亦必须合并为一个 content 块。
+    #[test]
+    fn test_fr_role_consecutive_model_responses_merged_into_single_turn() {
+        let mut contents = vec![
+            json!({"role": "user", "parts": [{"text": "go"}]}),
+            json!({"role": "model", "parts": [fc_part("c1", "view_file")]}),
+            json!({"role": "model", "parts": [fr_part("c1", "view_file")]}),
+            json!({"role": "model", "parts": [fr_part("c2", "run_command")]}),
+        ];
+        let _ = InboundThinkingPipeline::normalize_function_response_roles(&mut contents);
+        assert_eq!(contents.len(), 3, "2 个连续 model 回执轮应合并为 1 个");
+        assert_eq!(contents[2]["role"], "model");
+        let parts = contents[2]["parts"].as_array().unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["functionResponse"]["name"], "view_file");
+        assert_eq!(parts[1]["functionResponse"]["name"], "run_command");
+    }
+
+    /// 连续工具调用轮次合并测试：多个独立的 model 工具调用轮合并为单个 model 轮次
+    #[test]
+    fn test_fc_role_consecutive_tool_call_turns_merged() {
+        let mut contents = vec![
+            json!({"role": "user", "parts": [{"text": "parallel tools"}]}),
+            json!({"role": "model", "parts": [fc_part("c1", "tool_a")]}),
+            json!({"role": "model", "parts": [fc_part("c2", "tool_b")]}),
+            json!({"role": "user", "parts": [fr_part("c1", "tool_a"), fr_part("c2", "tool_b")]}),
+        ];
+        let n = InboundThinkingPipeline::merge_consecutive_function_call_turns(&mut contents);
+        assert_eq!(n, 1);
+        assert_eq!(contents.len(), 3);
+        assert_eq!(contents[1]["role"], "model");
+        let parts = contents[1]["parts"].as_array().unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["functionCall"]["name"], "tool_a");
+        assert_eq!(parts[1]["functionCall"]["name"], "tool_b");
     }
 
     /// 测试工具调用与回执 ID 统一归一化为 call_ 规范形态

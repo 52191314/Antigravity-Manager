@@ -750,8 +750,10 @@ pub fn transform_claude_request_in_timed(
         super::super::common_utils::resolve_official_fingerprint(token);
 
     // [CACHE] 统一委托进站流水线进行前缀拓扑规范化与对齐（Pipeline First 核心归一）
-    crate::proxy::pipeline::InboundThinkingPipeline::align_google_request_prefix_topology(
+    crate::proxy::pipeline::InboundThinkingPipeline::align_google_request_prefix_topology_with_model(
         &mut inner_request,
+        &config.final_model,
+        Some(&request_id),
     );
     let reordered_inner = inner_request;
 

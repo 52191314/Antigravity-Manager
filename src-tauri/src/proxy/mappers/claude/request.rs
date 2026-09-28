@@ -1325,10 +1325,16 @@ fn build_contents(
 
                         let mut merged_content = match content {
                             serde_json::Value::String(s) => {
-                                crate::proxy::mappers::common_utils::extract_multimodal_from_tool_text(
-                                    s,
-                                    &mut extra_parts,
-                                )
+                                if crate::proxy::mappers::common_utils::is_terminal_or_code_tool(
+                                    &func_name,
+                                ) {
+                                    s.clone()
+                                } else {
+                                    crate::proxy::mappers::common_utils::extract_multimodal_from_tool_text(
+                                        s,
+                                        &mut extra_parts,
+                                    )
+                                }
                             }
                             serde_json::Value::Array(arr) => {
                                 let mut texts = Vec::new();

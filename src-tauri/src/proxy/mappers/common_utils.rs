@@ -1276,15 +1276,38 @@ pub fn is_supported_tool_image_mime(mime: &str) -> bool {
     SUPPORTED_TOOL_IMAGE_MIMES.contains(&lower.as_str())
 }
 
+/// 判断工具名称是否为通用终端执行或文件操作类工具（其 stdout / 结果均为纯文本，对齐官方原生绝对不抽取多模态）
+#[inline]
+pub fn is_terminal_or_code_tool(name: &str) -> bool {
+    let lower = name.trim().to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "run_command"
+            | "exec_command"
+            | "bash"
+            | "sh"
+            | "terminal"
+            | "local_shell_call"
+            | "grep_search"
+            | "view_file"
+            | "read_file"
+            | "list_dir"
+            | "replace_file_content"
+            | "multi_replace_file_content"
+            | "write_to_file"
+    )
+}
+
 /// 智能解析并提取工具输出中的多模态图像数据（全协议共享：OpenAI / Claude / Gemini / Responses）。
 /// 支持：
 /// 1. Markdown 格式图片：`![alt](data:image/...;base64,...)`
-/// 2. 文本中内嵌或直接传递的 Data URL：`data:image/...;base64,...`
+/// 2. 文本中内嵌或直接传递的独立完整 Data URL：`data:image/...;base64,...`
 /// 3. JSON 格式工具输出中的图片字段：`{"image": "data:image/...", ...}` 或 `{"screenshot": "...", ...}`
 ///
 /// 安全约束：
 /// - 仅严格识别并放行常见白名单图片格式（png, jpeg, webp, gif）；
-/// - 绝对不处理音频、视频、PDF、文本或二进制文件，保证非图片数据原样透传，杜绝破坏兼容性；
+/// - 对齐官方原生 IDE：纯文本输出、终端 stdout 与代码片段 100% 保持原始透传，坚决杜绝在普通文本中进行模糊切词；
+/// - 只有显式 JSON 字段、独立完整 Data URL 或标准 Markdown 图片语法才允许提取，且必须通过 Magic Bytes 文件头验证；
 /// - 自动将提取出的 Base64 图像转化为规范的 Gemini `inlineData` part，追加到 `extra_parts` 中；
 /// - 将原工具响应字符串中冗长庞大的 Base64 替换为精炼的摘要标记（如 `[Image: forwarded to visual input (image/png)]`），
 ///   既避免了 `functionResponse` JSON 负载膨胀，又让底层视觉模型能够原汁原味地进行视觉感知。
@@ -1334,62 +1357,68 @@ pub fn extract_multimodal_from_tool_text(raw_text: &str, extra_parts: &mut Vec<V
         }
     }
 
-    // 2. 检测 Markdown 图片格式：![alt](data:image/...) 或文本内嵌的 data:image/
-    let mut clean_text = String::new();
-    let mut rest = raw_text;
-    let mut found_image = false;
-
-    while let Some(start_idx) = rest.find("data:image/") {
-        clean_text.push_str(&rest[..start_idx]);
-        let data_slice = &rest[start_idx..];
-
-        if let Some(comma_idx) = data_slice.find(',') {
-            let mime_part = &data_slice[5..comma_idx];
+    // 2. 如果整段文本本身就是一个独立的 Data URL：data:image/png;base64,...
+    let trimmed = raw_text.trim();
+    if trimmed.starts_with("data:image/") {
+        if let Some(pos) = trimmed.find(',') {
+            let mime_part = &trimmed[5..pos];
             let mime_type = mime_part.split(';').next().unwrap_or("image/png");
-
-            // 严格白名单校验：非白名单图片（如 svg/tiff/未知）或伪装格式不予解构，直接作为普通文本保留
-            if !is_supported_tool_image_mime(mime_type) {
-                clean_text.push_str("data:image/");
-                rest = &data_slice["data:image/".len()..];
-                continue;
+            if is_supported_tool_image_mime(mime_type) {
+                let b64_data = &trimmed[pos + 1..];
+                if let Some((valid_mime, valid_b64)) =
+                    validate_and_sanitize_inline_data(Some(mime_type), b64_data)
+                {
+                    extra_parts.push(create_gemini_inline_part(
+                        Some(&valid_mime),
+                        &valid_b64,
+                        "Tool Result Image",
+                    ));
+                    return format!("[Image: forwarded to visual input ({})]", valid_mime);
+                }
             }
-
-            let b64_start = comma_idx + 1;
-            let b64_end = data_slice[b64_start..]
-                .find(|c: char| c.is_whitespace() || c == ')' || c == '"' || c == '\'' || c == '`')
-                .map(|idx| b64_start + idx)
-                .unwrap_or(data_slice.len());
-
-            let b64_data = &data_slice[b64_start..b64_end];
-            if let Some((valid_mime, valid_b64)) =
-                validate_and_sanitize_inline_data(Some(mime_type), b64_data)
-            {
-                extra_parts.push(create_gemini_inline_part(
-                    Some(&valid_mime),
-                    &valid_b64,
-                    "Tool Result Image",
-                ));
-                clean_text.push_str(&format!(
-                    "[Image: forwarded to visual input ({})]",
-                    valid_mime
-                ));
-                found_image = true;
-            } else {
-                clean_text.push_str(&data_slice[..b64_end]);
-            }
-            rest = &data_slice[b64_end..];
-        } else {
-            clean_text.push_str("data:image/");
-            rest = &data_slice["data:image/".len()..];
         }
     }
-    clean_text.push_str(rest);
 
-    if found_image {
-        clean_text
-    } else {
-        raw_text.to_string()
+    // 3. 严格检测 Markdown 图片语法：![alt](data:image/...;base64,...)
+    // 只有明确采用 Markdown 图片语法的结构才允许解构提取，绝不从普通文本/终端输出中模糊切词匹配
+    if let Ok(re) = regex::Regex::new(r"!\[.*?\]\(data:(image/[^;]+);base64,([a-zA-Z0-9+/=]+)\)") {
+        let mut clean_text = String::new();
+        let mut last_match = 0;
+        let mut found_image = false;
+
+        for cap in re.captures_iter(raw_text) {
+            let m = cap.get(0).unwrap();
+            let mime_type = cap.get(1).unwrap().as_str();
+            let b64_data = cap.get(2).unwrap().as_str();
+
+            if is_supported_tool_image_mime(mime_type) {
+                if let Some((valid_mime, valid_b64)) =
+                    validate_and_sanitize_inline_data(Some(mime_type), b64_data)
+                {
+                    clean_text.push_str(&raw_text[last_match..m.start()]);
+                    extra_parts.push(create_gemini_inline_part(
+                        Some(&valid_mime),
+                        &valid_b64,
+                        "Tool Result Image",
+                    ));
+                    clean_text.push_str(&format!(
+                        "[Image: forwarded to visual input ({})]",
+                        valid_mime
+                    ));
+                    last_match = m.end();
+                    found_image = true;
+                }
+            }
+        }
+
+        if found_image {
+            clean_text.push_str(&raw_text[last_match..]);
+            return clean_text;
+        }
     }
+
+    // 4. 普通纯文本（代码、日志、测试数据等）：对齐官方原生，100% 原始透传，绝不破坏文本内容
+    raw_text.to_string()
 }
 
 /// [FIX] Inject explicit tool mapping instructions for Gemini to read SKILL.md
@@ -1469,8 +1498,8 @@ pub fn validate_and_sanitize_inline_data(
         .unwrap_or(false);
 
     if !is_audio_or_video {
-        // For images/documents, require at least 5 decoded bytes and 8 base64 chars
-        if clean_b64.len() < 8 || decoded_bytes.len() < 5 {
+        // For images/documents, require at least 8 decoded bytes and 8 base64 chars
+        if clean_b64.len() < 8 || decoded_bytes.len() < 8 {
             return None;
         }
     }
@@ -1478,19 +1507,39 @@ pub fn validate_and_sanitize_inline_data(
     // Detect MIME from magic bytes if possible
     let inferred_mime = detect_mime_from_bytes(&decoded_bytes);
 
-    let final_mime = match (mime_type.map(str::trim), inferred_mime) {
-        (Some(m), _)
-            if !m.is_empty()
-                && (m.starts_with("image/")
-                    || m.starts_with("application/")
-                    || m.starts_with("audio/")
-                    || m.starts_with("video/")) =>
-        {
-            m.to_string()
+    // Enforce image magic bytes verification:
+    // If MIME is declared as image/*, or if no MIME was declared,
+    // the decoded bytes MUST match a known image magic signature (PNG, JPEG, GIF, WEBP, HEIC).
+    // Arbitrary text, corrupted data, or mismatched payloads must be rejected!
+    let final_mime = match (declared_mime, inferred_mime) {
+        // Image format: magic bytes MUST be detected and confirm it is an image
+        (Some(m), Some(inferred)) if m.starts_with("image/") => {
+            if inferred.starts_with("image/") {
+                inferred.to_string()
+            } else {
+                return None;
+            }
         }
-        (_, Some(inferred)) => inferred.to_string(),
-        (Some(m), _) if !m.is_empty() => m.to_string(),
-        _ => "image/jpeg".to_string(), // fallback default
+        (Some(m), None) if m.starts_with("image/") => {
+            // Declared as image, but magic bytes check failed (corrupted or fake image data!)
+            return None;
+        }
+        // PDF document: magic bytes must match %PDF-
+        (Some(m), Some(inferred)) if m == "application/pdf" => {
+            if inferred == "application/pdf" {
+                "application/pdf".to_string()
+            } else {
+                return None;
+            }
+        }
+        (Some(m), None) if m == "application/pdf" => {
+            return None;
+        }
+        // Audio / Video or other application payloads
+        (Some(m), _) if is_audio_or_video || m.starts_with("application/") => m.to_string(),
+        // No declared MIME, but magic bytes detected
+        (None, Some(inferred)) => inferred.to_string(),
+        _ => return None,
     };
 
     Some((final_mime, clean_b64.to_string()))
@@ -2103,5 +2152,52 @@ mod defense_tests {
             "JSON 中的音频字段绝对不能被误提取为多模态图片"
         );
         assert_eq!(res_json, json_audio);
+    }
+
+    #[test]
+    fn test_issue_3540_terminal_stdout_with_data_uri_untainted_and_magic_bytes_enforced() {
+        // 1. 终端 stdout 中打印带有截断或前缀的 data:image/ 文本（Issue #3540 典型场景）
+        // 绝不能被误判为图片，必须 100% 原始透传，extra_parts 必须为 0
+        let terminal_stdout =
+            "image_url prefix: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA... len: 1132114";
+        let mut parts = Vec::new();
+        let res = extract_multimodal_from_tool_text(terminal_stdout, &mut parts);
+        assert_eq!(parts.len(), 0, "终端 stdout 绝对不能被提取出 inlineData");
+        assert_eq!(res, terminal_stdout, "终端 stdout 必须 100% 原始透传");
+
+        // 2. 包含 mock 代码的终端文本
+        let code_stdout = "assert_eq!(val, \"data:image/png;base64,AQ==\"); // mock test";
+        let mut code_parts = Vec::new();
+        let code_res = extract_multimodal_from_tool_text(code_stdout, &mut code_parts);
+        assert_eq!(code_parts.len(), 0);
+        assert_eq!(code_res, code_stdout);
+
+        // 3. validate_and_sanitize_inline_data 严格校验图片文件头魔数 (Magic Bytes)
+        // 纯文本伪装成 image/png（例如 "Hello World 123" 的 Base64：SGVsbG8gV29ybGQgMTIz）
+        let text_b64 = "SGVsbG8gV29ybGQgMTIz";
+        assert_eq!(
+            validate_and_sanitize_inline_data(Some("image/png"), text_b64),
+            None,
+            "缺少 PNG 魔数的纯文本 Base64 必须被坚决拒收"
+        );
+        assert_eq!(
+            validate_and_sanitize_inline_data(Some("image/jpeg"), text_b64),
+            None,
+            "缺少 JPEG 魔数的纯文本 Base64 必须被坚决拒收"
+        );
+        assert_eq!(
+            validate_and_sanitize_inline_data(None, text_b64),
+            None,
+            "无 MIME 且无魔数的纯文本 Base64 必须被坚决拒收"
+        );
+
+        // 4. 终端/执行类工具白名单判定
+        assert!(is_terminal_or_code_tool("run_command"));
+        assert!(is_terminal_or_code_tool("bash"));
+        assert!(is_terminal_or_code_tool("exec_command"));
+        assert!(is_terminal_or_code_tool("terminal"));
+        assert!(is_terminal_or_code_tool("grep_search"));
+        assert!(is_terminal_or_code_tool("view_file"));
+        assert!(!is_terminal_or_code_tool("take_screenshot"));
     }
 }

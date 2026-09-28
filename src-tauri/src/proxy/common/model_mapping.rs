@@ -93,6 +93,88 @@ static CLAUDE_TO_GEMINI: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m
 });
 
+/// 旧客户端仍在请求带点号的 Claude 版本（`claude-opus-4.6`、`claude-sonnet-4.5`、
+/// `claude-open-4.x`）。服务端目录只认连字符形态（`claude-opus-4-6` 等）。
+/// 这里只改写 Claude ID：去掉供应商标前缀，把短版本号里的点换成连字符。
+fn canonicalize_claude_client_model_id(input: &str) -> String {
+    let mut id = input.trim().to_lowercase();
+    for prefix in ["anthropic/", "models/"] {
+        if let Some(rest) = id.strip_prefix(prefix) {
+            id = rest.to_string();
+        }
+    }
+    if id.contains("claude-open-") {
+        id = id.replace("claude-open-", "claude-opus-");
+    }
+    if !id.contains("claude") {
+        return input.trim().to_string();
+    }
+
+    let bytes = id.as_bytes();
+    let mut out = String::with_capacity(id.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_digit() {
+            let start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            if i < bytes.len() && bytes[i] == b'.' {
+                let dot = i;
+                let mut j = i + 1;
+                while j < bytes.len() && bytes[j].is_ascii_digit() {
+                    j += 1;
+                }
+                // 4.6 / 3.5 这类短版本号。八位日期里没有点，不会被改写。
+                if j > dot + 1 && j - (dot + 1) <= 2 {
+                    out.push_str(&id[start..dot]);
+                    out.push('-');
+                    out.push_str(&id[dot + 1..j]);
+                    i = j;
+                    continue;
+                }
+            }
+            out.push_str(&id[start..i]);
+        } else {
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Claude 主版本低于当前服务端基准 4.6 时，按家族收到 4-6。
+fn legacy_claude_family_target(id: &str) -> Option<&'static str> {
+    if !id.contains("claude") {
+        return None;
+    }
+    let mut version: Option<f32> = None;
+    let tokens: Vec<&str> = id.split('-').collect();
+    for window in tokens.windows(2) {
+        if let (Ok(major), Ok(minor)) = (window[0].parse::<u32>(), window[1].parse::<u32>()) {
+            if minor < 100 {
+                version = Some(major as f32 + (minor as f32) / 10.0);
+            }
+        }
+    }
+    let below_baseline = version.is_some_and(|ver| ver < 4.6);
+    if !below_baseline {
+        return None;
+    }
+    let thinking = id.contains("thinking");
+    if id.contains("opus") {
+        return Some("claude-opus-4-6-thinking");
+    }
+    if id.contains("sonnet") || id.contains("haiku") {
+        return Some(if thinking {
+            "claude-sonnet-4-6-thinking"
+        } else {
+            "claude-sonnet-4-6"
+        });
+    }
+    None
+}
+
 /// Map Claude model names to Gemini model names
 ///
 /// # 映射策略
@@ -100,13 +182,15 @@ static CLAUDE_TO_GEMINI: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
 /// 2. **已知前缀透传**: gemini-* 和 *-thinking 模型直接透传
 /// 3. **[NEW] 直接透传**: 未知模型 ID 直接传递给 Google API (支持体验未发布模型)
 pub fn map_claude_model_to_gemini(input: &str) -> String {
+    let canonical = canonicalize_claude_client_model_id(input);
+
     // 1. 精确匹配标准映射表
-    if let Some(mapped) = CLAUDE_TO_GEMINI.get(input) {
+    if let Some(mapped) = CLAUDE_TO_GEMINI.get(canonical.as_str()) {
         return mapped.to_string();
     }
 
     // 2. 兼容历史老版本 ID 重定向 (不泄漏到外部列表)
-    match input {
+    match canonical.as_str() {
         "claude-3-5-sonnet-20241022" | "claude-3-5-sonnet-20240620" | "claude-3-haiku-20240307" => {
             return "claude-sonnet-4-6".to_string()
         }
@@ -128,12 +212,19 @@ pub fn map_claude_model_to_gemini(input: &str) -> String {
         _ => {}
     }
 
+    if let Some(target) = legacy_claude_family_target(&canonical) {
+        return target.to_string();
+    }
+
     // 3. Known prefixes (gemini-, -thinking) pass-through
-    if input.starts_with("gemini-") || input.contains("thinking") {
-        return input.to_string();
+    if canonical.starts_with("gemini-") || canonical.contains("thinking") {
+        return canonical;
     }
 
     // 4. 直接透传未知模型 ID
+    if canonical.contains("claude") {
+        return canonical;
+    }
     input.to_string()
 }
 
@@ -596,6 +687,30 @@ mod tests {
         );
         assert_eq!(
             map_claude_model_to_gemini("claude-opus-4"),
+            "claude-opus-4-6-thinking"
+        );
+        assert_eq!(
+            map_claude_model_to_gemini("claude-opus-4.6"),
+            "claude-opus-4-6-thinking"
+        );
+        assert_eq!(
+            map_claude_model_to_gemini("claude-open-4.5"),
+            "claude-opus-4-6-thinking"
+        );
+        assert_eq!(
+            map_claude_model_to_gemini("anthropic/claude-sonnet-4.6"),
+            "claude-sonnet-4-6"
+        );
+        assert_eq!(
+            map_claude_model_to_gemini("claude-sonnet-4.6-thinking"),
+            "claude-sonnet-4-6-thinking"
+        );
+        assert_eq!(
+            map_claude_model_to_gemini("claude-haiku-4.5"),
+            "claude-sonnet-4-6"
+        );
+        assert_eq!(
+            map_claude_model_to_gemini("claude-opus-4-6-thinking"),
             "claude-opus-4-6-thinking"
         );
         // Test gemini pass-through (should not be caught by "mini" rule)

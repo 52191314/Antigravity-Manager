@@ -85,6 +85,10 @@ mod tests {
             view_file_desc,
             "This tool supports text files and following binary files: image, pdf, video, audio."
         );
+
+        // 5. toolConfig 100% 对齐官方 HAR 抓包形态
+        let tc = req.get("toolConfig").unwrap();
+        assert_eq!(tc["functionCallingConfig"]["mode"], "VALIDATED");
     }
 
     #[test]
@@ -149,6 +153,10 @@ mod tests {
             view_file_desc,
             "This tool supports text files and following binary files: image, video."
         );
+
+        // 4. toolConfig 100% 对齐官方 HAR 抓包形态
+        let tc = req.get("toolConfig").unwrap();
+        assert_eq!(tc["functionCallingConfig"]["mode"], "VALIDATED");
     }
 
     #[test]
@@ -225,6 +233,11 @@ mod tests {
         let g38_case = OfficialModelCatalog::get("Gemini-3.8-Flash-High").unwrap();
         assert_eq!(g38_case.model, "MODEL_PLACEHOLDER_M318");
 
+        // 7. Tab Flash Lite Preview (行内代码补全模型)
+        let tab = OfficialModelCatalog::get("tab_flash_lite_preview").unwrap();
+        assert_eq!(tab.model, "MODEL_PLACEHOLDER_M19");
+        assert_eq!(tab.max_output_tokens, Some(4096));
+
         // 空名、短名、以及只是包含已知键的近邻名必须未命中，避免随机选中别的结构体
         assert!(OfficialModelCatalog::get("").is_none());
         assert!(OfficialModelCatalog::get("flash").is_none());
@@ -233,7 +246,21 @@ mod tests {
 
     #[test]
     fn test_gateway_mode_negative_one_budget_fallback_to_official_default() {
+        use crate::proxy::config::{
+            update_thinking_budget_config, ThinkingBudgetConfig, TEST_CONFIG_LOCK,
+        };
         use crate::proxy::pipeline::inbound::ClientThinkingSwitch;
+
+        let _lock = TEST_CONFIG_LOCK.lock().unwrap();
+        update_thinking_budget_config(ThinkingBudgetConfig::default());
+
+        struct ResetGuard;
+        impl Drop for ResetGuard {
+            fn drop(&mut self) {
+                crate::proxy::config::update_thinking_budget_config(ThinkingBudgetConfig::default());
+            }
+        }
+        let _guard = ResetGuard;
 
         // 1. Gemini 3.8 Flash High -> official default thinking_budget is -1
         let mut gc_high = json!({});

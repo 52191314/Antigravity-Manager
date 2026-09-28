@@ -267,6 +267,20 @@
         }
       }
     },
+    "tab_flash_lite_preview": {
+      "maxTokens": 16384,
+      "maxOutputTokens": 4096,
+      "quotaInfo": {
+        "remainingFraction": 1
+      },
+      "model": "MODEL_PLACEHOLDER_M19",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE",
+      "supportsCumulativeContext": true,
+      "supportsEstimateTokenCounter": true,
+      "toolFormatterType": "TOOL_FORMATTER_TYPE_XML",
+      "requiresLeadInGeneration": true
+    },
     "tab_jump_flash_lite_preview": {
       "maxTokens": 16384,
       "maxOutputTokens": 4096,

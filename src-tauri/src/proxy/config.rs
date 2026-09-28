@@ -557,10 +557,10 @@ fn default_thinking_budget_mode() -> ThinkingBudgetMode {
 }
 
 fn default_flash_low() -> i32 {
-    1024
+    1000
 }
 fn default_flash_medium() -> i32 {
-    4096
+    4000
 }
 fn default_flash_high() -> i32 {
     -1
@@ -581,7 +581,7 @@ fn default_pro_high() -> i32 {
 }
 
 fn default_claude_budget() -> i32 {
-    16384
+    0 // 0 = 使用官方模型结构体的 thinking_budget 默认值，不强制设置
 }
 fn default_claude_low() -> i32 {
     1024

@@ -2162,7 +2162,7 @@ mod tests {
         assert_eq!(func_resp["id"], "call_1");
 
         // Verify merged content
-        let resp_text = func_resp["response"]["result"].as_str().unwrap();
+        let resp_text = func_resp["response"]["output"].as_str().unwrap();
         assert!(resp_text.contains("file1.txt"));
         assert!(resp_text.contains("file2.txt"));
         assert!(resp_text.contains("\n"));
@@ -2306,13 +2306,13 @@ mod tests {
             "thinkingConfig must be preserved per server-side thinking persistence policy"
         );
 
-        // 验证: 历史 Assistant 消息中补齐了思考块，避免上游 400
+        // 验证: 遵循纯净线缆原则，不凭空伪造虚假思考块，同时保持 thinkingConfig 开启
         let contents = request["contents"].as_array().expect("Contents array");
         let assistant_msg = &contents[1];
         let parts = assistant_msg["parts"].as_array().expect("Parts array");
         assert!(
-            parts.iter().any(|p| p.get("thought") == Some(&json!(true))),
-            "Assistant message must contain a thinking block"
+            parts.iter().all(|p| p.get("thought") != Some(&json!(true))),
+            "Assistant message without thinking should not have fake thinking injected"
         );
     }
 
@@ -2668,13 +2668,10 @@ mod tests {
 
         let result =
             transform_claude_request_in(&req, "test-v", false, None, "test_session", None).unwrap();
-        // [FIX] Since we removed the default 81920, maxOutputTokens should NOT be present
-        // when max_tokens is None and thinking is disabled
+        // Official pipeline topology populates official default maxOutputTokens (65536)
         let gen_config = &result["request"]["generationConfig"];
-        assert!(
-            gen_config.get("maxOutputTokens").is_none(),
-            "maxOutputTokens should not be set when max_tokens is None"
-        );
+        let max_output = gen_config.get("maxOutputTokens").and_then(Value::as_i64);
+        assert_eq!(max_output, Some(65536));
     }
     #[test]
     fn test_claude_flash_thinking_budget_capping() {
@@ -3212,9 +3209,10 @@ mod tests {
         let assistant_parts = contents[1]["parts"].as_array().expect("Assistant parts");
         assert_eq!(assistant_parts.len(), 2);
         assert_eq!(assistant_parts[0]["thought"], true);
-        assert_eq!(
-            assistant_parts[0]["thoughtSignature"],
-            "skip_thought_signature_validator"
+        assert!(
+            assistant_parts[0].get("thoughtSignature").is_none()
+                || assistant_parts[0]["thoughtSignature"].is_null(),
+            "Sentinel elimination: thoughtSignature must be absent when unsigned"
         );
         assert_eq!(
             assistant_parts[0]["text"],
@@ -3307,11 +3305,14 @@ mod tests {
         let assistant_parts = contents[1]["parts"].as_array().expect("Assistant parts");
         assert_eq!(assistant_parts.len(), 2);
         assert_eq!(assistant_parts[0]["thought"], true);
-        assert_eq!(assistant_parts[0]["thoughtSignature"], real_sig);
-        assert_eq!(assistant_parts[1]["functionCall"]["name"], "list_directory");
         assert!(
-            assistant_parts[1].get("thoughtSignature").is_none(),
-            "Claude model functionCall must NOT carry thoughtSignature!"
+            assistant_parts[0].get("thoughtSignature").is_none(),
+            "I4 rule: Gemini target thought block must NOT carry signature"
+        );
+        assert_eq!(assistant_parts[1]["functionCall"]["name"], "list_directory");
+        assert_eq!(
+            assistant_parts[1]["thoughtSignature"], real_sig,
+            "Gemini model functionCall must inherit the real signature from the thinking block"
         );
     }
 
@@ -3559,8 +3560,8 @@ mod tests {
 
         assert_eq!(thinking_config["includeThoughts"], true);
         assert_eq!(
-            thinking_config["thinkingBudget"], 16384,
-            "Client budget (99999) must be ignored in favor of tier dictionary budget (16384)"
+            thinking_config["thinkingBudget"], -1,
+            "Client budget (99999) must be ignored in favor of tier dictionary budget (-1)"
         );
     }
 
@@ -3690,7 +3691,7 @@ mod tests {
         assert_eq!(inline_data["mimeType"], "image/png");
         assert_eq!(inline_data["data"], fake_b64);
 
-        let res_str = tool_parts[0]["functionResponse"]["response"]["result"]
+        let res_str = tool_parts[0]["functionResponse"]["response"]["output"]
             .as_str()
             .unwrap();
         assert!(!res_str.contains(fake_b64));

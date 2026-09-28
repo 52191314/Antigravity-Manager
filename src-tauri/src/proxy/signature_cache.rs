@@ -352,6 +352,18 @@ impl SignatureCache {
         None
     }
 
+    /// Check if the session cache already holds a signature for a turn after `message_count`.
+    pub fn has_session_signature_after(&self, session_id: &str, message_count: usize) -> bool {
+        if let Ok(cache) = self.session_signatures.lock() {
+            if let Some(entry) = cache.get(session_id) {
+                if !entry.is_expired() {
+                    return entry.data.keys().any(|&mc| mc > message_count);
+                }
+            }
+        }
+        false
+    }
+
     /// Retrieve the thinking signature for a session at a specific message count.
     /// Returns None if not found or expired.
     pub fn get_session_signature_at(

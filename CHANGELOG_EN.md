@@ -3,6 +3,13 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.5-beta.9 (2026-09-28)**:
+        -   **[Desktop Capture Take-Less and Tool-Output Images] Drop toolConfig injection and name-sorting, keep signatures on the first non-thought part, and stop extracting images by tool name (PR #3544, Thanks to @jeikl)**:
+            -   **No toolConfig, client tool order kept**: Windows desktop agent payloads have no `toolConfig` and are not sorted by name. The gateway no longer injects `VALIDATED`. One function per declaration object remains, in client order.
+            -   **Thought text and signature placement**: Gemini history does not replay thought text. Claude thought text is kept as written, not folded to `...`. On both families `thoughtSignature` stays on the first non-thought part (the first `functionCall` when one exists). `used_claude_conservative` follows the target model and is `true` for Claude.
+            -   **Tool-output images are not gated by tool name (Fixes #3540)**: A `data:image` snippet in logs is lifted only when the payload is a full data URL, a Markdown image, or a JSON image field, and it must still pass magic-byte and structure checks. Renaming `local_shell_call` to `shell`, or arriving through another protocol, no longer changes that decision.
+            -   **Desktop captures checked in**: Two Gemini payloads and one Claude payload, plus the comparison notes.
+
     *   **v4.8.5-beta.8 (2026-09-28)**:
         -   **[Toolchain Topology Alignment, Tool-Response Media Splitting & Multimodal Image Magic Bytes Hardening] Official HAR Tool Topology & toolConfig Alignment, Multi-turn Signature Isolation, Split Tool-Response Media to Prevent Trailing Model Turn 400, Native Terminal Raw Text Transparency & Image Magic Bytes Defense (PR #3541, PR #3542, PR #3543, Fixes #3540)**:
             -   **Official HAR Tool Topology & toolConfig Injection (PR #3541)**: Aligned toolchain topology 100% with native IDE captures (over 26k tool requests), formatting tools as single-declaration sliced objects `[{"functionDeclarations": [t]}]` sorted alphabetically; injected canonical `toolConfig: {"mode": "VALIDATED"}`; aligned `user`/`model` response roles and enforced single-key `output` receipts.

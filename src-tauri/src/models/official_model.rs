@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
 
@@ -53,7 +53,9 @@ pub struct OfficialModelInfo {
     pub prompt_templater_type: Option<String>,
     #[serde(default)]
     pub tool_formatter_type: Option<String>,
-    #[serde(default)]
+    /// 官方 `fetchAvailableModels` 里该字段有时是字符串（`"HIGH"`），
+    /// 有时是整数档位（如 `3`）。按单一字符串反序列化会让整份目录解析失败。
+    #[serde(default, deserialize_with = "de_flexible_string")]
     pub thinking_level: Option<String>,
     #[serde(default)]
     pub requires_lead_in_generation: Option<bool>,
@@ -105,10 +107,66 @@ pub struct OfficialModelsFile {
 
 static DYNAMIC_CATALOG: Lazy<RwLock<HashMap<String, OfficialModelInfo>>> = Lazy::new(|| {
     let json_str = include_str!("../../resources/official_models.json");
-    let file: OfficialModelsFile =
-        serde_json::from_str(json_str).expect("Failed to parse official_models.json");
-    RwLock::new(file.models)
+    match serde_json::from_str::<OfficialModelsFile>(json_str) {
+        Ok(file) => RwLock::new(file.models),
+        Err(err) => {
+            // 目录解析失败不能 panic：生成请求在选完账号后才会第一次碰到这里，
+            // 任务一旦崩掉，连接会在写出响应前被掐断，监控中间件也来不及落日志。
+            tracing::error!("official_models.json 解析失败，生成请求将回退到默认模型结构: {err}");
+            RwLock::new(HashMap::new())
+        }
+    }
 });
+
+/// 接受字符串、数字或 null。数字会被保留成十进制文本，避免官方整数档位把整份目录打崩。
+fn de_flexible_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Option<String>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string, number, or null")
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
+            Ok(Some(value.to_string()))
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+            Ok(Some(value))
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+            Ok(Some(value.to_string()))
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+            Ok(Some(value.to_string()))
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E> {
+            Ok(Some(value.to_string()))
+        }
+
+        fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+            Ok(Some(value.to_string()))
+        }
+    }
+
+    deserializer.deserialize_any(Visitor)
+}
 
 /// 官方模型目录管理器（支持动态解析与运行时增量更新）
 pub struct OfficialModelCatalog;
@@ -189,5 +247,44 @@ impl OfficialModelCatalog {
             add_cursor_to_find_replace_target: None,
             tab_jump_print_line_range: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedded_catalog_accepts_numeric_thinking_level() {
+        let flash = OfficialModelCatalog::get("gemini-2.5-flash")
+            .expect("gemini-2.5-flash must load; numeric thinkingLevel used to panic the catalog");
+        assert_eq!(flash.thinking_level.as_deref(), Some("3"));
+
+        let high = OfficialModelCatalog::get("gemini-3.8-flash-high")
+            .expect("gemini-3.8-flash-high must load from the embedded catalog");
+        assert_eq!(high.model, "MODEL_PLACEHOLDER_M318");
+        assert!(high.thinking_level.is_none());
+    }
+
+    #[test]
+    fn flexible_string_accepts_string_number_and_null() {
+        #[derive(Deserialize)]
+        struct Sample {
+            #[serde(default, deserialize_with = "de_flexible_string")]
+            thinking_level: Option<String>,
+        }
+
+        let as_string: Sample =
+            serde_json::from_str(r#"{"thinkingLevel":"HIGH"}"#).expect("string");
+        assert_eq!(as_string.thinking_level.as_deref(), Some("HIGH"));
+
+        let as_number: Sample = serde_json::from_str(r#"{"thinkingLevel":3}"#).expect("number");
+        assert_eq!(as_number.thinking_level.as_deref(), Some("3"));
+
+        let as_null: Sample = serde_json::from_str(r#"{"thinkingLevel":null}"#).expect("null");
+        assert!(as_null.thinking_level.is_none());
+
+        let missing: Sample = serde_json::from_str("{}").expect("missing");
+        assert!(missing.thinking_level.is_none());
     }
 }

@@ -392,19 +392,12 @@ impl InboundThinkingPipeline {
                     new_parts.extend(other_parts);
 
                     // [2026-09-27] 占位思考块/占位文本被丢弃时的签名转移：
-                    // 若占位块带真实签名，把签名转移到目标锚点（有工具调用时严格为首个 functionCall，
-                    // 无工具调用时为首个非思考正文）。
+                    // Gemini：有工具调用时落到第一个 functionCall。Claude：落到第一个非思考 part。
                     if let Some(sig) = placeholder_sig.take() {
-                        let anchor = if let Some(fc_pos) = new_parts
-                            .iter()
-                            .position(|p| p.get("functionCall").is_some())
-                        {
-                            Some(&mut new_parts[fc_pos])
-                        } else {
-                            new_parts
-                                .iter_mut()
-                                .find(|p| !crate::proxy::thinking_store::is_thought_part(p))
-                        };
+                        let anchor_idx = crate::proxy::thinking_store::find_turn_anchor_with(
+                            &new_parts, !is_claude,
+                        );
+                        let anchor = anchor_idx.and_then(|idx| new_parts.get_mut(idx));
                         if let Some(anchor) = anchor {
                             if let Some(obj) = anchor.as_object_mut() {
                                 obj.insert("thoughtSignature".to_string(), json!(sig));

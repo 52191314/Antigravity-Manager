@@ -887,28 +887,14 @@ impl ThinkingStore {
                 *parts = cleaned_parts;
 
                 if is_claude_target {
-                    // Claude 模型：上游对接 Anthropic 官方验签引擎！
-                    // Anthropic 官方规范：签名必须且只能在思考块 (thinking block) 上 (映射为 messages[x].content[0].signature)！
-                    // 工具调用 (tool_use / functionCall) 绝不携带签名，亦绝对不可注入假哨兵！
-                    if let Some(sig) = rec.signature.as_ref().filter(|s| is_real_signature(s)) {
-                        // 关键门禁：只有当历史签名确属 Claude 签名时，才挂载到 thought_part！
-                        // 若是 Gemini 等异构模型生成的签名，绝对禁止注入给 Claude，避免 400 Invalid signature
-                        if is_claude_signature(sig) {
-                            thought_part["thoughtSignature"] =
-                                json!(ensure_google_claude_thought_signature(sig));
-                        } else {
-                            tracing::warn!(
-                                "[ThinkingStore] Bypassing foreign non-Claude signature (len: {}) during restore for Claude model",
-                                sig.len()
-                            );
-                        }
-                    }
-                    for part in parts.iter_mut() {
-                        if let Some(obj) = part.as_object_mut() {
-                            obj.remove("thoughtSignature");
-                            obj.remove("thought_signature");
-                        }
-                    }
+                    // Claude：签名放在第一个非思考 part，不挂到思考块。
+                    // 库存里认得出的 Claude 签名才回填；Gemini 签名不注入。
+                    let fallback = rec
+                        .signature
+                        .as_deref()
+                        .filter(|s| is_real_signature(s) && is_claude_signature(s));
+                    let wrapped = fallback.map(|s| ensure_google_claude_thought_signature(s));
+                    place_turn_signature_with(&mut *parts, wrapped.as_deref(), false);
                 } else {
                     // Gemini 原生：把本轮捕获到的真实签名归位到「该轮第一个非思考 part」。
                     //
@@ -928,12 +914,12 @@ impl ThinkingStore {
                 // 官方标准形态为「无思考块 + 锚点带签名」（baogao.txt 9/24 轮）。
                 // 首个非思考 part 作为锚点正常承接该轮签名。
                 if is_claude_target {
-                    for part in parts.iter_mut() {
-                        if let Some(obj) = part.as_object_mut() {
-                            obj.remove("thoughtSignature");
-                            obj.remove("thought_signature");
-                        }
-                    }
+                    let fallback = rec
+                        .signature
+                        .as_deref()
+                        .filter(|s| is_real_signature(s) && is_claude_signature(s));
+                    let wrapped = fallback.map(|s| ensure_google_claude_thought_signature(s));
+                    place_turn_signature_with(&mut *parts, wrapped.as_deref(), false);
                 } else {
                     let fallback = rec
                         .signature
@@ -1671,7 +1657,11 @@ pub fn finalize_gemini_contents_thinking_with_session(
                 }
 
                 // 黄金法则 3：
-                let placed = place_turn_signature(&mut other_parts, chosen_sig.as_deref());
+                let placed = place_turn_signature_with(
+                    &mut other_parts,
+                    chosen_sig.as_deref(),
+                    !is_claude_turn,
+                );
                 if let Some(final_sig) = placed {
                     if final_sig != SENTINEL_SIGNATURE && is_likely_gemini_signature(&final_sig) {
                         if let Some(sid) = session_id {
@@ -2340,11 +2330,18 @@ pub fn is_thought_part(part: &Value) -> bool {
 /// 2. 若本轮无任何 `functionCall`（纯正文回答轮次），锚点为首个非思考部件（`thought != true` 的纯文本正文）。
 /// 3. 若整轮皆为思考块，则无锚点（返回 None）。
 pub fn find_turn_anchor(parts: &[Value]) -> Option<usize> {
-    if let Some(fc_pos) = parts.iter().position(|p| p.get("functionCall").is_some()) {
-        Some(fc_pos)
-    } else {
-        parts.iter().position(|p| !is_thought_part(p))
+    find_turn_anchor_with(parts, true)
+}
+
+/// `prefer_function_call`：Gemini 为 true，有工具调用时锚点必须是第一个 `functionCall`。
+/// Claude 为 false，锚点固定是该轮第一个非思考 part，即使后面还有工具调用。
+pub fn find_turn_anchor_with(parts: &[Value], prefer_function_call: bool) -> Option<usize> {
+    if prefer_function_call {
+        if let Some(fc_pos) = parts.iter().position(|p| p.get("functionCall").is_some()) {
+            return Some(fc_pos);
+        }
     }
+    parts.iter().position(|p| !is_thought_part(p))
 }
 
 /// 官方报文对齐规范：为 model 轮次将签名归位到正确的锚点。
@@ -2358,6 +2355,14 @@ pub fn find_turn_anchor(parts: &[Value]) -> Option<usize> {
 ///
 /// 返回最终写入锚点的签名（若有）。
 pub fn place_turn_signature(parts: &mut Vec<Value>, fallback_sig: Option<&str>) -> Option<String> {
+    place_turn_signature_with(parts, fallback_sig, true)
+}
+
+pub fn place_turn_signature_with(
+    parts: &mut Vec<Value>,
+    fallback_sig: Option<&str>,
+    prefer_function_call: bool,
+) -> Option<String> {
     // 1. 签名抢救与提取（必须在任何清空或过滤之前执行）：
     // 必须经过严格校验（is_real_signature && is_likely_gemini_signature），只有合法才接受！
     // 客户端自带的脏签名/假签名直接视为 None 废弃，交由后序缓存、SQLite 及链式继承算法回填。
@@ -2387,7 +2392,7 @@ pub fn place_turn_signature(parts: &mut Vec<Value>, fallback_sig: Option<&str>) 
     }
 
     // 3. 锚点确定：有工具调用则必须锚定首个 functionCall；无工具调用则锚定首个非思考正文
-    let anchor = find_turn_anchor(parts)?;
+    let anchor = find_turn_anchor_with(parts, prefer_function_call)?;
 
     // 4. 全量清空，保证非锚点 part 的签名字段确实"缺席"
     for part in parts.iter_mut() {
@@ -4568,8 +4573,9 @@ mod tests {
         assert_eq!(parts[0]["text"], thought_text);
         assert!(parts[0].get("thoughtSignature").is_none());
         assert_eq!(parts[1]["text"], visible_answer);
+        assert_eq!(parts[1]["thoughtSignature"], gemini_sig);
         assert_eq!(parts[2]["functionCall"]["id"], "call_db_1");
-        assert_eq!(parts[2]["thoughtSignature"], gemini_sig);
+        assert!(parts[2].get("thoughtSignature").is_none());
     }
 
     #[test]

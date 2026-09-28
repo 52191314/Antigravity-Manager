@@ -244,38 +244,23 @@ impl InboundThinkingPipeline {
 
                             let final_thought_text = text;
 
-                            let mut thought_obj = json!({
+                            let thought_obj = json!({
                                 "text": final_thought_text,
                                 "thought": true,
                             });
+                            // 思考块本身不挂签名。签名落到该轮第一个非思考 part。
                             if let Some(sig) = effective_sig {
-                                // 铁律 I4：Gemini 目标的思考块**绝不**携带签名。
-                                // 客户端在思考块上携带签名属于**矛盾组合** ——
-                                // 官方 33 个 model 轮里 `thought:true` 与签名共现 0 次；
-                                // 文本为占位符（`...` / `·` / `[undefined]` 等）时更属
-                                // 典型的客户端占位脏数据污染。
-                                //
-                                // 只剥离 Gemini 目标的思考块签名 —— Claude 目标按
-                                // Anthropic 规范**必须**在思考块上携带签名。
-                                // 也不因此关闭思考：那会反向改写历史轮语义。
-                                if is_claude {
-                                    thought_obj["thoughtSignature"] = json!(sig);
-                                } else {
-                                    if placeholder_sig.is_none() {
-                                        placeholder_sig = Some(sig.clone());
-                                    }
-                                    tracing::debug!(
-                                        "[InboundPipeline] Stripped signature from thought block for Gemini target (len: {}) and transferred to anchor. I4: thought parts never carry signatures.",
-                                        sig.len(),
-                                    );
+                                if placeholder_sig.is_none() {
+                                    placeholder_sig = Some(sig);
                                 }
                             }
 
-                            if thinking_part.is_none() {
-                                thinking_part = Some(thought_obj);
-                            } else {
-                                // 多个思考块时，非首位的多余思考块降级为普通文本
-                                if !final_thought_text.is_empty() {
+                            // Gemini 历史不回传思考正文（Mac IDE 0 次回传，桌面端回传也能通）。
+                            // Claude 两边都回传思考正文，保留。
+                            if is_claude {
+                                if thinking_part.is_none() {
+                                    thinking_part = Some(thought_obj);
+                                } else if !final_thought_text.is_empty() {
                                     extra_thinking_parts
                                         .push(json!({ "text": final_thought_text }));
                                 }
@@ -311,13 +296,9 @@ impl InboundThinkingPipeline {
                                         }
                                     }
                                 }
-                            } else if is_claude {
-                                if let Some(obj) = part.as_object_mut() {
-                                    obj.remove("thoughtSignature");
-                                    obj.remove("thought_signature");
-                                }
                             }
                             // 非思考部件：可能是普通正文/过程进度说明（commentary），也可能是 functionCall 等
+                            // Claude 桌面端把 thoughtSignature 挂在该轮第一个非思考 part 上，这里不剥。
                             let is_plain_text = part.get("text").is_some()
                                 && part.get("functionCall").is_none()
                                 && part.get("functionResponse").is_none();
@@ -1070,7 +1051,7 @@ impl InboundThinkingPipeline {
     /// 对齐官方标准:
     /// 1. contents: 强行复位至最首位
     /// 2. systemInstruction: 统一为 { role: "user", parts: [...] }
-    /// 3. tools: 拆解为单函数独立对象 [ { functionDeclarations: [single_decl] } ]，按 name 升序排序，对齐 Claude/Gemini 多模态能力描述
+    /// 3. tools: 拆解为单函数独立对象 [ { functionDeclarations: [single_decl] } ]，保持客户端原序
     /// 4. labels: 官方模型标签，对齐 Claude 与 Gemini 家族的专属特征 (model_enum, used_claude, used_claude_conservative, used_non_gemini_model)
     /// 5. generationConfig: 吸收根节点 thinkingConfig，按模型设置 maxOutputTokens (Claude: 64000, Gemini: 65536)，保留既有思考预算
     /// 6. sessionId: 会话标识
@@ -1110,7 +1091,7 @@ impl InboundThinkingPipeline {
             None
         };
 
-        // 3. tools: 规范化 parameters，按官方规范拆解为单函数独立对象 [ { functionDeclarations: [tool] } ]，按 name 严格字典序排序
+        // 3. tools: 规范化 parameters，拆成单函数独立对象，保持客户端声明顺序
         let canonical_tools = if let Some(tools) = req_obj.remove("tools") {
             if let Some(tools_arr) = tools.as_array() {
                 let mut expanded_tools: Vec<Value> = Vec::new();
@@ -1156,12 +1137,6 @@ impl InboundThinkingPipeline {
                     }
                 }
 
-                decls_list.sort_by(|a, b| {
-                    let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                    let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                    name_a.cmp(name_b)
-                });
-
                 for decl in decls_list {
                     expanded_tools.push(json!({
                         "functionDeclarations": [decl]
@@ -1180,38 +1155,10 @@ impl InboundThinkingPipeline {
             None
         };
 
-        // 3.1 toolConfig 对齐（100% 对齐官方 HAR 抓包）：
-        // 在官方 Antigravity 报文中，凡是携带 tools 时，紧随其后必定配有 toolConfig，
-        // 缺省模式为 {"functionCallingConfig": {"mode": "VALIDATED"}}。
-        let canonical_tool_config = if canonical_tools.is_some() {
-            let mut tc = req_obj
-                .remove("toolConfig")
-                .or_else(|| req_obj.remove("tool_config"))
-                .unwrap_or_else(|| {
-                    json!({
-                        "functionCallingConfig": {
-                            "mode": "VALIDATED"
-                        }
-                    })
-                });
-            if let Some(obj) = tc.as_object_mut() {
-                if !obj.contains_key("functionCallingConfig") {
-                    let existing_mode = obj
-                        .remove("mode")
-                        .and_then(|m| m.as_str().map(|s| s.to_string()))
-                        .unwrap_or_else(|| "VALIDATED".to_string());
-                    obj.insert(
-                        "functionCallingConfig".to_string(),
-                        json!({ "mode": existing_mode }),
-                    );
-                }
-            }
-            Some(tc)
-        } else {
-            req_obj.remove("toolConfig");
-            req_obj.remove("tool_config");
-            None
-        };
+        // Windows 原生客户端（Gemini 与 Claude）带 tools 时都不发 toolConfig。
+        // 不注入 VALIDATED，已有的 toolConfig / tool_config 也去掉。
+        req_obj.remove("toolConfig");
+        req_obj.remove("tool_config");
 
         // 4. labels 提取保留与官方模型家族严密对齐:
         let mut canonical_labels = req_obj.remove("labels");
@@ -1289,8 +1236,11 @@ impl InboundThinkingPipeline {
             "used_claude".to_string(),
             json!(if is_claude { "true" } else { "false" }),
         );
-        // 遵照指令: Claude 保守策略风控开关这个关掉 (false)
-        labels_map.insert("used_claude_conservative".to_string(), json!("false"));
+        // 桌面端 Claude 为 true，Gemini 为 false。不要写死 false。
+        labels_map.insert(
+            "used_claude_conservative".to_string(),
+            json!(if is_claude { "true" } else { "false" }),
+        );
         labels_map.insert(
             "used_non_gemini_model".to_string(),
             json!(if is_non_gemini { "true" } else { "false" }),
@@ -1386,7 +1336,7 @@ impl InboundThinkingPipeline {
             .filter(|v| v.as_array().map_or(false, |a| !a.is_empty()));
 
         // 8. 严格对齐官方 Topology 键序:
-        // contents -> systemInstruction -> tools -> toolConfig -> labels -> generationConfig -> sessionId -> safetySettings -> 其余
+        // contents -> systemInstruction -> tools -> labels -> generationConfig -> sessionId -> safetySettings -> 其余
         let mut reordered = serde_json::Map::new();
         reordered.insert("contents".to_string(), canonical_contents);
         if let Some(si) = canonical_si {
@@ -1394,9 +1344,6 @@ impl InboundThinkingPipeline {
         }
         if let Some(tools) = canonical_tools {
             reordered.insert("tools".to_string(), tools);
-        }
-        if let Some(tc) = canonical_tool_config {
-            reordered.insert("toolConfig".to_string(), tc);
         }
         if let Some(labels) = canonical_labels {
             reordered.insert("labels".to_string(), labels);
@@ -1709,8 +1656,9 @@ mod tests {
         let parts = contents[0]["parts"].as_array().expect("parts array");
         assert_eq!(parts.len(), 2);
         assert_eq!(parts[0]["thought"], true);
-        assert_eq!(parts[0]["thoughtSignature"], expected_google_vertex_sig);
+        assert!(parts[0].get("thoughtSignature").is_none());
         assert_eq!(parts[1]["text"], "Here is the response.");
+        assert_eq!(parts[1]["thoughtSignature"], expected_google_vertex_sig);
     }
 
     #[test]
@@ -1742,8 +1690,10 @@ mod tests {
 
         let parts = contents[0]["parts"].as_array().expect("parts array");
         assert_eq!(parts.len(), 2);
-        assert_eq!(parts[0]["thoughtSignature"], expected_google_vertex_sig);
+        assert_eq!(parts[0]["thought"], true);
+        assert!(parts[0].get("thoughtSignature").is_none());
         assert_eq!(parts[1]["text"], "Answer from OpenAI gateway");
+        assert_eq!(parts[1]["thoughtSignature"], expected_google_vertex_sig);
     }
 
     #[test]
@@ -1776,9 +1726,10 @@ mod tests {
         );
 
         let parts = contents[0]["parts"].as_array().expect("parts array");
-        assert_eq!(parts.len(), 2);
-        // Gemini 原生签名在工具调用轮次绝不被二次编码，必须原样保留在 functionCall 部件上
-        assert_eq!(parts[1]["thoughtSignature"], gemini_sig);
+        assert_eq!(parts.len(), 1);
+        assert!(parts[0].get("functionCall").is_some());
+        assert!(parts[0].get("thought").is_none());
+        assert_eq!(parts[0]["thoughtSignature"], gemini_sig);
     }
 
     #[test]
@@ -1812,14 +1763,11 @@ mod tests {
         );
 
         let parts = contents[0]["parts"].as_array().expect("parts array");
-        assert_eq!(parts.len(), 2);
-        assert_eq!(parts[0]["thought"], true);
+        assert_eq!(parts.len(), 1);
+        assert!(parts[0].get("functionCall").is_some());
+        assert!(parts[0].get("thought").is_none());
         assert!(
             parts[0].get("thoughtSignature").is_none(),
-            "Thinking block for Gemini should NOT carry foreign signature or sentinel in pure text"
-        );
-        assert!(
-            parts[1].get("thoughtSignature").is_none(),
             "FunctionCall must NOT fall back to rejected sentinel signature"
         );
     }
@@ -1863,21 +1811,17 @@ mod tests {
         );
 
         let model_parts = contents[1]["parts"].as_array().expect("parts array");
-        // 关键验证：发往 Claude 时，由于历史异构签名不是合法 Claude 签名，
-        // 思考块绝不能带着 Gemini 签名发给 Claude，而是安全降级为普通正文文本！
         let has_thought_block = model_parts
             .iter()
             .any(|p| p.get("thought").and_then(|v| v.as_bool()) == Some(true));
-        assert!(
-            !has_thought_block,
-            "Claude turn must NOT contain unvalidated thinking block with foreign Gemini signature"
-        );
-        let has_gemini_sig = model_parts
-            .iter()
-            .any(|p| p.get("thoughtSignature").is_some() || p.get("thought_signature").is_some());
+        assert!(has_thought_block, "Claude history keeps thought text");
+        let has_gemini_sig = model_parts.iter().any(|p| {
+            p.get("thoughtSignature").and_then(|v| v.as_str()) == Some(foreign_gemini_sig)
+                || p.get("thought_signature").and_then(|v| v.as_str()) == Some(foreign_gemini_sig)
+        });
         assert!(
             !has_gemini_sig,
-            "Foreign Gemini signature must be completely eliminated from Claude turn"
+            "Foreign Gemini signature must not stay on a Claude turn"
         );
     }
 

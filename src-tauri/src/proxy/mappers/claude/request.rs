@@ -1735,12 +1735,7 @@ fn build_tools(
         let supports_mixed_tools = false;
 
         if !function_declarations.is_empty() {
-            // [CACHE] 按 function name 稳定字典序排序，确保全协议 tool schema 字节完全一致
-            function_declarations.sort_by(|a, b| {
-                let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                name_a.cmp(name_b)
-            });
+            // 保持客户端工具声明原序，不按 name 重排。
             let mut func_obj = serde_json::Map::new();
             func_obj.insert(
                 "functionDeclarations".to_string(),

@@ -1623,24 +1623,18 @@ pub fn finalize_gemini_contents_thinking_with_session(
             };
 
             // 2. 签名归位（终审出站门禁 Gatekeeper）：
-            // 核心铁律：签名只写在「该轮第一个非思考 part」（若有工具调用则为首个 functionCall）上，
-            // 其余 part 一律删除签名字段。依据 3 份官方报文 / 23 处签名：每轮至多 1 个签名、必落锚点；哨兵出现 0 次。
-            if is_claude_turn {
-                // Claude 模型：Anthropic 官方规范要求签名必须且只能在思考块上，工具调用绝不携带签名，更不塞假哨兵
-                for part in other_parts.iter_mut() {
-                    if let Some(obj) = part.as_object_mut() {
-                        obj.remove("thoughtSignature");
-                        obj.remove("thought_signature");
-                    }
-                }
-            } else if other_parts.is_empty() {
+            // 签名只写在该轮第一个非思考 part 上。Gemini 与 Claude 桌面端都是这个落点。
+            if other_parts.is_empty() {
                 // 黄金法则 2.2：纯思考轮（无正文、无工具调用）
                 // 思考块绝不挂载签名。若本轮持有有效签名，先暂存在手上 (pending_thought_sig) 预留给后续轮次
                 let turn_sig = thinking_parts.iter().find_map(|tp| {
                     tp.get("thoughtSignature")
                         .or_else(|| tp.get("thought_signature"))
                         .and_then(|s| s.as_str())
-                        .filter(|s| is_real_signature(s) && is_likely_gemini_signature(s))
+                        .filter(|s| {
+                            is_real_signature(s)
+                                && (is_likely_gemini_signature(s) || is_claude_signature(s))
+                        })
                         .map(str::to_string)
                 });
                 for tp in thinking_parts.iter_mut() {
@@ -1693,90 +1687,18 @@ pub fn finalize_gemini_contents_thinking_with_session(
             }
 
             // 3. 治理思考块 (thinking_parts)
+            // 思考块不挂签名。Claude 保留思考正文（Mac IDE 与 Windows 桌面端都回传）。
+            // Gemini 在已有非思考 part 时丢掉思考正文，连续只靠签名。
             if is_thinking_enabled {
-                if is_claude_turn {
-                    // Claude 模型：Anthropic 引擎强制要求签名必须且只能在思考块上！
-                    // 工具调用 (functionCall) 彻底剥离签名，绝不注入假哨兵
-                    if thinking_parts.is_empty() {
-                        if let Some(ref real_sig) = turn_real_sig {
-                            if is_claude_signature(real_sig) {
-                                let mut thought_obj = json!({
-                                    "text": "...",
-                                    "thought": true,
-                                });
-                                thought_obj["thoughtSignature"] =
-                                    json!(ensure_google_claude_thought_signature(real_sig));
-                                thinking_parts.push(thought_obj);
-                            }
-                        }
-                    } else if let Some(ref real_sig) = turn_real_sig {
-                        if is_claude_signature(real_sig) {
-                            let wrapped = ensure_google_claude_thought_signature(real_sig);
-                            for tp in thinking_parts.iter_mut() {
-                                tp["thoughtSignature"] = json!(wrapped);
-                            }
-                        } else {
-                            for tp in thinking_parts.iter_mut() {
-                                if let Some(obj) = tp.as_object_mut() {
-                                    obj.remove("thoughtSignature");
-                                }
-                            }
-                        }
-                    } else {
-                        let mut valid_thinking = Vec::new();
-                        for mut tp in thinking_parts.drain(..) {
-                            let has_valid_sig = tp
-                                .get("thoughtSignature")
-                                .and_then(|s| s.as_str())
-                                .map(|s| {
-                                    s != SENTINEL_SIGNATURE
-                                        && s.len() >= 50
-                                        && is_claude_signature(s)
-                                })
-                                .unwrap_or(false);
-                            if has_valid_sig {
-                                if let Some(sig) =
-                                    tp.get("thoughtSignature").and_then(|s| s.as_str())
-                                {
-                                    tp["thoughtSignature"] =
-                                        json!(ensure_google_claude_thought_signature(sig));
-                                }
-                                valid_thinking.push(tp);
-                            } else {
-                                // 无合法签名的思考块（如 Gemini 历史思考块跨切至 Claude）：
-                                // Anthropic 强制要求思考块签名必须合法。无合法 Claude 签名时，
-                                // 将思考内容降级为带 <think> 标签的正文文本置于首位，既完整保留思考上下文，又彻底规避 Anthropic 400 校验报错！
-                                if let Some(text) = tp.get("text").and_then(|t| t.as_str()) {
-                                    if text != "..." && !text.trim().is_empty() {
-                                        let wrapped = if text.trim_start().starts_with("<think>") {
-                                            text.to_string()
-                                        } else {
-                                            format!("<think>\n{}\n</think>\n\n", text.trim())
-                                        };
-                                        other_parts.insert(0, json!({ "text": wrapped }));
-                                    }
-                                }
-                            }
-                        }
-                        thinking_parts = valid_thinking;
-                    }
-                } else {
-                    // Gemini 原生：思考块绝不携带签名（铁律 I4），且**绝不凭空注入**占位思考块。
-                    //
-                    // 官方报文里 functionCall 轮是"纯净"的 —— 只有 functionCall，没有任何
-                    // thought part（33 个 model 轮里 thought × functionCall 共现 0 次）。
-                    // 注入 {text:"...", thought:true} 会制造出官方从不产生的排列，
-                    // 并把签名锚点从 parts[0] 挤到 parts[1]。
-                    for tp in thinking_parts.iter_mut() {
-                        if let Some(obj) = tp.as_object_mut() {
-                            obj.remove("thoughtSignature");
-                            obj.remove("thought_signature");
-                        }
+                for tp in thinking_parts.iter_mut() {
+                    if let Some(obj) = tp.as_object_mut() {
+                        obj.remove("thoughtSignature");
+                        obj.remove("thought_signature");
                     }
                 }
-
-                // 思考块始终强制排在最前面，其他部件紧随其后
-                parts.extend(thinking_parts);
+                if is_claude_turn || other_parts.is_empty() {
+                    parts.extend(thinking_parts);
+                }
             } else {
                 // 当思考模式为关时：
                 // 1. 绝不主动注入任何占位思考块（如 "..."）；
@@ -2443,7 +2365,9 @@ pub fn place_turn_signature(parts: &mut Vec<Value>, fallback_sig: Option<&str>) 
         p.get("thoughtSignature")
             .or_else(|| p.get("thought_signature"))
             .and_then(|s| s.as_str())
-            .filter(|s| is_real_signature(s) && is_likely_gemini_signature(s))
+            .filter(|s| {
+                is_real_signature(s) && (is_likely_gemini_signature(s) || is_claude_signature(s))
+            })
             .map(str::to_string)
     });
 
@@ -2481,7 +2405,9 @@ pub fn place_turn_signature(parts: &mut Vec<Value>, fallback_sig: Option<&str>) 
     // 6. 锚点自带/抢救优先，缺失才使用回填来源（真实签名）
     let sig = own_sig.or_else(|| {
         fallback_sig
-            .filter(|s| is_real_signature(s) && is_likely_gemini_signature(s))
+            .filter(|s| {
+                is_real_signature(s) && (is_likely_gemini_signature(s) || is_claude_signature(s))
+            })
             .map(str::to_string)
     })?;
 
@@ -4346,14 +4272,15 @@ mod tests {
             Some("claude-opus-4-6-thinking"),
         );
 
-        // 终审把关：没有合法 Claude 签名的思考块安全降级为普通 text，绝不报 400 签名错误
+        // Claude 历史保留思考正文。签名不挂在思考块上。
         let final_parts = contents[1]["parts"].as_array().unwrap();
-        let has_thought_block = final_parts
-            .iter()
-            .any(|p| p.get("thought").and_then(|v| v.as_bool()) == Some(true));
+        let thought_has_sig = final_parts.iter().any(|p| {
+            p.get("thought").and_then(|v| v.as_bool()) == Some(true)
+                && p.get("thoughtSignature").is_some()
+        });
         assert!(
-            !has_thought_block,
-            "Claude turn must NOT have thought: true when thinking lacked a genuine Claude signature"
+            !thought_has_sig,
+            "Claude thought parts do not carry thoughtSignature"
         );
         assert!(
             final_parts.iter().any(|p| p
@@ -4523,9 +4450,9 @@ mod tests {
 
         let parts = contents[0]["parts"].as_array().unwrap();
         assert_eq!(parts.len(), 1);
-        assert!(
-            parts[0].get("thoughtSignature").is_none(),
-            "Tool call thoughtSignature must be stripped for Claude models"
+        assert_eq!(
+            parts[0]["thoughtSignature"], real_sig,
+            "Claude tool-call signature stays on the functionCall"
         );
     }
 
@@ -4637,24 +4564,12 @@ mod tests {
         );
 
         let parts = contents[0]["parts"].as_array().expect("parts array");
-        // 1. Gemini 的思考块不具备 Claude 签名，因此绝不可作为 thought: true 上送 Claude
-        assert!(parts
-            .iter()
-            .all(|p| p.get("thought").and_then(|v| v.as_bool()) != Some(true)));
-
-        // 2. 思考文本被包装为 <think> 标签前置于正文部件
-        let first_text = parts[0]["text"].as_str().expect("text");
-        assert!(first_text.starts_with("<think>"));
-        assert!(first_text.contains(thought_text));
-        assert!(first_text.contains("</think>"));
-
-        // 3. 正文回答完好保留
+        assert_eq!(parts[0]["thought"], true);
+        assert_eq!(parts[0]["text"], thought_text);
+        assert!(parts[0].get("thoughtSignature").is_none());
         assert_eq!(parts[1]["text"], visible_answer);
-
-        // 4. 工具调用上的签名被彻底拔出
         assert_eq!(parts[2]["functionCall"]["id"], "call_db_1");
-        assert!(parts[2].get("thoughtSignature").is_none());
-        assert!(parts[2].get("thought_signature").is_none());
+        assert_eq!(parts[2]["thoughtSignature"], gemini_sig);
     }
 
     #[test]

@@ -632,12 +632,7 @@ pub fn wrap_request_v2(
                                 }
                             }
                         }
-                        // [CACHE] 按 function name 稳定字典序排序，确保全协议 tool schema 字节完全一致
-                        decls_arr.sort_by(|a, b| {
-                            let name_a = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                            let name_b = b.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                            name_a.cmp(name_b)
-                        });
+                        // 保持客户端工具声明原序，不按 name 重排。
                     }
                 }
             }

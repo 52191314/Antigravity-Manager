@@ -78,21 +78,48 @@ pub fn load_app_config() -> Result<AppConfig, String> {
             modified = true;
         }
 
-        // 预设无后缀 3.6+ Flash 模型到 Tiered 自适应模型的默认映射规则
-        // 自动注入到用户的自定义模型列表中，用户可在 UI 界面查阅、删除或自定义修改保存；默认按此预设执行
-        for (k, v) in [
+        // 旧版启动时注入的精确映射会挡住 3.x Flash 裸模型的档位路由。
+        // 只删除仍等于当时默认值的条目；用户改过的目标保留。
+        for (k, old_default) in [
             ("gemini-3.6-flash", "gemini-3.6-flash-tiered"),
             ("gemini-3.7-flash", "gemini-3.7-flash-tiered"),
             ("gemini-3.8-flash", "gemini-3.8-flash-tiered"),
-            ("gemini-3.x-flash", "3.x-flash-tiered"),
         ] {
-            if !custom_mapping.contains_key(k) {
-                custom_mapping.insert(k.to_string(), serde_json::Value::String(v.to_string()));
+            if custom_mapping.get(k).and_then(|v| v.as_str()) == Some(old_default) {
+                custom_mapping.remove(k);
                 modified = true;
             }
         }
 
-        // Migrate log retention max_disk_mb: if 0, smoothly recover to 1024 MiB default
+        // 3.9 及以上仍由通配规则转到对应 tiered。已有自定义目标时不覆盖。
+        if !custom_mapping.contains_key("gemini-3.x-flash") {
+            custom_mapping.insert(
+                "gemini-3.x-flash".to_string(),
+                serde_json::Value::String("3.x-flash-tiered".to_string()),
+            );
+            modified = true;
+        }
+
+        // 旧出厂默认 flash_high = 16384。只在首次启动时改成官方 -1。
+        if let Some(tb) = proxy
+            .get_mut("thinking_budget")
+            .and_then(|t| t.as_object_mut())
+        {
+            let migrated = tb
+                .get("flash_high_legacy_migrated")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !migrated {
+                if tb.get("flash_high").and_then(|v| v.as_i64()) == Some(16384) {
+                    tb.insert("flash_high".to_string(), serde_json::Value::from(-1));
+                }
+                tb.insert(
+                    "flash_high_legacy_migrated".to_string(),
+                    serde_json::Value::from(true),
+                );
+                modified = true;
+            }
+        }
         if let Some(log_retention) = proxy
             .get_mut("log_retention")
             .and_then(|m| m.as_object_mut())

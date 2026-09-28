@@ -2030,19 +2030,10 @@ pub async fn handle_chat_completions(
         .reasoning_effort
         .as_ref()
         .map(|s| s.to_string())
-        .or_else(|| {
-            openai_req
-                .reasoning
-                .as_ref()
-                .and_then(|r| r.effort.clone())
-        })
-        .or_else(|| {
-            openai_req
-                .thinking
-                .as_ref()
-                .and_then(|t| t.effort.clone())
-        });
-    let effort_tier = crate::proxy::common::variant_mapping::tier_from_effort(effort_hint.as_deref());
+        .or_else(|| openai_req.reasoning.as_ref().and_then(|r| r.effort.clone()))
+        .or_else(|| openai_req.thinking.as_ref().and_then(|t| t.effort.clone()));
+    let effort_tier =
+        crate::proxy::common::variant_mapping::tier_from_effort(effort_hint.as_deref());
 
     let variant_spec =
         if crate::proxy::mappers::openai::request::is_tiered_flash_model(&openai_req.model) {

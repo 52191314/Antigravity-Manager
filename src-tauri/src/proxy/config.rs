@@ -638,7 +638,10 @@ pub struct ThinkingBudgetConfig {
     #[serde(default = "default_flash_medium")]
     pub flash_medium: i32, // 默认 4000
     #[serde(default = "default_flash_high")]
-    pub flash_high: i32, // 默认 10000
+    pub flash_high: i32, // 默认 -1，走官方模型结构体
+    /// 旧默认值 16384 已迁移为官方 -1。置位后不再重复改写用户后来手选的 16384。
+    #[serde(default)]
+    pub flash_high_legacy_migrated: bool,
     #[serde(default = "default_flash_tiered")]
     pub flash_tiered: i32, // 默认 -1
 
@@ -673,7 +676,7 @@ pub struct ThinkingBudgetConfig {
     pub custom_low: i32,
     #[serde(default = "default_flash_medium")]
     pub custom_medium: i32,
-    #[serde(default = "default_flash_high")]
+    #[serde(default = "default_custom_high")]
     pub custom_high: i32,
     #[serde(default = "default_flash_tiered")]
     pub custom_tiered: i32,
@@ -694,6 +697,10 @@ fn default_flash_medium() -> i32 {
     4096
 }
 fn default_flash_high() -> i32 {
+    -1
+}
+
+fn default_custom_high() -> i32 {
     16384
 }
 fn default_flash_tiered() -> i32 {
@@ -728,6 +735,7 @@ impl Default for ThinkingBudgetConfig {
             flash_low: default_flash_low(),
             flash_medium: default_flash_medium(),
             flash_high: default_flash_high(),
+            flash_high_legacy_migrated: false,
             flash_tiered: default_flash_tiered(),
 
             pro_mode: default_thinking_budget_mode(),
@@ -745,7 +753,7 @@ impl Default for ThinkingBudgetConfig {
             effort: None,
             custom_low: default_flash_low(),
             custom_medium: default_flash_medium(),
-            custom_high: default_flash_high(),
+            custom_high: default_custom_high(),
             custom_tiered: default_flash_tiered(),
         }
     }

@@ -61,7 +61,7 @@ export interface ThinkingBudgetConfig {
     flash_mode?: ThinkingBudgetMode;
     flash_low?: number;       // 默认 1000
     flash_medium?: number;    // 默认 4000
-    flash_high?: number;      // 默认 10000
+    flash_high?: number;      // 默认 -1，走官方模型结构体
     flash_tiered?: number;    // 默认 -1
 
     // --- Gemini Pro 系列配置（官方仅 Low 与 High 两档） ---

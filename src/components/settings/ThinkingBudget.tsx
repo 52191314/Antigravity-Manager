@@ -78,7 +78,7 @@ const DEFAULT_CONFIG: ThinkingBudgetConfig = {
     flash_mode: "custom",
     flash_low: 1024,
     flash_medium: 4096,
-    flash_high: 16384,
+    flash_high: -1,
     flash_tiered: -1,
 
     pro_mode: "custom",
@@ -114,7 +114,7 @@ type BudgetFieldKey =
 const BUDGET_DEFAULTS: Record<BudgetFieldKey, number> = {
     flash_low: 1024,
     flash_medium: 4096,
-    flash_high: 16384,
+    flash_high: -1,
     flash_tiered: -1,
     pro_low: 1001,
     pro_high: 10001,
@@ -882,17 +882,17 @@ export default function ThinkingBudget({
                                         <input
                                             type="text"
                                             inputMode="numeric"
-                                            placeholder="16384"
+                                            placeholder="-1"
                                             value={inputValues.flash_high ?? ""}
                                             onChange={(e) =>
                                                 handleInputChange("flash_high", e.target.value)
                                             }
                                             className="w-full px-3 py-1.5 border border-gray-300 dark:border-base-300 rounded-lg bg-white dark:bg-base-200 text-xs font-mono font-semibold text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
                                         />
-                                        {renderPresetButtons("flash_high", [16384, 32768])}
+                                        {renderPresetButtons("flash_high", [-1, 16384, 32768])}
                                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
                                             {t("proxy.config.thinking_budget.flash_high_hint", {
-                                                defaultValue: "深度推理档 (默认 16384)",
+                                                defaultValue: "深度推理档 (默认 -1，走官方自适应)",
                                             })}
                                         </p>
                                     </div>

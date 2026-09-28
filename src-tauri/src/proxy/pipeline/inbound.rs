@@ -92,27 +92,11 @@ impl InboundThinkingPipeline {
         // 将 `functionCall.id` 与 `functionResponse.id` 统一对齐为带 `_` 的标准形态 (`call_...`)。
         Self::normalize_tool_call_ids(contents);
 
-        // 0.1 连续工具调用轮次合并（Pipeline First 统一治理）：
-        // 当客户端将并行工具调用拆散为多个连续的 assistant/model 轮次时，
-        // 必须将其合并为一个单一的 model content 轮次。
-        // 遵循 Google v1internal 规则：一个 model 轮次内仅首个部件需带签名，后续部件可不带签名；
-        // 若拆为多个 model 轮次，后续轮次将因缺失独立签名被直接拒收 400。
-        Self::merge_consecutive_function_call_turns(contents);
-
-        // 0.2 统一上下文结构对齐（Pipeline First 统一治理）：
-        // 将连续的 user 消息直到下一个 model，统一合并为一个 user 轮次的多个 block (parts)，保持严格顺序。
-        // 这彻底消除了 Adapter 层各自为政导致的轮次错位，使得四大协议进入流水线后结构 100% 同构！
-        // 连续 user 轮**保持独立**（对齐官方形态）。
-        //
-        // 历史实现会把连续 user 轮的 parts 合并进前一个 content，理由是
-        // "Gemini 强制要求 user/model 交替"。但官方 Antigravity 报文里连续 user 轮
-        // 是常态（`f81eae5c` 的 contents[11] 用户消息紧接 contents[12] SYSTEM_MESSAGE，
-        // 两者独立），v1internal 上游并不要求严格交替。
-        //
-        // 实测（2026-09-26，`gemini-3.8-flash-tiered` @ daily）：
-        //   两个独立 user content     → 200，上下文理解正确
-        //   合并为单个 user content   → 200，上下文理解正确
-        // 两者都成立，故按官方形态保留独立，以获得跨协议一致的前缀字节。
+        // 相邻同类块合并（Pipeline First）。四个适配器只负责转成 contents 并归一角色；
+        // 连续 user、连续 model（思考 / 正文 / functionCall）在这里合成同一个 content。
+        // functionCall 的 part 顺序固定为：思考块、正文、工具调用。
+        // 纯 functionResponse 留到末位：先走 user 分支把回执里的图片提出来，再改成 model 并合并。
+        Self::merge_adjacent_same_blocks(contents);
 
         // 预先计算每一轮的前置因果锚点 (causal anchor)，以便无 ID 的 Gemini 原生工具调用也能无损合成确定性 ID
         let anchors: Vec<String> = (0..contents.len())
@@ -401,6 +385,7 @@ impl InboundThinkingPipeline {
                     }
                     new_parts.extend(extra_thinking_parts);
                     new_parts.extend(other_parts);
+                    Self::order_model_tool_parts(&mut new_parts);
 
                     // [2026-09-27] 占位思考块/占位文本被丢弃时的签名转移：
                     // 若占位块带真实签名，把签名转移到目标锚点（有工具调用时严格为首个 functionCall，
@@ -480,6 +465,7 @@ impl InboundThinkingPipeline {
         //    必须放在**末位**：若前置，回执轮会进入上面的 `is_model` 分支，
         //    从而跳过 `role == "user"` 分支里的多模态解构（图片提升为 inlineData）。
         Self::normalize_function_response_roles(contents);
+        crate::proxy::mappers::context_manager::drop_orphan_function_responses(contents);
     }
 
     /// 工具调用 ID 统一规范化治理（Pipeline First）：
@@ -522,60 +508,111 @@ impl InboundThinkingPipeline {
         normalized_count
     }
 
-    /// 连续工具调用轮次合并（Pipeline First 统一治理）：
-    /// 当客户端将并行工具调用拆为多个连续的 assistant/model 轮次时，
-    /// 统一合并为一个单一的 model content 轮次。
-    /// 遵循 Google v1internal 规则：一个 model 轮次内仅首个部件需带签名，后续部件可不带签名；
-    /// 若拆为多个 model 轮次，后续轮次将因缺失独立签名被直接拒收 400。
-    pub fn merge_consecutive_function_call_turns(contents: &mut Vec<Value>) -> usize {
-        fn is_pure_tool_call_turn(content: &Value) -> bool {
-            let role = content.get("role").and_then(|r| r.as_str());
-            if !matches!(role, Some("model") | Some("assistant")) {
-                return false;
-            }
-            let parts = match content.get("parts").and_then(|p| p.as_array()) {
-                Some(p) if !p.is_empty() => p,
-                _ => return false,
+    /// 合并相邻的同类 content。
+    ///
+    /// - 连续纯 user（无 functionCall / functionResponse）合成一个 user content。
+    /// - 连续 model / assistant（思考、正文、functionCall，不含纯回执）合成一个 model content。
+    ///   含工具调用时 part 顺序为：思考块、正文、functionCall。
+    /// - 纯 functionResponse 不在这里合并，留给 `normalize_function_response_roles`，
+    ///   以便 user 角色的回执先完成图片提取。
+    ///
+    /// 返回被并入前一块的 content 数。
+    pub fn merge_adjacent_same_blocks(contents: &mut Vec<Value>) -> usize {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum BlockKind {
+            User,
+            Model,
+            Other,
+        }
+
+        fn kind_of(content: &Value) -> BlockKind {
+            let role = content.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+            let Some(parts) = content.get("parts").and_then(|p| p.as_array()) else {
+                return BlockKind::Other;
             };
+            if parts.is_empty() {
+                return BlockKind::Other;
+            }
+            let has_fr = parts.iter().any(|p| p.get("functionResponse").is_some());
             let has_fc = parts.iter().any(|p| p.get("functionCall").is_some());
-            let has_plain_text = parts.iter().any(|p| {
-                p.get("functionCall").is_none()
-                    && p.get("functionResponse").is_none()
-                    && !crate::proxy::thinking_store::is_thought_part(p)
-                    && p.get("text").and_then(|t| t.as_str()).map_or(false, |s| {
-                        !crate::proxy::thinking_store::is_placeholder_thought(s)
-                            && !s.trim().is_empty()
-                    })
-            });
-            has_fc && !has_plain_text
+            if has_fr && !has_fc {
+                return BlockKind::Other;
+            }
+            if matches!(role, "model" | "assistant") {
+                BlockKind::Model
+            } else if role == "user" {
+                BlockKind::User
+            } else {
+                BlockKind::Other
+            }
         }
 
         let mut merged: Vec<Value> = Vec::with_capacity(contents.len());
-        let mut merged_count = 0;
-
+        let mut merged_count = 0usize;
         for content in contents.drain(..) {
-            if is_pure_tool_call_turn(&content) {
-                if let Some(prev) = merged.last_mut() {
-                    if is_pure_tool_call_turn(prev) {
-                        if let (Some(prev_parts), Some(curr_parts)) = (
-                            prev.get_mut("parts").and_then(|p| p.as_array_mut()),
-                            content.get("parts").and_then(|p| p.as_array()),
-                        ) {
-                            for part in curr_parts {
-                                if !crate::proxy::thinking_store::is_thought_part(part) {
-                                    prev_parts.push(part.clone());
-                                }
-                            }
-                            merged_count += 1;
-                            continue;
-                        }
+            let kind = kind_of(&content);
+            let can_absorb = kind != BlockKind::Other
+                && merged
+                    .last()
+                    .is_some_and(|prev| kind_of(prev) == kind);
+            if can_absorb {
+                let prev = merged.last_mut().unwrap();
+                if kind == BlockKind::Model {
+                    prev["role"] = json!("model");
+                }
+                let absorbed = if let (Some(prev_parts), Some(curr_parts)) = (
+                    prev.get_mut("parts").and_then(|p| p.as_array_mut()),
+                    content.get("parts").and_then(|p| p.as_array()),
+                ) {
+                    prev_parts.extend(curr_parts.iter().cloned());
+                    if kind == BlockKind::Model {
+                        Self::order_model_tool_parts(prev_parts);
                     }
+                    true
+                } else {
+                    false
+                };
+                if absorbed {
+                    merged_count += 1;
+                    continue;
                 }
             }
             merged.push(content);
         }
         *contents = merged;
         merged_count
+    }
+
+    /// 含 functionCall 的 model content：思考块、正文、工具调用。
+    /// 没有工具调用时不改顺序，避免打乱普通对话的 part。
+    fn order_model_tool_parts(parts: &mut Vec<Value>) {
+        if !parts.iter().any(|part| part.get("functionCall").is_some()) {
+            return;
+        }
+        let mut thoughts = Vec::new();
+        let mut body = Vec::new();
+        let mut calls = Vec::new();
+        let mut responses = Vec::new();
+        for part in parts.drain(..) {
+            if crate::proxy::thinking_store::is_thought_part(&part) {
+                thoughts.push(part);
+            } else if part.get("functionCall").is_some() {
+                calls.push(part);
+            } else if part.get("functionResponse").is_some() {
+                responses.push(part);
+            } else {
+                body.push(part);
+            }
+        }
+        parts.extend(thoughts);
+        parts.extend(body);
+        parts.extend(calls);
+        parts.extend(responses);
+    }
+
+    /// 兼容旧调用点：现在等价于相邻同类块合并。
+    pub fn merge_consecutive_function_call_turns(contents: &mut Vec<Value>) -> usize {
+        Self::merge_adjacent_same_blocks(contents)
     }
 
     /// 把工具回执（`functionResponse`）轮的 role 归一化为官方 Antigravity 形态，并将连续回执合并打包。
@@ -2240,5 +2277,57 @@ mod tests {
             contents[3]["parts"][0]["functionCall"]["id"],
             "call_1542346"
         );
+    }
+
+    #[test]
+    fn adjacent_users_and_split_tool_calls_merge_into_one_content() {
+        let mut contents = vec![
+            json!({"role": "user", "parts": [{"text": "lead"}]}),
+            json!({"role": "user", "parts": [{"text": "query"}]}),
+            json!({
+                "role": "model",
+                "parts": [{"text": "planning", "thought": true}, {"text": "I'll look."}]
+            }),
+            json!({"role": "model", "parts": [fc_part("c1", "tool_a")]}),
+            json!({"role": "model", "parts": [fc_part("c2", "tool_b")]}),
+            json!({"role": "user", "parts": [fr_part("c1", "tool_a")]}),
+            json!({"role": "user", "parts": [fr_part("c2", "tool_b")]}),
+            json!({"role": "user", "parts": [fr_part("orphan", "tool_a")]}),
+        ];
+        let n = InboundThinkingPipeline::merge_adjacent_same_blocks(&mut contents);
+        assert_eq!(n, 3, "2 个 user 并 1 次，3 个 model 并 2 次");
+        assert_eq!(contents[0]["role"], "user");
+        assert_eq!(contents[0]["parts"].as_array().unwrap().len(), 2);
+        assert_eq!(contents[1]["role"], "model");
+        let parts = contents[1]["parts"].as_array().unwrap();
+        assert!(parts[0].get("thought").and_then(|v| v.as_bool()).unwrap_or(false));
+        assert_eq!(parts[1]["text"], "I'll look.");
+        assert_eq!(parts[2]["functionCall"]["name"], "tool_a");
+        assert_eq!(parts[3]["functionCall"]["name"], "tool_b");
+
+        let _ = InboundThinkingPipeline::normalize_function_response_roles(&mut contents);
+        let dropped =
+            crate::proxy::mappers::context_manager::drop_orphan_function_responses(&mut contents);
+        assert_eq!(dropped, 1);
+        let fr_parts = contents
+            .iter()
+            .find(|content| {
+                content["parts"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|part| part.get("functionResponse").is_some())
+            })
+            .unwrap()["parts"]
+            .as_array()
+            .unwrap();
+        assert_eq!(fr_parts.len(), 2);
+        assert_eq!(fr_parts[0]["functionResponse"]["id"], "c1");
+        assert_eq!(fr_parts[1]["functionResponse"]["id"], "c2");
+        assert!(contents.iter().all(|content| {
+            content["parts"].as_array().unwrap().iter().all(|part| {
+                part["functionResponse"]["id"].as_str() != Some("orphan")
+            })
+        }));
     }
 }

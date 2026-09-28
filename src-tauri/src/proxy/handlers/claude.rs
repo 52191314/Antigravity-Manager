@@ -21,7 +21,6 @@ use crate::proxy::mappers::claude::{
     transform_response, ClaudeRequest,
 };
 use crate::proxy::mappers::context_manager::ContextManager;
-use crate::proxy::mappers::estimation_calibrator::get_calibrator;
 use crate::proxy::mappers::gemini::SUMMARY_REQUEST_TIMEOUT_SECS;
 use crate::proxy::model_specs;
 use crate::proxy::server::AppState;
@@ -685,58 +684,6 @@ pub async fn handle_messages(
     // 若在此处注入 "[System: Tool execution completed...]" 等合成消息，会导致对话历史前缀在轮次间突变，
     // 进而彻底破坏 Google Gemini 上游的 Prompt Caching（缓存崩塌）。
 
-    let experimental_cfg = state.experimental.read().await;
-    let compression_level = if experimental_cfg.compression_level == "disabled" {
-        if experimental_cfg.enable_usage_scaling {
-            "high".to_string()
-        } else {
-            "disabled".to_string()
-        }
-    } else {
-        experimental_cfg.compression_level.clone()
-    };
-
-    if compression_level != "disabled" {
-        // [ACC-P RTK] Low, Medium, High 等级均对传入的工具返回日志执行静态 RTK 去噪折叠
-        for msg in &mut request.messages {
-            crate::proxy::mappers::context_manager::ContextManager::clean_tool_message(msg);
-        }
-
-        // [ACC-P Caveman] Medium, High 等级对除最近 4 条（~2轮）以外的旧对话常驻执行 Caveman 提纯
-        if compression_level == "medium" || compression_level == "high" {
-            let total_msgs = request.messages.len();
-            let start_protection_idx = total_msgs.saturating_sub(4);
-            for (i, msg) in request.messages.iter_mut().enumerate() {
-                if i >= start_protection_idx {
-                    continue;
-                }
-                if msg.role == "user" || msg.role == "assistant" {
-                    match &mut msg.content {
-                        crate::proxy::mappers::claude::models::MessageContent::String(s) => {
-                            let cleaned =
-                                crate::proxy::mappers::caveman_cleaner::CavemanCleaner::clean(s);
-                            if cleaned != *s {
-                                *s = cleaned;
-                            }
-                        }
-                        crate::proxy::mappers::claude::models::MessageContent::Array(blocks) => {
-                            for block in blocks {
-                                if let crate::proxy::mappers::claude::models::ContentBlock::Text {
-                                    text,
-                                } = block
-                                {
-                                    let cleaned = crate::proxy::mappers::caveman_cleaner::CavemanCleaner::clean(text);
-                                    if cleaned != *text {
-                                        *text = cleaned;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     // ===== [Issue #467 Fix] 拦截 Claude Code Warmup 请求 =====
     // Claude Code 会每 10 秒发送一次 warmup 请求来保持连接热身，
@@ -783,8 +730,6 @@ pub async fn handle_messages(
     // [NEW] 获取上下文控制配置
     let experimental = state.experimental.read().await;
     let scaling_enabled = experimental.enable_usage_scaling;
-    let threshold_l1 = experimental.context_compression_threshold_l1;
-    let threshold_l3 = experimental.context_compression_threshold_l3;
 
     // 获取最新一条“有意义”的消息内容（用于日志记录和后台任务检测）
     // 策略：反向遍历，首先筛选出所有角色为 "user" 的消息，然后从中找到第一条非 "Warmup" 且非空的文本消息
@@ -1018,137 +963,6 @@ pub async fn handle_messages(
         // 方案 A：移除后台任务静默降级策略，请求直通客户端指定的模型，与 OpenAI 协议保持一致
         let mut request_with_mapped = request_for_body.clone();
 
-        // ===== [3-Layer Progressive Compression + Calibrated Estimation] Context Management =====
-        // [ENHANCED] 整合 3.3.47 的三层压缩框架 + PR #925 的动态校准机制
-        // [NEW] 只有当 scaling_enabled 为 true 时才执行压缩逻辑 (联动机制)
-        // Layer 1 (60%): Tool message trimming - Does NOT break cache
-        // Layer 2 (75%): Thinking purification - Breaks cache but preserves signatures
-        // Layer 3 (90%): Fork conversation + XML summary - Ultimate optimization
-        let mut compression_applied = false;
-
-        if !retried_without_thinking && compression_level == "high" {
-            // 新增 scaling_enabled 联动判断
-            // 1. Determine context limit (Flash: ~1M, Pro: ~2M)
-            let context_limit = if mapped_model.contains("flash") {
-                1_000_000
-            } else {
-                2_000_000
-            };
-
-            // 2. [ENHANCED] 使用校准器提高估算准确度 (PR #925)
-            let raw_estimated = ContextManager::estimate_token_usage(&request_with_mapped);
-            let calibrator = get_calibrator();
-            let mut estimated_usage = calibrator.calibrate(raw_estimated);
-            let mut usage_ratio = estimated_usage as f32 / context_limit as f32;
-
-            info!(
-                "[{}] [ContextManager] Context pressure: {:.1}% (raw: {}, calibrated: {} / {}), Calibration factor: {:.2}",
-                trace_id, usage_ratio * 100.0, raw_estimated, estimated_usage, context_limit, calibrator.get_factor()
-            );
-
-            // ===== Layer 1: Tool Message Trimming (L1 threshold) =====
-            // Borrowed from Practical-Guide-to-Context-Engineering
-            // Advantage: Completely cache-friendly (only removes messages, doesn't modify content)
-            if usage_ratio > threshold_l1 && !compression_applied {
-                if ContextManager::trim_tool_messages(&mut request_with_mapped.messages, 5) {
-                    info!(
-                        "[{}] [Layer-1] Tool trimming triggered (usage: {:.1}%, threshold: {:.1}%)",
-                        trace_id,
-                        usage_ratio * 100.0,
-                        threshold_l1 * 100.0
-                    );
-                    compression_applied = true;
-
-                    // Re-estimate after trimming (with calibration)
-                    let new_raw = ContextManager::estimate_token_usage(&request_with_mapped);
-                    let new_usage = calibrator.calibrate(new_raw);
-                    let new_ratio = new_usage as f32 / context_limit as f32;
-
-                    info!(
-                        "[{}] [Layer-1] Compression result: {:.1}% → {:.1}% (saved {} tokens)",
-                        trace_id,
-                        usage_ratio * 100.0,
-                        new_ratio * 100.0,
-                        estimated_usage - new_usage
-                    );
-
-                    // If compression is sufficient, skip further layers
-                    if new_ratio < 0.7 {
-                        estimated_usage = new_usage;
-                        usage_ratio = new_ratio;
-                        // Success, no need for Layer 2
-                    } else {
-                        // Still high pressure, update for Layer 2
-                        usage_ratio = new_ratio;
-                        compression_applied = false; // Allow Layer 2 to run
-                    }
-                }
-            }
-
-            // ===== Layer 3: Fork Conversation + XML Summary (L3 threshold) =====
-            // Ultimate optimization: Generate structured summary and start fresh conversation
-            // Advantage: Completely cache-friendly (append-only), extreme compression ratio
-            if usage_ratio > threshold_l3 && !compression_applied {
-                info!(
-                    "[{}] [Layer-3] Context pressure ({:.1}%) exceeded threshold ({:.1}%), attempting Fork+Summary",
-                    trace_id, usage_ratio * 100.0, threshold_l3 * 100.0
-                );
-
-                // Clone token_manager Arc to avoid borrow issues
-                let token_manager_clone = token_manager.clone();
-
-                match try_compress_with_summary(
-                    &request_with_mapped,
-                    &trace_id,
-                    &token_manager_clone,
-                    &state.upstream,
-                )
-                .await
-                {
-                    Ok(forked_request) => {
-                        info!(
-                            "[{}] [Layer-3] Fork successful: {} → {} messages",
-                            trace_id,
-                            request_with_mapped.messages.len(),
-                            forked_request.messages.len()
-                        );
-
-                        request_with_mapped = forked_request;
-                        // Re-estimate after fork (with calibration)
-                        let new_raw = ContextManager::estimate_token_usage(&request_with_mapped);
-                        let new_usage = calibrator.calibrate(new_raw);
-                        let new_ratio = new_usage as f32 / context_limit as f32;
-
-                        info!(
-                            "[{}] [Layer-3] Compression result: {:.1}% → {:.1}% (saved {} tokens)",
-                            trace_id,
-                            usage_ratio * 100.0,
-                            new_ratio * 100.0,
-                            estimated_usage - new_usage
-                        );
-                    }
-                    Err(e) => {
-                        error!(
-                            "[{}] [Layer-3] Fork+Summary failed: {}, falling back to error response",
-                            trace_id, e
-                        );
-
-                        // Return friendly error to user
-                        return (
-                            StatusCode::BAD_REQUEST,
-                            Json(json!({
-                                "type": "error",
-                                "error": {
-                                    "type": "invalid_request_error",
-                                    "message": format!("Context too long and automatic compression failed: {}", e),
-                                    "suggestion": "Please use /compact or /clear command in Claude Code, or switch to a model with larger context window."
-                                }
-                            }))
-                        ).into_response();
-                    }
-                }
-            }
-        }
 
         // [FIX] Estimate AFTER purification to get accurate token count for calibrator learning
         let raw_estimated = ContextManager::estimate_token_usage(&request_with_mapped);

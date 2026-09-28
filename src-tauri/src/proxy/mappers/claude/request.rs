@@ -461,8 +461,8 @@ pub fn transform_claude_request_in_timed(
     }
     cleaned_req.messages = filtered_messages;
 
-    // [FIX #813] 合并连续的同角色消息 (Consecutive User Messages)
-    // 确保请求符合 Anthropic 和 Gemini 的角色交替协议
+    // [FIX #813] Anthropic / z.ai 要求角色交替。这里只做源协议的相邻同角色归一。
+    // 转成 Gemini contents 之后，相邻 user / model / functionResponse 的合并由进站流水线负责。
     merge_consecutive_messages(&mut cleaned_req.messages);
 
     clean_cache_control_from_messages(&mut cleaned_req.messages);
@@ -1359,22 +1359,6 @@ fn build_contents(
                             _ => content.to_string(),
                         };
 
-                        // Smart Truncation: max chars limit
-                        const MAX_TOOL_RESULT_CHARS: usize = 200_000;
-                        if merged_content.len() > MAX_TOOL_RESULT_CHARS {
-                            tracing::warn!(
-                                "Truncating tool result from {} chars to {}",
-                                merged_content.len(),
-                                MAX_TOOL_RESULT_CHARS
-                            );
-                            let mut truncated = merged_content
-                                .chars()
-                                .take(MAX_TOOL_RESULT_CHARS)
-                                .collect::<String>();
-                            truncated.push_str("\n...[truncated output]");
-                            merged_content = truncated;
-                        }
-
                         // [优化] 如果结果为空，注入显式确认信号，防止模型幻觉
                         if merged_content.trim().is_empty() {
                             if is_error.unwrap_or(false) {
@@ -1702,7 +1686,20 @@ fn build_tools(
         let mut function_declarations: Vec<Value> = Vec::new();
         let has_google_search = has_web_search;
 
+        let is_search_tool = |tool: &Tool| {
+            tool.is_web_search()
+                || tool.name.as_deref() == Some("google_search")
+                || tool.name.as_deref() == Some("builtin_web_search")
+                || tool.type_.as_deref() == Some("builtin_web_search")
+        };
+        // 只有搜索工具时，改映射为上游 googleSearch，不进客户端函数列表。
+        // 旁边还有 Bash/Read 等函数工具时，web_search 与其他协议一样留在 functionDeclarations。
+        let search_only = !tools_list.is_empty() && tools_list.iter().all(|tool| is_search_tool(tool));
+
         for tool in tools_list {
+            if search_only && is_search_tool(tool) {
+                continue;
+            }
             let name = tool
                 .name
                 .as_deref()
@@ -3060,6 +3057,70 @@ mod tests {
             "Older Gemini models should NOT have mixed tools"
         );
         assert!(has_functions);
+    }
+
+    #[test]
+    fn web_search_only_injects_google_search() {
+        let tools = Some(vec![Tool {
+            type_: Some("web_search_20250305".to_string()),
+            name: Some("web_search".to_string()),
+            description: None,
+            input_schema: None,
+        }]);
+        let tools_val = build_tools(&tools, true, "gemini-3.8-flash-high")
+            .unwrap()
+            .expect("search-only request should still carry a tool");
+        let tools_arr = tools_val.as_array().expect("tools array");
+        assert!(
+            tools_arr.iter().any(|t| t.get("googleSearch").is_some()),
+            "web_search alone must inject googleSearch"
+        );
+        assert!(
+            tools_arr
+                .iter()
+                .all(|t| t.get("functionDeclarations").is_none()),
+            "web_search must not be declared as a client function"
+        );
+    }
+
+    #[test]
+    fn web_search_alongside_client_tools_stays_in_function_declarations() {
+        let tools = Some(vec![
+            Tool {
+                type_: Some("web_search_20250305".to_string()),
+                name: Some("web_search".to_string()),
+                description: Some("Search".to_string()),
+                input_schema: Some(serde_json::json!({
+                    "type": "object",
+                    "properties": { "query": { "type": "string" } }
+                })),
+            },
+            Tool {
+                type_: None,
+                name: Some("Bash".to_string()),
+                description: Some("Run a command".to_string()),
+                input_schema: Some(serde_json::json!({
+                    "type": "object",
+                    "properties": { "command": { "type": "string" } }
+                })),
+            },
+        ]);
+        let tools_val = build_tools(&tools, true, "gemini-3.8-flash-high")
+            .unwrap()
+            .expect("mixed tools");
+        let tools_arr = tools_val.as_array().expect("tools array");
+        assert!(
+            tools_arr.iter().all(|t| t.get("googleSearch").is_none()),
+            "function tools and googleSearch must not be mixed"
+        );
+        let names: Vec<&str> = tools_arr
+            .iter()
+            .filter_map(|t| t.get("functionDeclarations")?.as_array())
+            .flatten()
+            .filter_map(|decl| decl.get("name")?.as_str())
+            .collect();
+        assert!(names.contains(&"web_search"));
+        assert!(names.contains(&"Bash"));
     }
 
     #[test]

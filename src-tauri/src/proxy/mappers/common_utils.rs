@@ -1728,8 +1728,8 @@ pub fn wrap_in_system_reminder(content: &str) -> String {
     )
 }
 
-/// [DEFENSE] 通用中转报文保底文本（温和提示继续分析，避免触发 Agent 误进入修改阶段）
-pub const TRANSIT_DEFENSE_FALLBACK_TEXT: &str = "Please continue your analysis.";
+/// [DEFENSE] 报文结构保底文本。只补一个中性短句，不引导模型进入分析或改代码。
+pub const TRANSIT_DEFENSE_FALLBACK_TEXT: &str = "ok go on";
 
 /// [DEFENSE] 通用中转报文保底防御节点（协议无关性）
 /// 确保发给 Google Gemini 的报文末尾轮次严格符合规范：
@@ -1738,7 +1738,7 @@ pub const TRANSIT_DEFENSE_FALLBACK_TEXT: &str = "Please continue your analysis."
 /// 3. 若末尾轮次为 "model"（缺失用户轮次），追加 {"role": "user", "parts": [{"text": TRANSIT_DEFENSE_FALLBACK_TEXT}]}；
 ///    例外：末尾 model 轮若携带 functionCall / functionResponse（模型主动发起的工具轮），
 ///    视为合法中间态，不注入（否则会与 normalize_function_response_roles 的 fr@model 对齐
-///    打架，把官方合法报文误判为缺用户轮，注入"Please continue your analysis."造成工具死循环）；
+///    打架，把官方合法报文误判为缺用户轮，注入中性占位造成工具死循环）；
 /// 4. 若末尾轮次为 "user" 且其 parts 为空、或仅含有空文本 / "(no content)" / "·" 且无工具/图片，规范化填充为 [{"text": TRANSIT_DEFENSE_FALLBACK_TEXT}]；
 /// 5. 修复中间轮次中 parts 为空的情况，防止 Google 返回 400 "parts must not be empty"。
 pub fn ensure_gemini_payload_ends_with_user(body: &mut Value) -> bool {

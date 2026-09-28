@@ -1871,28 +1871,10 @@ async fn admin_save_config(
         *pool = new_config.clone().proxy.proxy_pool;
     }
 
-    // [FIX Web Mode] 同步全局内存配置（热更新思考预算、系统提示词、图像思考模式、压缩等级、阈值与审计策略）
+    // 同步全局内存配置（热更新思考预算、系统提示词、图像思考模式与审计策略）
     crate::proxy::update_thinking_budget_config(new_config.proxy.thinking_budget.clone());
     crate::proxy::update_global_system_prompt_config(new_config.proxy.global_system_prompt.clone());
     crate::proxy::update_image_thinking_mode(new_config.proxy.image_thinking_mode.clone());
-    crate::proxy::config::update_global_compression_level(
-        new_config.proxy.experimental.compression_level.clone(),
-        new_config.proxy.experimental.enable_usage_scaling,
-    );
-    crate::proxy::config::update_global_thresholds(
-        new_config
-            .proxy
-            .experimental
-            .context_compression_threshold_l1,
-        new_config
-            .proxy
-            .experimental
-            .context_compression_threshold_l2,
-        new_config
-            .proxy
-            .experimental
-            .context_compression_threshold_l3,
-    );
     crate::proxy::config::update_global_audit_config(
         new_config.proxy.experimental.payload_storage_mode.clone(),
         new_config.proxy.experimental.log_retention_days,

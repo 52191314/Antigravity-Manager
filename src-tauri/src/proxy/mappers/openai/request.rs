@@ -821,12 +821,7 @@ pub fn transform_openai_request_with_session(
         .filter(|msg| !msg["parts"].as_array().map(|a| a.is_empty()).unwrap_or(true))
         .collect();
 
-    // 连续相同角色的消息**保持独立**（对齐官方形态）。
-    //
-    // 历史实现会合并它们，理由是 "Gemini 强制要求 user/model 交替"。但官方
-    // Antigravity 报文里连续 user 轮与连续 model 轮都是常态，v1internal 上游
-    // 并不要求严格交替；实测（2026-09-26，`gemini-3.8-flash-tiered` @ daily）
-    // 两种形态均 200 且上下文理解一致。
+    // 连续同类 content 的合并由进站流水线统一完成。适配器只把每条消息转成一个 content。
     let mut merged_contents = contents;
     crate::proxy::pipeline::InboundThinkingPipeline::process_contents(
         &mut merged_contents,

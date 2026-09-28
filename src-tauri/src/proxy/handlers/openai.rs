@@ -644,23 +644,6 @@ fn into_history_without_inline_media(value: Value) -> Option<Value> {
     }
 }
 
-fn omit_media_before_latest_user_turn(items: &mut [Value]) {
-    let Some(current_turn_start) = items.iter().rposition(|item| {
-        item.get("role").and_then(Value::as_str) == Some("user")
-            && matches!(
-                item.get("type").and_then(Value::as_str),
-                None | Some("message")
-            )
-    }) else {
-        return;
-    };
-
-    for item in &mut items[..current_turn_start] {
-        let historical = std::mem::take(item);
-        *item = into_history_without_inline_media(historical).unwrap_or(Value::Null);
-    }
-}
-
 async fn save_session_unless_response_cancelled<F>(
     mut ack_tx: tokio::sync::oneshot::Sender<()>,
     save: F,
@@ -947,7 +930,6 @@ mod stream_peek_tests {
     use super::into_history_without_inline_media;
     use super::is_codex_transcript_only_assistant_message;
     use super::is_edit_image_field;
-    use super::omit_media_before_latest_user_turn;
     use super::parse_generation_input_images;
     use super::response_has_inline_image_data;
     use super::responses_input_item_type;
@@ -959,7 +941,6 @@ mod stream_peek_tests {
     use super::stream_chunk_has_image_data;
     use super::validate_input_image_limits;
     use super::validate_responses_image_data_url;
-    use super::validate_responses_input_image_limits;
     use super::{MAX_INPUT_IMAGES, MAX_INPUT_IMAGE_BYTES, MAX_TOTAL_INPUT_IMAGE_BYTES};
     use crate::proxy::mappers::openai::{transform_openai_request, OpenAIRequest};
     use serde_json::{json, Value};
@@ -1218,28 +1199,6 @@ data: {"type":"response.failed","response":{"status":"failed","error":{"code":"u
             MAX_TOTAL_INPUT_IMAGE_BYTES + 1
         )
         .is_err());
-    }
-
-    #[test]
-    fn responses_omits_old_images_before_validating_current_turn() {
-        let images = |count| {
-            (0..count)
-                .map(|_| json!({"type": "input_image", "image_url": "data:image/png;base64,AQ=="}))
-                .collect::<Vec<_>>()
-        };
-        let mut input = vec![
-            json!({"type": "message", "role": "user", "content": images(16)}),
-            json!({"type": "message", "role": "assistant", "content": "done"}),
-            json!({"type": "message", "role": "user", "content": images(16)}),
-        ];
-
-        omit_media_before_latest_user_turn(&mut input);
-        assert!(input[0].to_string().contains("[historical image omitted]"));
-        assert!(!input[0].to_string().contains("data:image/"));
-        assert!(validate_responses_input_image_limits(Some(&Value::Array(input.clone()))).is_ok());
-
-        input[2]["content"] = Value::Array(images(17));
-        assert!(validate_responses_input_image_limits(Some(&Value::Array(input))).is_err());
     }
 
     #[tokio::test]
@@ -3105,7 +3064,7 @@ pub async fn handle_completions(
     let mut stored_routing_session_id = None;
     let mut session_delta_input = Vec::new();
     if is_codex_style {
-        let mut existing_input = body
+        let existing_input = body
             .as_object_mut()
             .and_then(|obj| obj.remove("input"))
             .and_then(|value| match value {
@@ -3113,8 +3072,6 @@ pub async fn handle_completions(
                 _ => None,
             })
             .unwrap_or_default();
-        // 完整回放先裁掉最新用户轮次之前的内联媒体，再执行硬限制校验。
-        omit_media_before_latest_user_turn(&mut existing_input);
 
         let merged = if let Some(ref prev_id) = previous_response_id {
             if let Some((session, parent)) =
@@ -3808,16 +3765,6 @@ pub async fn handle_completions(
     // SignatureCache. OpenAI mapping ignores client/cached reasoning text and fills
     // placeholders via ThinkingStore hydrate + finalize instead.
 
-    let experimental_cfg = state.experimental.read().await;
-    let compression_level = if experimental_cfg.compression_level == "disabled" {
-        if experimental_cfg.enable_usage_scaling {
-            "high".to_string()
-        } else {
-            "disabled".to_string()
-        }
-    } else {
-        experimental_cfg.compression_level.clone()
-    };
 
     let effort_hint = openai_req
         .reasoning_effort
@@ -3862,134 +3809,6 @@ pub async fn handle_completions(
     }
     let token_manager = state.token_manager.clone();
 
-    let mut compression_applied = false;
-    let mut is_purified = false;
-
-    if compression_level == "high" {
-        let context_limit = if mapped_model.contains("flash") {
-            1_000_000
-        } else {
-            2_000_000
-        };
-
-        let raw_estimated =
-            crate::proxy::mappers::context_manager::ContextManager::estimate_openai_token_usage(
-                &openai_req,
-            );
-        let calibrator = crate::proxy::mappers::estimation_calibrator::get_calibrator();
-        let mut estimated_usage = calibrator.calibrate(raw_estimated);
-        let mut usage_ratio = estimated_usage as f32 / context_limit as f32;
-
-        let threshold_l1 = experimental_cfg.context_compression_threshold_l1;
-        let threshold_l3 = experimental_cfg.context_compression_threshold_l3;
-
-        tracing::info!(
-            "[{}] [ContextManager] [OpenAI] Context pressure: {:.1}% (raw: {}, calibrated: {} / {}), Calibration factor: {:.2}",
-            trace_id, usage_ratio * 100.0, raw_estimated, estimated_usage, context_limit, calibrator.get_factor()
-        );
-
-        // ===== Layer 1: Tool Message Trimming =====
-        if usage_ratio > threshold_l1 && !compression_applied {
-            if crate::proxy::mappers::context_manager::ContextManager::trim_openai_tool_messages(
-                &mut openai_req.messages,
-                5,
-            ) {
-                tracing::info!(
-                    "[{}] [Layer-1] [OpenAI] Tool trimming triggered (usage: {:.1}%, threshold: {:.1}%)",
-                    trace_id, usage_ratio * 100.0, threshold_l1 * 100.0
-                );
-                compression_applied = true;
-
-                let new_raw = crate::proxy::mappers::context_manager::ContextManager::estimate_openai_token_usage(&openai_req);
-                let new_usage = calibrator.calibrate(new_raw);
-                let new_ratio = new_usage as f32 / context_limit as f32;
-
-                tracing::info!(
-                    "[{}] [Layer-1] [OpenAI] Compression result: {:.1}% → {:.1}% (saved {} tokens)",
-                    trace_id,
-                    usage_ratio * 100.0,
-                    new_ratio * 100.0,
-                    estimated_usage - new_usage
-                );
-
-                if new_ratio < 0.7 {
-                    estimated_usage = new_usage;
-                    usage_ratio = new_ratio;
-                } else {
-                    usage_ratio = new_ratio;
-                    compression_applied = false;
-                }
-            }
-        }
-
-        // ===== Layer 3: Fork Conversation + XML Summary =====
-        if usage_ratio > threshold_l3 && !compression_applied {
-            tracing::info!(
-                "[{}] [Layer-3] [OpenAI] Context pressure ({:.1}%) exceeded threshold ({:.1}%), attempting Fork+Summary",
-                trace_id, usage_ratio * 100.0, threshold_l3 * 100.0
-            );
-
-            let token_manager_clone = token_manager.clone();
-
-            match try_compress_openai_with_summary(
-                &openai_req,
-                &trace_id,
-                &token_manager_clone,
-                &state.upstream,
-                &signature_session_id_str,
-            )
-            .await
-            {
-                Ok(forked_req) => {
-                    tracing::info!(
-                        "[{}] [Layer-3] [OpenAI] Fork successful: {} → {} messages",
-                        trace_id,
-                        openai_req.messages.len(),
-                        forked_req.messages.len()
-                    );
-
-                    openai_req = forked_req;
-                    is_purified = false;
-
-                    let new_raw = crate::proxy::mappers::context_manager::ContextManager::estimate_openai_token_usage(&openai_req);
-                    let new_usage = calibrator.calibrate(new_raw);
-                    let new_ratio = new_usage as f32 / context_limit as f32;
-
-                    tracing::info!(
-                        "[{}] [Layer-3] [OpenAI] Compression result: {:.1}% → {:.1}% (saved {} tokens)",
-                        trace_id, usage_ratio * 100.0, new_ratio * 100.0, estimated_usage - new_usage
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "[{}] [Layer-3] [OpenAI] Fork+Summary failed: {}, falling back to error response",
-                        trace_id, e
-                    );
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        format!("Context too long and automatic compression failed: {}", e),
-                    )
-                        .into_response();
-                }
-            }
-        }
-    } else if compression_level != "disabled" {
-        if crate::proxy::mappers::context_manager::ContextManager::trim_openai_tool_messages(
-            &mut openai_req.messages,
-            5,
-        ) {
-            tracing::info!("[Codex-Context] Trimmed old tool messages to keep last 5 rounds");
-        }
-
-        if compression_level == "medium" {
-            if crate::proxy::mappers::context_manager::ContextManager::purify_openai_history(
-                &mut openai_req.messages,
-                crate::proxy::mappers::context_manager::PurificationStrategy::Soft,
-            ) {
-                tracing::info!("[Codex-Context] Purified older assistant reasoning_content and natural language history");
-            }
-        }
-    }
 
     let assistant_turn_index = openai_req
         .messages

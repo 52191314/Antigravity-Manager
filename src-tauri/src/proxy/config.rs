@@ -146,14 +146,6 @@ pub fn update_image_thinking_mode(mode: Option<String>) {
     }
 }
 
-// ============================================================================
-// 全局压缩等级配置存储
-// ============================================================================
-static GLOBAL_COMPRESSION_LEVEL: OnceLock<RwLock<String>> = OnceLock::new();
-static GLOBAL_USAGE_SCALING: OnceLock<RwLock<bool>> = OnceLock::new();
-static GLOBAL_THRESHOLD_L1: OnceLock<RwLock<f32>> = OnceLock::new();
-static GLOBAL_THRESHOLD_L2: OnceLock<RwLock<f32>> = OnceLock::new();
-static GLOBAL_THRESHOLD_L3: OnceLock<RwLock<f32>> = OnceLock::new();
 static GLOBAL_PAYLOAD_STORAGE_MODE: OnceLock<RwLock<String>> = OnceLock::new();
 static GLOBAL_LOG_RETENTION_DAYS: OnceLock<RwLock<u32>> = OnceLock::new();
 static GLOBAL_THINKING_STORE_ENABLED: OnceLock<RwLock<bool>> = OnceLock::new();
@@ -245,97 +237,6 @@ pub fn update_global_audit_config(
         thinking_retention_days.clamp(1, 3650),
         max_turns
     );
-}
-
-pub fn get_global_threshold_l1() -> f32 {
-    GLOBAL_THRESHOLD_L1
-        .get()
-        .and_then(|lock| lock.read().ok())
-        .map(|v| *v)
-        .unwrap_or(0.6)
-}
-
-pub fn get_global_threshold_l2() -> f32 {
-    GLOBAL_THRESHOLD_L2
-        .get()
-        .and_then(|lock| lock.read().ok())
-        .map(|v| *v)
-        .unwrap_or(0.75)
-}
-
-pub fn get_global_threshold_l3() -> f32 {
-    GLOBAL_THRESHOLD_L3
-        .get()
-        .and_then(|lock| lock.read().ok())
-        .map(|v| *v)
-        .unwrap_or(0.9)
-}
-
-pub fn get_global_compression_level() -> String {
-    let level = GLOBAL_COMPRESSION_LEVEL
-        .get()
-        .and_then(|lock| lock.read().ok())
-        .map(|cfg| cfg.clone())
-        .unwrap_or_else(|| "disabled".to_string());
-
-    if level == "disabled" {
-        let scaling = GLOBAL_USAGE_SCALING
-            .get()
-            .and_then(|lock| lock.read().ok())
-            .map(|s| *s)
-            .unwrap_or(false);
-        if scaling {
-            "high".to_string()
-        } else {
-            "disabled".to_string()
-        }
-    } else {
-        level
-    }
-}
-
-pub fn update_global_compression_level(level: String, scaling: bool) {
-    if let Some(lock) = GLOBAL_COMPRESSION_LEVEL.get() {
-        if let Ok(mut cfg) = lock.write() {
-            *cfg = level;
-        }
-    } else {
-        let _ = GLOBAL_COMPRESSION_LEVEL.set(RwLock::new(level));
-    }
-
-    if let Some(lock) = GLOBAL_USAGE_SCALING.get() {
-        if let Ok(mut cfg) = lock.write() {
-            *cfg = scaling;
-        }
-    } else {
-        let _ = GLOBAL_USAGE_SCALING.set(RwLock::new(scaling));
-    }
-}
-
-pub fn update_global_thresholds(l1: f32, l2: f32, l3: f32) {
-    if let Some(lock) = GLOBAL_THRESHOLD_L1.get() {
-        if let Ok(mut cfg) = lock.write() {
-            *cfg = l1;
-        }
-    } else {
-        let _ = GLOBAL_THRESHOLD_L1.set(RwLock::new(l1));
-    }
-
-    if let Some(lock) = GLOBAL_THRESHOLD_L2.get() {
-        if let Ok(mut cfg) = lock.write() {
-            *cfg = l2;
-        }
-    } else {
-        let _ = GLOBAL_THRESHOLD_L2.set(RwLock::new(l2));
-    }
-
-    if let Some(lock) = GLOBAL_THRESHOLD_L3.get() {
-        if let Ok(mut cfg) = lock.write() {
-            *cfg = l3;
-        }
-    } else {
-        let _ = GLOBAL_THRESHOLD_L3.set(RwLock::new(l3));
-    }
 }
 
 /// 全局系统提示词配置
@@ -487,28 +388,9 @@ pub struct ExperimentalConfig {
     #[serde(default = "default_true")]
     pub enable_cross_model_checks: bool,
 
-    /// 启用上下文用量缩放 (Context Usage Scaling)
-    /// 激进模式: 缩放用量并激活自动压缩以突破 200k 限制
-    /// 默认关闭以保持透明度,让客户端能触发原生压缩指令
+    /// 默认关闭。只影响回给客户端的用量数字，不改写上下文。
     #[serde(default = "default_false")]
     pub enable_usage_scaling: bool,
-
-    /// 压缩级别 (Compression Level)
-    /// disabled, low, medium, high
-    #[serde(default = "default_compression_level")]
-    pub compression_level: String,
-
-    /// 上下文压缩阈值 L1 (Tool Trimming)
-    #[serde(default = "default_threshold_l1")]
-    pub context_compression_threshold_l1: f32,
-
-    /// 上下文压缩阈值 L2 (Thinking Compression)
-    #[serde(default = "default_threshold_l2")]
-    pub context_compression_threshold_l2: f32,
-
-    /// 上下文压缩阈值 L3 (Fork + Summary)
-    #[serde(default = "default_threshold_l3")]
-    pub context_compression_threshold_l3: f32,
 
     /// 监控报文体存储模式: `simple`（默认，精简落库）或 `full`（原文）
     #[serde(default = "default_payload_storage_mode")]
@@ -538,10 +420,6 @@ impl Default for ExperimentalConfig {
             enable_tool_loop_recovery: false,
             enable_cross_model_checks: true,
             enable_usage_scaling: false,
-            compression_level: "disabled".to_string(),
-            context_compression_threshold_l1: 0.4,
-            context_compression_threshold_l2: 0.55,
-            context_compression_threshold_l3: 0.7,
             payload_storage_mode: default_payload_storage_mode(),
             log_retention_days: default_log_retention_days(),
             thinking_store_enabled: default_thinking_store_enabled(),
@@ -551,18 +429,6 @@ impl Default for ExperimentalConfig {
     }
 }
 
-fn default_threshold_l1() -> f32 {
-    0.4
-}
-fn default_threshold_l2() -> f32 {
-    0.55
-}
-fn default_threshold_l3() -> f32 {
-    0.7
-}
-fn default_compression_level() -> String {
-    "disabled".to_string()
-}
 fn default_payload_storage_mode() -> String {
     "simple".to_string()
 }

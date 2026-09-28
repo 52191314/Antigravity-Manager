@@ -152,10 +152,6 @@ export interface PinnedQuotaModelsConfig {
 
 export interface ExperimentalConfig {
     enable_usage_scaling: boolean;
-    compression_level?: string;
-    context_compression_threshold_l1?: number;
-    context_compression_threshold_l2?: number;
-    context_compression_threshold_l3?: number;
     payload_storage_mode?: 'simple' | 'full';
     log_retention_days?: number;
     thinking_store_enabled?: boolean;

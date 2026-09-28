@@ -11,6 +11,7 @@
             -   **终端与代码类工具 100% 原生纯文本透传 (PR #3542, Fixes #3540)**: 对通用命令执行与文件操作类工具（`run_command`、`bash`、`exec_command`、`terminal`、`grep_search`、`view_file` 等），彻底豁免多模态提取，保持 100% 原始文本透明度；彻底杜绝开发日常中终端 stdout 输出代码片段、测试用例或日志（如 `data:image/png;base64,...`）时被中间件盲目截断劫持。
             -   **重构多模态解构边界与强 Magic Bytes 校验 (PR #3542, Fixes #3540)**: 重构 `extract_multimodal_from_tool_text`，仅允许在显式结构化 JSON 字段、独立完整 Data URL 或标准 Markdown 语法 `![alt](...)` 中提取图片；并在 `validate_and_sanitize_inline_data` 中强制验证真实图片文件头魔数（PNG、JPEG、GIF、WEBP、HEIC）与**文件结构完整性**（强制要求 PNG 包含 `IEND` 块、JPEG 包含 `\xff\xd9` 闭合标记，并设最低有效尺寸门限），彻底拒收 21 字节断头破损图片与纯文本 Base64 片段。
             -   **历史坏图片入站自愈与测试锁加固**: 全局入站门禁 `sanitize_gemini_payload_inline_data` 配合强魔数校验，自动将历史会话中残留的损坏 `inlineData` 净化为文本占位符，拯救因 Issue #3540 锁死的所有旧会话；单测套件引入配置锁，根除并发竞争导致的 Flaky Tests。
+            -   **AppImageHub 官方规范对齐与 `.DirIcon` 补齐**: 升级 `@tauri-apps/cli` 至 2.12.0（支持相对符号链接），在 `tauri.conf.json` 中补齐 `512x512.png` 与 `icon.png` 规范图标，并在构建流水线中增加 AppImage `.DirIcon` 完整性校验与兜底注入，解决 AppImage 官方目录 CI 审查报错 `FATAL: .DirIcon is missing`。
 
     *   **v4.8.5-beta.7 (2026-09-28)**:
         -   **[模型别名兼容与依赖轻量化] 兼容旧客户端 Claude 4.x 点号模型 ID，升级 yaml-rt 移除缩进补丁**:

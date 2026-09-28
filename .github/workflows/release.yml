@@ -210,6 +210,36 @@ jobs:
             sed -i '' "s/Antigravity%20Tools.app.tar.gz/Antigravity%20Tools_${ARCH}.app.tar.gz/g" "$UPDATER_JSON"
           fi
 
+      # 4. 确保 Linux AppImage 包含标准 .DirIcon (解决 AppImageHub FATAL: .DirIcon is missing)
+      - name: Verify and ensure AppImage .DirIcon compliance
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          for appimage in src-tauri/target/*/release/bundle/appimage/*.AppImage; do
+            if [ -f "$appimage" ]; then
+              echo "Inspecting AppImage: $appimage"
+              chmod +x "$appimage"
+              # 提取 AppImage 检查根目录
+              TMP_EXTRACT=$(mktemp -d)
+              "$appimage" --appimage-extract > /dev/null 2>&1 || true
+              if [ -d "squashfs-root" ]; then
+                if [ ! -e "squashfs-root/.DirIcon" ] || [ ! -s "squashfs-root/.DirIcon" ]; then
+                  echo "Warning: .DirIcon missing or broken in $appimage root! Fixing with icon.png..."
+                  cp src-tauri/icons/icon.png squashfs-root/.DirIcon
+                  # 使用 appimagetool 重新封包确保符合 AppImageHub 规范
+                  if command -v appimagetool >/dev/null 2>&1; then
+                    appimagetool squashfs-root "$appimage"
+                  elif [ -f "$HOME/.local/bin/appimagetool" ]; then
+                    "$HOME/.local/bin/appimagetool" squashfs-root "$appimage"
+                  fi
+                else
+                  echo "Verified: .DirIcon is present in $appimage."
+                fi
+                rm -rf squashfs-root
+              fi
+              rm -rf "$TMP_EXTRACT"
+            fi
+          done
+
       # 1. 上传 updater.json 到 Artifacts (供后续合并使用)
       - name: Upload updater json
         uses: actions/upload-artifact@v4

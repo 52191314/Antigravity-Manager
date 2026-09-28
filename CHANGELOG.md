@@ -3,6 +3,15 @@
 > 完整版本历史记录。返回项目主页请查看 [README.md](README.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.5-beta.8 (2026-09-28)**:
+        -   **[工具链拓扑对齐、回执多模态媒体拆分与图片文件头强校验] 对齐官方 HAR 工具拓扑与 toolConfig 规范，隔离多轮签名防串扰，拆分回执随行媒体消除末尾 model 轮 400，恢复终端纯文本透传并强化图片魔数防线 (PR #3541, PR #3542, PR #3543, Fixes #3540)**:
+            -   **对齐官方 HAR 工具拓扑与规范注入 (PR #3541)**: 依据官方原生 IDE 真实 2.6 万次工具抓包深度分析，工具链拓扑 100% 格式化为单函数独立切片数组 `[{"functionDeclarations": [t]}]` 并按名称字典序稳定重排；规范注入标准 `toolConfig: {"mode": "VALIDATED"}`；保持 `user`/`model` 响应角色与回执信封 `output` 单一键值标准规范。
+            -   **多轮工具签名快照隔离与尾轮继承 (PR #3541)**: 在进入 `contents` 遍历循环前预先快照 `initial_session_sig`，彻底解决多轮复杂工具调用下前序工具签名写入缓存后污染后续独立工具调用引发的 `400 Invalid thought signature`；移除针对最新尾轮会话签名的 `!has_fc_in_turn` 误杀，确保尾轮工具链路完整闭环。
+            -   **工具回执随行媒体拆分消除上游 400 异常 (PR #3543, Thanks to @xiaowenxi)**: 修复在 Codex 等客户端调用 `view_image` 时，工具回执轮携带随行 `inlineData` 并被映射为 `model` 角色，导致请求以携带 `inlineData` 的 `model` 轮结尾触发上游报错 `400 "Requests ending with a model turn are not supported."`；在流水线聚合后将 `model` 角色回执轮中的媒体部分拆分提升为紧随其后的 `user` 轮（`model [functionResponse]` + `user [inlineData]`），并收敛纯回执轮判定条件确保全流程幂等。
+            -   **终端与代码类工具 100% 原生纯文本透传 (PR #3542, Fixes #3540)**: 对通用命令执行与文件操作类工具（`run_command`、`bash`、`exec_command`、`terminal`、`grep_search`、`view_file` 等），彻底豁免多模态提取，保持 100% 原始文本透明度；彻底杜绝开发日常中终端 stdout 输出代码片段、测试用例或日志（如 `data:image/png;base64,...`）时被中间件盲目截断劫持。
+            -   **重构多模态解构边界与强 Magic Bytes 校验 (PR #3542, Fixes #3540)**: 重构 `extract_multimodal_from_tool_text`，仅允许在显式结构化 JSON 字段、独立完整 Data URL 或标准 Markdown 语法 `![alt](...)` 中提取图片；并在 `validate_and_sanitize_inline_data` 中强制验证真实图片文件头魔数（PNG、JPEG、GIF、WEBP、HEIC）与**文件结构完整性**（强制要求 PNG 包含 `IEND` 块、JPEG 包含 `\xff\xd9` 闭合标记，并设最低有效尺寸门限），彻底拒收 21 字节断头破损图片与纯文本 Base64 片段。
+            -   **历史坏图片入站自愈与测试锁加固**: 全局入站门禁 `sanitize_gemini_payload_inline_data` 配合强魔数校验，自动将历史会话中残留的损坏 `inlineData` 净化为文本占位符，拯救因 Issue #3540 锁死的所有旧会话；单测套件引入配置锁，根除并发竞争导致的 Flaky Tests。
+
     *   **v4.8.5-beta.7 (2026-09-28)**:
         -   **[模型别名兼容与依赖轻量化] 兼容旧客户端 Claude 4.x 点号模型 ID，升级 yaml-rt 移除缩进补丁**:
             -   **旧版 Claude 4.x 点号别名兼容**: 针对第三方旧版客户端上送的包含点号的模型 ID（如 `claude-opus-4.6`、`claude-sonnet-4.6`、`claude-open-4.x` 等），增加智能别名归一化映射至服务端标准中划线标识（`claude-opus-4-6`、`claude-sonnet-4-6`），杜绝因模型名未命中引发的 500 异常。

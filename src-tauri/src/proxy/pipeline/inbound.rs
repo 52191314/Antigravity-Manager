@@ -432,6 +432,8 @@ impl InboundThinkingPipeline {
                     }
 
                     *parts = new_parts;
+                }
+
                 // 全协议通用工具回执与多模态解构治理（无论当前外层 role 是 user 还是 model）：
                 // 1. 若客户端回传的 functionCall.args 为 JSON 字符串，尝试反序列化为 Object，防上游 400
                 // 2. 若客户端回传的 functionResponse.response 为非 Object，自动包装为 {"output": response}
@@ -450,13 +452,11 @@ impl InboundThinkingPipeline {
                         }
                     }
                     if let Some(fr) = part.get_mut("functionResponse") {
-                        let tool_name =
-                            fr.get("name").and_then(Value::as_str).unwrap_or_default();
+                        let tool_name = fr.get("name").and_then(Value::as_str).unwrap_or_default();
                         // 对齐官方原生 IDE：终端执行与代码/文件工具输出必须 100% 保持纯文本透传，
                         // 绝不提取多模态，杜绝代码/日志被误切为坏图片导致上游 400
-                        if crate::proxy::mappers::common_utils::is_terminal_or_code_tool(
-                            tool_name,
-                        ) {
+                        if crate::proxy::mappers::common_utils::is_terminal_or_code_tool(tool_name)
+                        {
                             continue;
                         }
                         if let Some(resp) = fr.get_mut("response") {
@@ -759,7 +759,7 @@ impl InboundThinkingPipeline {
                     .get("parts")
                     .and_then(|p| p.as_array())
                     .map_or(false, |parts| {
-                        !parts.is_empty() && parts.iter().all(|p| has_fr(p) || is_media(p))
+                        parts.iter().any(has_fr) && parts.iter().all(|p| has_fr(p) || is_media(p))
                     });
 
             if is_pure_response {
@@ -770,7 +770,8 @@ impl InboundThinkingPipeline {
                             .get("parts")
                             .and_then(|p| p.as_array())
                             .map_or(false, |parts| {
-                                !parts.is_empty() && parts.iter().all(|p| has_fr(p) || is_media(p))
+                                parts.iter().any(has_fr)
+                                    && parts.iter().all(|p| has_fr(p) || is_media(p))
                             });
 
                     if prev_is_pure_response {
@@ -788,7 +789,35 @@ impl InboundThinkingPipeline {
             merged.push(content);
         }
 
-        *contents = merged;
+        // [zwx-patch] 回执轮随行媒体拆出为紧随其后的 user 轮：
+        // 上游不接受以携带 inlineData 的 model 轮结尾（400 "Requests ending with a model turn are not supported."），
+        // 典型触发为 Codex 的 view_image 工具回执。无论是否处于末尾都拆分，保证多轮历史形态一致。
+        let mut split: Vec<Value> = Vec::with_capacity(merged.len());
+        for mut content in merged {
+            let is_model_response = content.get("role").and_then(|r| r.as_str()) == Some("model")
+                && content
+                    .get("parts")
+                    .and_then(|p| p.as_array())
+                    .map_or(false, |parts| {
+                        parts.iter().any(has_fr) && parts.iter().any(is_media)
+                    });
+            if !is_model_response {
+                split.push(content);
+                continue;
+            }
+            let parts = content
+                .get_mut("parts")
+                .and_then(|p| p.as_array_mut())
+                .map(std::mem::take)
+                .unwrap_or_default();
+            let (media, rest): (Vec<Value>, Vec<Value>) = parts.into_iter().partition(is_media);
+            content["parts"] = json!(rest);
+            split.push(content);
+            split.push(json!({ "role": "user", "parts": media }));
+            rewritten += 1;
+        }
+
+        *contents = split;
         rewritten
     }
 
@@ -2226,22 +2255,53 @@ mod tests {
         assert!(contents[3]["parts"][0].get("functionResponse").is_some());
     }
 
-    /// 回执附带图片：`user [fr, inlineData]` → `model [fr, inlineData]`。
+    /// 回执附带图片：`user [fr, inlineData]` → `model [fr]` + `user [inlineData]`，
+    /// 避免请求以携带 inlineData 的 model 轮结尾（上游 400）。
     #[test]
-    fn test_fr_role_response_with_inline_data_moves_together() {
+    fn test_fr_role_response_with_inline_data_splits_media_to_user() {
         let img = json!({"inlineData": {"mimeType": "image/png", "data": "AAA"}});
         let mut contents = vec![
             json!({"role": "user", "parts": [{"text": "go"}]}),
-            json!({"role": "model", "parts": [fc_part("c1", "view_file")]}),
-            json!({"role": "user", "parts": [fr_part("c1", "view_file"), img]}),
+            json!({"role": "model", "parts": [fc_part("c1", "view_image")]}),
+            json!({"role": "user", "parts": [fr_part("c1", "view_image"), img.clone()]}),
         ];
         let n = InboundThinkingPipeline::normalize_function_response_roles(
             &mut contents,
             "gemini-3.8-flash-low",
         );
-        assert_eq!(n, 1);
+        assert_eq!(n, 2);
+        assert_eq!(contents.len(), 4);
         assert_eq!(contents[2]["role"], "model");
-        assert_eq!(contents[2]["parts"].as_array().unwrap().len(), 2);
+        assert_eq!(contents[2]["parts"].as_array().unwrap().len(), 1);
+        assert!(contents[2]["parts"][0].get("functionResponse").is_some());
+        assert_eq!(contents[3]["role"], "user");
+        assert_eq!(contents[3]["parts"], json!([img]));
+    }
+
+    /// 已是 model 形态的媒体回执（历史轮）同样拆分，且再次处理幂等。
+    #[test]
+    fn test_fr_role_model_response_with_inline_data_split_is_idempotent() {
+        let img = json!({"inlineData": {"mimeType": "image/png", "data": "AAA"}});
+        let mut contents = vec![
+            json!({"role": "user", "parts": [{"text": "go"}]}),
+            json!({"role": "model", "parts": [fc_part("c1", "view_image")]}),
+            json!({"role": "model", "parts": [fr_part("c1", "view_image"), img.clone()]}),
+            json!({"role": "model", "parts": [{"text": "done"}]}),
+            json!({"role": "user", "parts": [{"text": "next"}]}),
+        ];
+        InboundThinkingPipeline::normalize_function_response_roles(
+            &mut contents,
+            "gemini-3.8-flash-low",
+        );
+        assert_eq!(contents[2]["role"], "model");
+        assert_eq!(contents[3], json!({"role": "user", "parts": [img]}));
+        let snapshot = contents.clone();
+        let n = InboundThinkingPipeline::normalize_function_response_roles(
+            &mut contents,
+            "gemini-3.8-flash-low",
+        );
+        assert_eq!(n, 0);
+        assert_eq!(contents, snapshot);
     }
 
     /// 用户发图提问 `user [inlineData, text]` **不得**被误判为回执轮。

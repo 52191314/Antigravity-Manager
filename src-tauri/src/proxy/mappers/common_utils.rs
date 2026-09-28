@@ -1145,8 +1145,8 @@ mod tests {
             None
         );
 
-        // 4. Valid PNG base64 (8 bytes magic header)
-        let valid_png_b64 = "iVBORw0KGgo=";
+        // 4. Valid PNG base64 (complete valid 1x1 PNG with IEND)
+        let valid_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
         let res = validate_and_sanitize_inline_data(Some("image/png"), valid_png_b64);
         assert!(res.is_some());
         let (mime, data) = res.unwrap();
@@ -1161,7 +1161,7 @@ mod tests {
 
     #[test]
     fn test_create_gemini_inline_part() {
-        let valid_png_b64 = "iVBORw0KGgo=";
+        let valid_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
         let valid_part = create_gemini_inline_part(Some("image/png"), valid_png_b64, "Image");
         assert!(valid_part.get("inlineData").is_some());
         assert_eq!(valid_part["inlineData"]["mimeType"], "image/png");
@@ -1176,7 +1176,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_gemini_payload_inline_data() {
-        let valid_png_b64 = "iVBORw0KGgo=";
+        let valid_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
         let mut payload = json!({
             "contents": [
                 {
@@ -1507,10 +1507,11 @@ pub fn validate_and_sanitize_inline_data(
     // Detect MIME from magic bytes if possible
     let inferred_mime = detect_mime_from_bytes(&decoded_bytes);
 
-    // Enforce image magic bytes verification:
+    // Enforce image magic bytes & structural integrity verification:
     // If MIME is declared as image/*, or if no MIME was declared,
-    // the decoded bytes MUST match a known image magic signature (PNG, JPEG, GIF, WEBP, HEIC).
-    // Arbitrary text, corrupted data, or mismatched payloads must be rejected!
+    // the decoded bytes MUST match a known image magic signature (PNG, JPEG, GIF, WEBP, HEIC)
+    // AND must satisfy structural completeness constraints (e.g. PNG IEND block, JPEG EOI marker, minimum size).
+    // Arbitrary text, truncated fragments (e.g. 21-byte broken PNGs), or corrupted payloads must be rejected!
     let final_mime = match (declared_mime, inferred_mime) {
         // Image format: magic bytes MUST be detected and confirm it is an image
         (Some(m), Some(inferred)) if m.starts_with("image/") => {
@@ -1541,6 +1542,69 @@ pub fn validate_and_sanitize_inline_data(
         (None, Some(inferred)) => inferred.to_string(),
         _ => return None,
     };
+
+    // Deep structural completeness & truncation defense for raster images:
+    // Prevent truncated header-only fragments (like a 21-byte cut PNG) from penetrating upstream.
+    if final_mime.starts_with("image/") {
+        let len = decoded_bytes.len();
+        match final_mime.as_str() {
+            "image/png" => {
+                // A valid 1x1 minimal PNG is at least 67 bytes, and MUST terminate with an IEND chunk (b"IEND\xae\x42\x60\x82").
+                // Require at least 50 bytes and ensure b"IEND" chunk marker exists near the end.
+                if len < 50
+                    || !decoded_bytes[len.saturating_sub(16)..]
+                        .windows(4)
+                        .any(|w| w == b"IEND")
+                {
+                    tracing::debug!(
+                        "[Image-Defense] Rejected truncated or malformed PNG (len: {}, missing IEND chunk)",
+                        len
+                    );
+                    return None;
+                }
+            }
+            "image/jpeg" | "image/jpg" => {
+                // A valid minimal JPEG is at least 107 bytes and MUST terminate with EOI marker \xff\xd9.
+                if len < 64 || !decoded_bytes.ends_with(b"\xff\xd9") {
+                    tracing::debug!(
+                        "[Image-Defense] Rejected truncated or malformed JPEG (len: {}, missing EOI marker \\xff\\xd9)",
+                        len
+                    );
+                    return None;
+                }
+            }
+            "image/gif" => {
+                // A valid GIF is at least 35 bytes and ends with trailer byte 0x3b ';'.
+                if len < 32 || !decoded_bytes.ends_with(b"\x3b") {
+                    tracing::debug!(
+                        "[Image-Defense] Rejected truncated or malformed GIF (len: {}, missing trailer 0x3b)",
+                        len
+                    );
+                    return None;
+                }
+            }
+            "image/webp" => {
+                // A valid WEBP must be at least 30 bytes
+                if len < 30 {
+                    tracing::debug!(
+                        "[Image-Defense] Rejected truncated WEBP (len: {} < 30)",
+                        len
+                    );
+                    return None;
+                }
+            }
+            "image/heic" => {
+                if len < 64 {
+                    tracing::debug!(
+                        "[Image-Defense] Rejected truncated HEIC (len: {} < 64)",
+                        len
+                    );
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
 
     Some((final_mime, clean_b64.to_string()))
 }
@@ -2191,7 +2255,36 @@ mod defense_tests {
             "无 MIME 且无魔数的纯文本 Base64 必须被坚决拒收"
         );
 
-        // 4. 终端/执行类工具白名单判定
+        // 4. 截断破损图片深度防御：验证 21 字节断头图片或缺少闭合标志的图片被坚决拒收
+        use base64::Engine as _;
+        // 4.1 只有前 21 字节的断头 PNG（带魔数头，但无 IEND，长度过小）
+        let truncated_png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00";
+        let truncated_png_b64 =
+            base64::engine::general_purpose::STANDARD.encode(truncated_png_bytes);
+        assert_eq!(
+            validate_and_sanitize_inline_data(Some("image/png"), &truncated_png_b64),
+            None,
+            "21 字节断头且缺少 IEND 的 PNG 必须被拒收，防止穿透导致上游 400"
+        );
+
+        // 4.2 截断缺少 EOI 闭合标记的 JPEG
+        let truncated_jpeg_bytes =
+            b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00";
+        let truncated_jpeg_b64 =
+            base64::engine::general_purpose::STANDARD.encode(truncated_jpeg_bytes);
+        assert_eq!(
+            validate_and_sanitize_inline_data(Some("image/jpeg"), &truncated_jpeg_b64),
+            None,
+            "缺少 \\xff\\xd9 闭合标记的截断 JPEG 必须被拒收"
+        );
+
+        // 4.3 完整合法 1x1 PNG：必须正常放行
+        let valid_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        let valid_res = validate_and_sanitize_inline_data(Some("image/png"), valid_png_b64);
+        assert!(valid_res.is_some(), "完整有效的 PNG 图片必须正常通过校验");
+        assert_eq!(valid_res.unwrap().0, "image/png");
+
+        // 5. 终端/执行类工具白名单判定
         assert!(is_terminal_or_code_tool("run_command"));
         assert!(is_terminal_or_code_tool("bash"));
         assert!(is_terminal_or_code_tool("exec_command"));

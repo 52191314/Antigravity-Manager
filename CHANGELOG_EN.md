@@ -3,6 +3,11 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.5-beta.7 (2026-09-28)**:
+        -   **[Model Alias Compatibility & Dependency Refactoring] Legacy Claude 4.x Dot-Notation Model ID Compatibility & yaml-rt Upgrade**:
+            -   **Legacy Claude 4.x Dot-Notation Mapping**: Added alias normalization for dot-separated model identifiers passed by older clients (such as `claude-opus-4.6`, `claude-sonnet-4.6`, `claude-open-4.x`) to canonical hyphenated IDs (`claude-opus-4-6`, `claude-sonnet-4-6`), preventing 500 errors caused by unmapped legacy model identifiers.
+            -   **Hermes YAML Engine Upgrade**: Upgraded `yaml-rt` dependency to 0.3.1 with native support for unindented lists; completely eliminated legacy manual indentation workaround patches in Hermes configuration synchronization.
+
     *   **v4.8.5-beta.6 (2026-09-28)**:
         -   **[Context Fidelity & Search Mapping Fix] Stop Rewriting Client Context, Fix Pure Search Mapping, and Enhance Payload Monitor**:
             -   **Context Rewriting Deprecated & Purged**: Completely stopped trimming, folding, or dropping tool calls and thought contents in client history, eliminating legacy experimental compression logic and ensuring 100% context fidelity and prefix cache stability when forwarding upstream.

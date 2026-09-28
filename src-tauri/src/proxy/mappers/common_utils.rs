@@ -1276,28 +1276,6 @@ pub fn is_supported_tool_image_mime(mime: &str) -> bool {
     SUPPORTED_TOOL_IMAGE_MIMES.contains(&lower.as_str())
 }
 
-/// 判断工具名称是否为通用终端执行或文件操作类工具（其 stdout / 结果均为纯文本，对齐官方原生绝对不抽取多模态）
-#[inline]
-pub fn is_terminal_or_code_tool(name: &str) -> bool {
-    let lower = name.trim().to_ascii_lowercase();
-    matches!(
-        lower.as_str(),
-        "run_command"
-            | "exec_command"
-            | "bash"
-            | "sh"
-            | "terminal"
-            | "local_shell_call"
-            | "grep_search"
-            | "view_file"
-            | "read_file"
-            | "list_dir"
-            | "replace_file_content"
-            | "multi_replace_file_content"
-            | "write_to_file"
-    )
-}
-
 /// 智能解析并提取工具输出中的多模态图像数据（全协议共享：OpenAI / Claude / Gemini / Responses）。
 /// 支持：
 /// 1. Markdown 格式图片：`![alt](data:image/...;base64,...)`
@@ -2283,14 +2261,5 @@ mod defense_tests {
         let valid_res = validate_and_sanitize_inline_data(Some("image/png"), valid_png_b64);
         assert!(valid_res.is_some(), "完整有效的 PNG 图片必须正常通过校验");
         assert_eq!(valid_res.unwrap().0, "image/png");
-
-        // 5. 终端/执行类工具白名单判定
-        assert!(is_terminal_or_code_tool("run_command"));
-        assert!(is_terminal_or_code_tool("bash"));
-        assert!(is_terminal_or_code_tool("exec_command"));
-        assert!(is_terminal_or_code_tool("terminal"));
-        assert!(is_terminal_or_code_tool("grep_search"));
-        assert!(is_terminal_or_code_tool("view_file"));
-        assert!(!is_terminal_or_code_tool("take_screenshot"));
     }
 }

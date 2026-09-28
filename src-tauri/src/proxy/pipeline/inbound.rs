@@ -433,13 +433,8 @@ impl InboundThinkingPipeline {
                         }
                     }
                     if let Some(fr) = part.get_mut("functionResponse") {
-                        let tool_name = fr.get("name").and_then(Value::as_str).unwrap_or_default();
-                        // 对齐官方原生 IDE：终端执行与代码/文件工具输出必须 100% 保持纯文本透传，
-                        // 绝不提取多模态，杜绝代码/日志被误切为坏图片导致上游 400
-                        if crate::proxy::mappers::common_utils::is_terminal_or_code_tool(tool_name)
-                        {
-                            continue;
-                        }
+                        // 不按工具名豁免。名字会随协议改写（local_shell_call → shell）。
+                        // 日志里的 data:image 由 extract_multimodal_from_tool_text 按形态拒绝。
                         if let Some(resp) = fr.get_mut("response") {
                             if !resp.is_object() {
                                 *resp = json!({ "output": resp.clone() });

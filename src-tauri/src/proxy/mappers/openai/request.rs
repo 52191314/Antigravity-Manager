@@ -724,14 +724,10 @@ pub fn transform_openai_request_with_session(
 
                 let content_val = match &msg.content {
                     Some(OpenAIContent::String(s)) => {
-                        if crate::proxy::mappers::common_utils::is_terminal_or_code_tool(final_name) {
-                            s.clone()
-                        } else {
-                            crate::proxy::mappers::common_utils::extract_multimodal_from_tool_text(
-                                s,
-                                &mut extra_parts,
-                            )
-                        }
+                        crate::proxy::mappers::common_utils::extract_multimodal_from_tool_text(
+                            s,
+                            &mut extra_parts,
+                        )
                     }
                     Some(OpenAIContent::Array(blocks)) => {
                         let mut texts = Vec::new();

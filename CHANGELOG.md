@@ -3,6 +3,17 @@
 > 完整版本历史记录。返回项目主页请查看 [README.md](README.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.5-beta.4 (2026-09-28)**:
+        -   **[模型路由与思考预算深度对齐] 3.X Flash 裸模型依据思考档位动态路由，规范 Tiered 模型原样保留与官方预算回填**:
+            -   **3.X Flash 裸模型动态档位路由**: 当客户端请求 `gemini-3.8-flash`、`gemini-3.7-flash`、`gemini-3.6-flash`、`gemini-3-flash` 等裸模型时，网关依据客户端传入的思考档位（`reasoning_effort` / `effort` / `thinkingLevel`）智能解析目标：
+                - `high`（或缺省档位）：默认路由至 `{base}-high`（如 `gemini-3.8-flash-high`），思考预算优先采用网关自定义 `flash_high`，未配置时回退官方 `-1`（深度无上限自适应思考）。
+                - `low`：路由至 `{base}-low`（如 `gemini-3.8-flash-low`），思考预算优先采用网关 `flash_low`，未配置时回退官方默认值 `1000`。
+                - `medium`：路由至 `{base}-medium`（如 `gemini-3.8-flash-medium`），思考预算优先采用网关 `flash_medium`，未配置时回退官方默认值 `4000`。
+            -   **Tiered 自适应模型原样保留**: 客户端显式指定的 `*-flash-tiered` 模型严禁被改写模型名称，模型名严格原样透传，思考预算严格按照 `low` (1000)、`medium` (4000)、`high` (-1) 与缺省 (-1) 及网关自定义配置填充。
+            -   **四大协议 Handler 档位透传贯通**: 全面打通 OpenAI（Chat Completions 与 Responses API）、Claude 及 Gemini 原生 Handler 的客户端思考等级提取与动态路由传参，彻底消除硬编码与静态路由割裂。
+            -   **OpenAI maxOutputTokens 边界安全保护**: 修复适配器在思考预算为 `-1`（自适应深度思考）时误执行 `budget + overhead` 计算导致输出限额被意外截断为 32767 的缺陷，确保保有官方完整的 65536 最大输出能力。
+            -   **历史默认映射启动迁移与网关默认值升级**: 启动时自动清理历史版本在用户配置中写入的 3.6/3.7/3.8-flash 静态映射规则以放行动态路由；将旧版本网关 `flash_high` 默认值由 16384 平滑迁移为官方推荐的 `-1`（自适应无上限深度思考）。
+
     *   **v4.8.5-beta.3 (2026-09-28)**:
         -   **[出站报文拓扑与请求头官方严密对齐] 规范四大协议出口拓扑同构，升级官方 Hub User-Agent 与出口纯净化**:
             -   **官方原生出站 User-Agent 对齐**: 将出站请求头 `User-Agent` 升级为官方 Antigravity Hub 原生格式：`antigravity/hub/2.17.0 (aidev_client; os_type={windows/darwin/linux}; arch={amd64/arm64}; cl=986210228)`；并在 `constants.rs` 中抽象独立常量 `OFFICIAL_HUB_VERSION` 与 `OFFICIAL_HUB_CL`，统一且精确对齐 Google Piper 内部构建点。

@@ -3,6 +3,17 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.5-beta.4 (2026-09-28)**:
+        -   **[Model Routing & Thinking Budget Deep Alignment] Dynamic Effort-Based Routing for 3.X Flash Bare Models, Tiered Preservation & Official Budget Infilling**:
+            -   **Dynamic Effort Routing for Bare 3.X Flash Models**: When clients request bare Flash models (`gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3-flash`, etc.), the gateway intelligently routes to the canonical variant based on the client's reasoning effort (`reasoning_effort` / `effort` / `thinkingLevel`):
+                - `high` (or default when omitted): Routes to `{base}-high` (e.g. `gemini-3.8-flash-high`), using custom gateway `flash_high` budget or defaulting to `-1` (official dynamic unlimited thinking).
+                - `low`: Routes to `{base}-low` (e.g. `gemini-3.8-flash-low`), using custom gateway `flash_low` budget or defaulting to official `1000`.
+                - `medium`: Routes to `{base}-medium` (e.g. `gemini-3.8-flash-medium`), using custom gateway `flash_medium` budget or defaulting to official `4000`.
+            -   **Strict Tiered Model Name Preservation**: Explicitly requested `*-flash-tiered` models are never renamed. The model identifier is strictly preserved, and thinking budgets are accurately populated based on tier levels (`low` -> 1000, `medium` -> 4000, `high` -> -1, default -> -1) and custom gateway overrides.
+            -   **Cross-Protocol Effort Passthrough**: Unified effort extraction and parameter passing across OpenAI (Chat Completions & Responses API), Claude, and Gemini native handlers to ensure consistent routing behavior across all clients.
+            -   **OpenAI maxOutputTokens Safeguard**: Fixed an edge case where an unconstrained `-1` thinking budget triggered `budget + overhead`, inadvertently truncating `maxOutputTokens` to 32767 instead of preserving the full official 65536 limit.
+            -   **Startup Legacy Mapping Migration & Default Budget Update**: Automatically purges legacy static `3.6/3.7/3.8-flash` mappings injected into user configs during startup to unblock dynamic routing; smoothly migrates legacy gateway `flash_high` defaults from 16384 to the official recommended `-1` (dynamic unlimited reasoning).
+
     *   **v4.8.5-beta.3 (2026-09-28)**:
         -   **[Outbound Payload Topology & Egress Header Official Alignment] Uniform Protocol Egress Topology Alignment, Official Hub User-Agent Upgrade & Request Sanitization**:
             -   **Official Native Egress User-Agent Alignment**: Upgraded outbound `User-Agent` to official Antigravity Hub native signature: `antigravity/hub/2.17.0 (aidev_client; os_type={windows/darwin/linux}; arch={amd64/arm64}; cl=986210228)`. Extracted `OFFICIAL_HUB_VERSION` and `OFFICIAL_HUB_CL` as independent constants in `constants.rs` to accurately match Google's internal Piper monorepo build changelist.

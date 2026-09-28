@@ -935,9 +935,10 @@ pub async fn handle_messages(
         let norm_start = std::time::Instant::now();
 
         // 2. 模型路由解析
-        let mapped_model = crate::proxy::common::model_mapping::resolve_model_route(
+        let mapped_model = crate::proxy::common::model_mapping::resolve_model_route_with_effort(
             &request_for_body.model,
             &*state.custom_mapping.read().await,
+            effort_hint.as_deref(),
         );
         last_mapped_model = Some(mapped_model.clone());
 

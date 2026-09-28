@@ -38,26 +38,23 @@ static CLAUDE_TO_GEMINI: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
 
     // ── OpenAI 核心映射 (转至当前基准模型) ──
     m.insert("gpt-oss-120b-medium", "gpt-oss-120b-medium");
-    m.insert("gpt-4o", "gemini-3.8-flash-tiered");
-    m.insert("gpt-4o-mini", "gemini-3.8-flash-tiered");
-    m.insert("gpt-4-turbo", "gemini-3.8-flash-tiered");
-    m.insert("gpt-4", "gemini-3.8-flash-tiered");
+    m.insert("gpt-4o", "gemini-3.8-flash-high");
+    m.insert("gpt-4o-mini", "gemini-3.8-flash-high");
+    m.insert("gpt-4-turbo", "gemini-3.8-flash-high");
+    m.insert("gpt-4", "gemini-3.8-flash-high");
     m.insert("gpt-3.5-turbo", "gemini-2.5-flash");
 
     // ── Gemini 核心标准映射 ──
-    m.insert("gemini-3.8-flash", "gemini-3.8-flash-tiered");
     m.insert("gemini-3.8-flash-tiered", "gemini-3.8-flash-tiered");
     m.insert("gemini-3.8-flash-high", "gemini-3.8-flash-high");
     m.insert("gemini-3.8-flash-medium", "gemini-3.8-flash-medium");
     m.insert("gemini-3.8-flash-low", "gemini-3.8-flash-low");
 
-    m.insert("gemini-3.7-flash", "gemini-3.7-flash-tiered");
     m.insert("gemini-3.7-flash-tiered", "gemini-3.7-flash-tiered");
     m.insert("gemini-3.7-flash-high", "gemini-3.7-flash-high");
     m.insert("gemini-3.7-flash-medium", "gemini-3.7-flash-medium");
     m.insert("gemini-3.7-flash-low", "gemini-3.7-flash-low");
 
-    m.insert("gemini-3.6-flash", "gemini-3.6-flash-tiered");
     m.insert("gemini-3.6-flash-tiered", "gemini-3.6-flash-tiered");
     m.insert("gemini-3.6-flash-high", "gemini-3.6-flash-high");
     m.insert("gemini-3.6-flash-medium", "gemini-3.6-flash-medium");
@@ -85,13 +82,13 @@ static CLAUDE_TO_GEMINI: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m.insert("gemini-2.5-flash-lite", "gemini-2.5-flash-lite");
 
     // 历史淘汰模型重定向
-    m.insert("gemini-3-flash", "gemini-3.8-flash-tiered");
-    m.insert("gemini-3-flash-agent", "gemini-3.8-flash-tiered");
+    m.insert("gemini-3-flash", "gemini-3.8-flash-high");
+    m.insert("gemini-3-flash-agent", "gemini-3.8-flash-high");
     m.insert("gemini-3.1-flash-lite", "gemini-2.5-flash-lite");
     m.insert("gemini-1.5-pro", "gemini-3.1-pro-high");
     m.insert("gemini-2.0-pro", "gemini-3.1-pro-high");
-    m.insert("gemini-1.5-flash", "gemini-3.8-flash-tiered");
-    m.insert("gemini-2.0-flash", "gemini-3.8-flash-tiered");
+    m.insert("gemini-1.5-flash", "gemini-3.8-flash-high");
+    m.insert("gemini-2.0-flash", "gemini-3.8-flash-high");
 
     m
 });
@@ -125,7 +122,7 @@ pub fn map_claude_model_to_gemini(input: &str) -> String {
         | "gemini-3-pro-high" => return "gemini-3.1-pro-high".to_string(),
         "gemini-3-pro-low" => return "gemini-3.1-pro-low".to_string(),
         "gemini-1.5-flash" | "gemini-2.0-flash" | "gemini-3-flash" => {
-            return "gemini-3.8-flash-tiered".to_string()
+            return "gemini-3.8-flash-high".to_string()
         }
         "internal-background-task" => return "gemini-2.5-flash".to_string(),
         _ => {}
@@ -394,6 +391,24 @@ pub fn resolve_model_route(
     original_model: &str,
     custom_mapping: &std::collections::HashMap<String, String>,
 ) -> String {
+    resolve_model_route_with_effort(original_model, custom_mapping, None)
+}
+
+/// 核心模型路由解析引擎（支持客户端思考档位感知）
+/// 优先级：精确匹配 > 通配符匹配 > 3.x Flash 档位路由 > 系统默认映射
+///
+/// # 参数
+/// - `original_model`: 原始模型名称
+/// - `custom_mapping`: 用户自定义映射表
+/// - `client_effort`: 客户端传入的思考档位（如 "low", "medium", "high"）
+///
+/// # 返回
+/// 映射后的目标模型名称
+pub fn resolve_model_route_with_effort(
+    original_model: &str,
+    custom_mapping: &std::collections::HashMap<String, String>,
+    client_effort: Option<&str>,
+) -> String {
     // 0. API 热更新废弃模型转发 (最高物理优先级，强制纠正)
     // 如果用户非要用已经被移除的模型，并且官方下发了 fallback path，我们在此拦截并纠正
     if let Some(forwarded) = DYNAMIC_MODEL_FORWARDING_RULES.get(original_model) {
@@ -452,13 +467,17 @@ pub fn resolve_model_route(
     }
 
     // 3. 系统默认映射
-    // [NEW] 检查是否为 >= 3.6 的无后缀 Flash 衍生模型（如 gemini-3.6-flash, gemini-3.7-flash, gemini-3.8-flash 等）
-    // 统一自动预设路由到对应的 tiered 自适应思考模型
-    if crate::proxy::model_specs::is_bare_gemini_v36_or_above_flash(original_model) {
-        let routed = format!("{}-tiered", original_model);
+    // [NEW] 3.x Flash 裸模型依据客户端思考档位路由：
+    // - high（或未传档位）：默认路由至对应的 3.x-flash-high（例如 gemini-3.8-flash-high）
+    // - low：直接路由至对应的 3.x-flash-low（例如 gemini-3.8-flash-low）
+    // - medium：直接路由至对应的 3.x-flash-medium（例如 gemini-3.8-flash-medium）
+    // 而显式指定的 *-tiered 模型由后续逻辑原样保留，不动模型名！
+    if let Some(routed) =
+        crate::proxy::model_specs::resolve_bare_flash_route(original_model, client_effort)
+    {
         crate::modules::logger::log_info(&format!(
-            "[Router] 无后缀 Gemini >= 3.6 Flash 模型统一预设路由至 Tiered: {} -> {}",
-            original_model, routed
+            "[Router] 3.x Flash 裸模型依据思考档位路由: {} (effort={:?}) -> {}",
+            original_model, client_effort, routed
         ));
         return routed;
     }
@@ -756,22 +775,28 @@ mod tests {
     #[test]
     fn test_gemini_3x_flash_wildcard_route() {
         let mut custom = crate::proxy::config::default_custom_mapping();
-        assert!(custom.contains_key("gemini-3.6-flash"));
-        assert!(custom.contains_key("gemini-3.7-flash"));
-        assert!(custom.contains_key("gemini-3.8-flash"));
         assert!(custom.contains_key("gemini-3.x-flash"));
 
-        // 1. 3.6 / 3.7 / 3.8 精确匹配默认预设
+        // 1. 3.x Flash 裸模型依据思考档位路由 (未指定或 high 默认 high, low 对应 low, medium 对应 medium)
         assert_eq!(
-            resolve_model_route("gemini-3.6-flash", &custom),
-            "gemini-3.6-flash-tiered"
-        );
-        assert_eq!(
-            resolve_model_route("gemini-3.7-flash", &custom),
-            "gemini-3.7-flash-tiered"
+            resolve_model_route_with_effort("gemini-3.8-flash", &custom, Some("high")),
+            "gemini-3.8-flash-high"
         );
         assert_eq!(
             resolve_model_route("gemini-3.8-flash", &custom),
+            "gemini-3.8-flash-high"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("gemini-3.8-flash", &custom, Some("low")),
+            "gemini-3.8-flash-low"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("gemini-3.8-flash", &custom, Some("medium")),
+            "gemini-3.8-flash-medium"
+        );
+        // tiered 模型不动模型名
+        assert_eq!(
+            resolve_model_route("gemini-3.8-flash-tiered", &custom),
             "gemini-3.8-flash-tiered"
         );
 

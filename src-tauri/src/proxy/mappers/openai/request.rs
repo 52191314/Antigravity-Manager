@@ -951,34 +951,36 @@ pub fn transform_openai_request_with_session(
                 );
 
             if let Some(final_budget) = resolved_budget {
-                // [CRITICAL] 思维模型的 maxOutputTokens 必须大于 thinkingBudget
-                // [FIX #1675] 针对图像模型使用更保守的 max_tokens 增量，避免触发 128k 限制
-                let overhead = if config.request_type == "image_gen" {
-                    2048
-                } else {
-                    32768
-                };
-                let min_overhead = if config.request_type == "image_gen" {
-                    1024
-                } else {
-                    8192
-                };
+                if final_budget > 0 {
+                    // [CRITICAL] 思维模型的 maxOutputTokens 必须大于 thinkingBudget
+                    // [FIX #1675] 针对图像模型使用更保守的 max_tokens 增量，避免触发 128k 限制
+                    let overhead = if config.request_type == "image_gen" {
+                        2048
+                    } else {
+                        32768
+                    };
+                    let min_overhead = if config.request_type == "image_gen" {
+                        1024
+                    } else {
+                        8192
+                    };
 
-                if let Some(max_tokens) = request.max_tokens {
-                    if (max_tokens as i64) <= final_budget {
-                        gen_config["maxOutputTokens"] = json!(final_budget + min_overhead);
+                    if let Some(max_tokens) = request.max_tokens {
+                        if (max_tokens as i64) <= final_budget {
+                            gen_config["maxOutputTokens"] = json!(final_budget + min_overhead);
+                        }
+                    } else {
+                        // [FIX #1592] Use a more conservative default to avoid 400 error on 128k context models
+                        gen_config["maxOutputTokens"] = json!(final_budget + overhead);
                     }
-                } else {
-                    // [FIX #1592] Use a more conservative default to avoid 400 error on 128k context models
-                    gen_config["maxOutputTokens"] = json!(final_budget + overhead);
-                }
 
-                let new_max = gen_config["maxOutputTokens"].as_i64().unwrap_or(0);
-                tracing::debug!(
-                    "[OpenAI-Request] Adjusted maxOutputTokens to {} for thinking model (budget={})",
-                    new_max,
-                    final_budget
-                );
+                    let new_max = gen_config["maxOutputTokens"].as_i64().unwrap_or(0);
+                    tracing::debug!(
+                        "[OpenAI-Request] Adjusted maxOutputTokens to {} for thinking model (budget={})",
+                        new_max,
+                        final_budget
+                    );
+                }
             }
 
             tracing::debug!(

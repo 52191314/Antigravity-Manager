@@ -866,9 +866,9 @@ impl InboundThinkingPipeline {
         // "如果我网关模式的思考预算填-1 我的策略是不填模型预算。其实是不对的
         // 应该是如果网关模式都填了-1 应该默认走官方模型结构体的默认值"
         let final_budget = match resolved_budget {
-            Some(b) if b >= 0 => Some(b),
-            _ => {
-                // 网关模式下未显式配置自定义正数预算（填了 -1 或 Default 默认模式）：
+            Some(b) => Some(b),
+            None => {
+                // 网关模式下未显式配置自定义预算（Default 默认模式）：
                 // 默认走官方模型结构体的默认值 (official_model.thinking_budget)
                 official_info.as_ref().and_then(|info| info.thinking_budget)
             }

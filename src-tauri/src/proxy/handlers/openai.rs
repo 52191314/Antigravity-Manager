@@ -2026,22 +2026,23 @@ pub async fn handle_chat_completions(
         client_budget
     };
 
-    let effort_hint = openai_req
+    let effort_hint: Option<String> = openai_req
         .reasoning_effort
-        .as_deref()
+        .as_ref()
+        .map(|s| s.to_string())
         .or_else(|| {
             openai_req
                 .reasoning
                 .as_ref()
-                .and_then(|r| r.effort.as_deref())
+                .and_then(|r| r.effort.clone())
         })
         .or_else(|| {
             openai_req
                 .thinking
                 .as_ref()
-                .and_then(|t| t.effort.as_deref())
+                .and_then(|t| t.effort.clone())
         });
-    let effort_tier = crate::proxy::common::variant_mapping::tier_from_effort(effort_hint);
+    let effort_tier = crate::proxy::common::variant_mapping::tier_from_effort(effort_hint.as_deref());
 
     let variant_spec =
         if crate::proxy::mappers::openai::request::is_tiered_flash_model(&openai_req.model) {
@@ -2075,7 +2076,7 @@ pub async fn handle_chat_completions(
             openai_req.thinking = Some(crate::proxy::mappers::openai::models::ThinkingConfig {
                 thinking_type: Some("enabled".to_string()),
                 budget_tokens: raw_client_budget,
-                effort: effort_hint.map(|s| s.to_string()),
+                effort: effort_hint.clone(),
             });
         } else if is_client_control {
             // [CRITICAL FIX] 客户端控制模式下，客户端未传数字预算（全缺省或仅传等级）
@@ -2098,7 +2099,7 @@ pub async fn handle_chat_completions(
             openai_req.thinking = Some(crate::proxy::mappers::openai::models::ThinkingConfig {
                 thinking_type: Some("enabled".to_string()),
                 budget_tokens: Some(spec.thinking_budget),
-                effort: effort_hint.map(|s| s.to_string()),
+                effort: effort_hint.clone(),
             });
         }
         openai_req.max_tokens = Some(spec.max_output_tokens);
@@ -2126,9 +2127,10 @@ pub async fn handle_chat_completions(
     let mut retried_without_thinking = false;
 
     // 2. 模型路由解析 (移到循环外以支持在所有路径返回 X-Mapped-Model)
-    let mapped_model = crate::proxy::common::model_mapping::resolve_model_route(
+    let mapped_model = crate::proxy::common::model_mapping::resolve_model_route_with_effort(
         &openai_req.model,
         &*state.custom_mapping.read().await,
+        effort_hint.as_deref(),
     );
     let explicit_sid = headers
         .get("x-session-id")
@@ -3826,9 +3828,26 @@ pub async fn handle_completions(
         experimental_cfg.compression_level.clone()
     };
 
-    let mapped_model = crate::proxy::common::model_mapping::resolve_model_route(
+    let effort_hint = openai_req
+        .reasoning_effort
+        .as_deref()
+        .or_else(|| {
+            openai_req
+                .reasoning
+                .as_ref()
+                .and_then(|r| r.effort.as_deref())
+        })
+        .or_else(|| {
+            openai_req
+                .thinking
+                .as_ref()
+                .and_then(|t| t.effort.as_deref())
+        });
+
+    let mapped_model = crate::proxy::common::model_mapping::resolve_model_route_with_effort(
         &openai_req.model,
         &*state.custom_mapping.read().await,
+        effort_hint,
     );
     let trace_id = format!("req_{}", chrono::Utc::now().timestamp_subsec_millis());
     if debug_logger::is_enabled(&debug_cfg) {

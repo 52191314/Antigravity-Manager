@@ -168,9 +168,18 @@ pub async fn handle_generate(
     let mut used_attempts = 0;
     let mut retried_without_thinking = false;
 
-    let initial_mapped_model = crate::proxy::common::model_mapping::resolve_model_route(
+    let client_effort = body
+        .get("request")
+        .unwrap_or(&body)
+        .get("generationConfig")
+        .and_then(|gc| gc.get("thinkingConfig"))
+        .and_then(|tc| tc.get("thinkingLevel").or_else(|| tc.get("effort")))
+        .and_then(|v| v.as_str());
+
+    let initial_mapped_model = crate::proxy::common::model_mapping::resolve_model_route_with_effort(
         &model_name,
         &*state.custom_mapping.read().await,
+        client_effort,
     );
 
     while let Some(attempt) = next_rotation_attempt(
@@ -1140,9 +1149,18 @@ pub async fn execute_count_tokens(
     crate::proxy::mappers::common_utils::sanitize_gemini_payload_inline_data(&mut body);
 
     // 1. 模型路由解析
-    let mapped_model = crate::proxy::common::model_mapping::resolve_model_route(
+    let client_effort = body
+        .get("request")
+        .unwrap_or(&body)
+        .get("generationConfig")
+        .and_then(|gc| gc.get("thinkingConfig"))
+        .and_then(|tc| tc.get("thinkingLevel").or_else(|| tc.get("effort")))
+        .and_then(|v| v.as_str());
+
+    let mapped_model = crate::proxy::common::model_mapping::resolve_model_route_with_effort(
         &model_name,
         &*state.custom_mapping.read().await,
+        client_effort,
     );
 
     // 2. 解析请求配置并获取 Token

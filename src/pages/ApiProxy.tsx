@@ -521,9 +521,6 @@ export default function ApiProxy() {
         const newConfig = {
             ...appConfig.proxy,
             custom_mapping: {
-                "gemini-3.6-flash": "gemini-3.6-flash-tiered",
-                "gemini-3.7-flash": "gemini-3.7-flash-tiered",
-                "gemini-3.8-flash": "gemini-3.8-flash-tiered",
                 "gemini-3.x-flash": "3.x-flash-tiered",
             }
         };
@@ -546,12 +543,9 @@ export default function ApiProxy() {
             name: t('proxy.router.preset_default'),
             description: t('proxy.router.preset_default_desc'),
             mappings: {
-                "gemini-3.6-flash": "gemini-3.6-flash-tiered",
-                "gemini-3.7-flash": "gemini-3.7-flash-tiered",
-                "gemini-3.8-flash": "gemini-3.8-flash-tiered",
                 "gemini-3.x-flash": "3.x-flash-tiered",
                 "gpt-4*": "gemini-3.1-pro-high",
-                "gpt-4o*": "gemini-3.8-flash-tiered",
+                "gpt-4o*": "gemini-3.8-flash-high",
                 "gpt-3.5*": "gemini-2.5-flash",
                 "o1-*": "gemini-3.1-pro-high",
                 "o3-*": "gemini-3.1-pro-high",
@@ -584,14 +578,14 @@ export default function ApiProxy() {
             name: t('proxy.router.preset_cost'),
             description: t('proxy.router.preset_cost_desc'),
             mappings: {
-                "gpt-4*": "gemini-3.8-flash-tiered",
+                "gpt-4*": "gemini-3.8-flash-high",
                 "gpt-4o*": "gemini-2.5-flash",
                 "gpt-3.5*": "gemini-2.5-flash",
-                "o1-*": "gemini-3.8-flash-tiered",
-                "o3-*": "gemini-3.8-flash-tiered",
-                "claude-3-5-sonnet-*": "gemini-3.8-flash-tiered",
-                "claude-3-opus-*": "gemini-3.8-flash-tiered",
-                "claude-opus-4-*": "gemini-3.8-flash-tiered",
+                "o1-*": "gemini-3.8-flash-high",
+                "o3-*": "gemini-3.8-flash-high",
+                "claude-3-5-sonnet-*": "gemini-3.8-flash-high",
+                "claude-3-opus-*": "gemini-3.8-flash-high",
+                "claude-opus-4-*": "gemini-3.8-flash-high",
                 "claude-haiku-*": "gemini-2.5-flash",
                 "claude-3-haiku-*": "gemini-2.5-flash",
             }
@@ -602,7 +596,7 @@ export default function ApiProxy() {
             description: t('proxy.router.preset_balanced_desc'),
             mappings: {
                 "gpt-4*": "gemini-3.1-pro-high",
-                "gpt-4o*": "gemini-3.8-flash-tiered",
+                "gpt-4o*": "gemini-3.8-flash-high",
                 "gpt-3.5*": "gemini-2.5-flash",
                 "o1-*": "claude-sonnet-4-6",
                 "o3-*": "claude-sonnet-4-6",

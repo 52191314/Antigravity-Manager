@@ -305,4 +305,164 @@ mod tests {
         assert_eq!(tc_pro["includeThoughts"], true);
         assert_eq!(tc_pro["thinkingBudget"], 10001);
     }
+
+    #[test]
+    fn test_bare_3x_flash_effort_routing_and_tiered_preservation() {
+        use crate::proxy::common::model_mapping::resolve_model_route_with_effort;
+        use std::collections::HashMap;
+
+        let empty_mapping = HashMap::new();
+
+        // 1. 裸 3.8 Flash 模型依据思考档位路由
+        assert_eq!(
+            resolve_model_route_with_effort("gemini-3.8-flash", &empty_mapping, Some("high")),
+            "gemini-3.8-flash-high"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("gemini-3.8-flash", &empty_mapping, None),
+            "gemini-3.8-flash-high"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("gemini-3.8-flash", &empty_mapping, Some("low")),
+            "gemini-3.8-flash-low"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("gemini-3.8-flash", &empty_mapping, Some("medium")),
+            "gemini-3.8-flash-medium"
+        );
+
+        // 2. 裸 3.7 Flash 与 3.6 Flash 模型同理
+        assert_eq!(
+            resolve_model_route_with_effort("gemini-3.7-flash", &empty_mapping, Some("low")),
+            "gemini-3.7-flash-low"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("gemini-3.7-flash", &empty_mapping, None),
+            "gemini-3.7-flash-high"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("gemini-3.6-flash", &empty_mapping, Some("medium")),
+            "gemini-3.6-flash-medium"
+        );
+
+        // 3. Tiered 模型原样保留模型名，绝对不改名！
+        assert_eq!(
+            resolve_model_route_with_effort(
+                "gemini-3.8-flash-tiered",
+                &empty_mapping,
+                Some("high")
+            ),
+            "gemini-3.8-flash-tiered"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("gemini-3.8-flash-tiered", &empty_mapping, Some("low")),
+            "gemini-3.8-flash-tiered"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("gemini-3.8-flash-tiered", &empty_mapping, None),
+            "gemini-3.8-flash-tiered"
+        );
+    }
+
+    #[test]
+    fn test_bare_flash_and_tiered_budget_resolution() {
+        use crate::proxy::config::{
+            ThinkingBudgetConfig, ThinkingBudgetMode, ThinkingControlSource,
+        };
+        use crate::proxy::model_specs::resolve_custom_budget;
+        use crate::proxy::pipeline::inbound::ClientThinkingSwitch;
+
+        let mut tb_default = ThinkingBudgetConfig::default();
+        tb_default.control_source = ThinkingControlSource::Gateway;
+        tb_default.flash_mode = ThinkingBudgetMode::Custom;
+        tb_default.flash_high = -1;
+        tb_default.flash_medium = -1;
+        tb_default.flash_low = -1;
+        tb_default.flash_tiered = -1;
+
+        // 1. Non-tiered Flash High: 默认 -1
+        assert_eq!(
+            resolve_custom_budget("gemini-3.8-flash-high", None, None, &tb_default, None),
+            Some(-1)
+        );
+
+        // 2. Non-tiered Flash Low: 默认 1000
+        assert_eq!(
+            resolve_custom_budget("gemini-3.8-flash-low", None, None, &tb_default, None),
+            Some(1000)
+        );
+
+        // 3. Non-tiered Flash Medium: 默认 4000
+        assert_eq!(
+            resolve_custom_budget("gemini-3.8-flash-medium", None, None, &tb_default, None),
+            Some(4000)
+        );
+
+        // 4. 用户配置自定义预算时的优先级生效
+        let mut tb_custom = tb_default.clone();
+        tb_custom.flash_high = 16000;
+        tb_custom.flash_low = 2000;
+        tb_custom.flash_medium = 8000;
+        assert_eq!(
+            resolve_custom_budget("gemini-3.8-flash-high", None, None, &tb_custom, None),
+            Some(16000)
+        );
+        assert_eq!(
+            resolve_custom_budget("gemini-3.8-flash-low", None, None, &tb_custom, None),
+            Some(2000)
+        );
+        assert_eq!(
+            resolve_custom_budget("gemini-3.8-flash-medium", None, None, &tb_custom, None),
+            Some(8000)
+        );
+
+        // 5. Tiered 模型：严格按照 client effort (low/med/high) 填充预算
+        assert_eq!(
+            resolve_custom_budget(
+                "gemini-3.8-flash-tiered",
+                Some("low"),
+                None,
+                &tb_default,
+                None
+            ),
+            Some(1000)
+        );
+        assert_eq!(
+            resolve_custom_budget(
+                "gemini-3.8-flash-tiered",
+                Some("medium"),
+                None,
+                &tb_default,
+                None
+            ),
+            Some(4000)
+        );
+        assert_eq!(
+            resolve_custom_budget(
+                "gemini-3.8-flash-tiered",
+                Some("high"),
+                None,
+                &tb_default,
+                None
+            ),
+            Some(-1)
+        );
+        assert_eq!(
+            resolve_custom_budget("gemini-3.8-flash-tiered", None, None, &tb_default, None),
+            Some(-1)
+        );
+
+        // 6. Inbound pipeline 配置测试：-1 预算正确注入且 maxOutputTokens 不被截断
+        let mut gc = json!({});
+        InboundThinkingPipeline::configure_inbound_thinking(
+            "gemini-3.8-flash-high",
+            &mut gc,
+            ClientThinkingSwitch::Default,
+            Some("high"),
+            None,
+            None,
+        );
+        assert_eq!(gc["thinkingConfig"]["thinkingBudget"], -1);
+        assert_eq!(gc["thinkingConfig"]["includeThoughts"], true);
+    }
 }

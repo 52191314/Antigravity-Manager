@@ -1027,6 +1027,7 @@ fn build_contents(
             }
         }
         MessageContent::Array(blocks) => {
+            let mut turn_tool_media_parts = Vec::new();
             for item in blocks {
                 match item {
                     ContentBlock::Text { text } => {
@@ -1372,7 +1373,7 @@ fn build_contents(
                         let part = json!({
                             "functionResponse": {
                                 "name": func_name,
-                                "response": {"result": merged_content},
+                                "response": {"output": merged_content},
                                 "id": tool_use_id
                             }
                         });
@@ -1380,10 +1381,8 @@ fn build_contents(
                         // 危险测试分支法则：ToolResult (functionResponse) 绝不携带签名
                         parts.push(part);
 
-                        // 追加图片 parts
-                        for extra in extra_parts {
-                            parts.push(extra);
-                        }
+                        // 暂存随行媒体 parts，确保同一轮中所有 functionResponse 置顶连续，多模态媒体统一延后追加
+                        turn_tool_media_parts.extend(extra_parts);
 
                         // 标记状态，用于下一条 User 消息的去重判断
                         *previous_was_tool_result = true;
@@ -1396,6 +1395,7 @@ fn build_contents(
                     }
                 }
             }
+            parts.extend(turn_tool_media_parts);
         }
     }
 
@@ -1416,7 +1416,7 @@ fn build_contents(
                     "functionResponse": {
                         "name": name,
                         "response": {
-                            "result": "Tool execution interrupted. No result provided."
+                            "output": "Tool execution interrupted. No result provided."
                         },
                         "id": id
                     }
@@ -1497,7 +1497,7 @@ fn build_google_content(
                     "functionResponse": {
                         "name": name,
                         "response": {
-                            "result": "Tool execution interrupted. No result provided."
+                            "output": "Tool execution interrupted. No result provided."
                         },
                         "id": id
                     }

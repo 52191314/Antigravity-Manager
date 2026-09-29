@@ -3,6 +3,13 @@
 > 完整版本历史记录。返回项目主页请查看 [README.md](README.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.6-beta.6 (2026-09-30)**:
+        -   **[流水线通用拓扑稳定分区与并发多模态回执治理] 进站流水线实现协议无关稳定双阶段分区，彻底根除并发多图 tool_result 插队引发的 Claude 上游 400 校验截断 (Fixes #3560, #3094, Thanks to @Xueshen6)**:
+            -   **协议无关稳定双阶段分区 (Stable Partition)**: 在统一进站流水线（`InboundThinkingPipeline::normalize_function_response_roles`）中，针对所有包含 `functionResponse` 的回执轮次实施严格的稳定分区。无论客户端发来何种穿插形态或拆散轮次，流水线统一保证该轮中所有 `functionResponse` 连续置顶在前，所有随行多模态媒体（`inlineData`、图片等）与辅助部件统一延后沉底（`[fs1, fs2, ..., img1, img2, ...]`）。
+            -   **根治 Claude 上游转译截断与 400 报错 (Fixes #3560, #3094)**: 彻底消除了单轮并发读取多图时随行图片插队阻断工具匹配状态机的问题。上游逆向转译器在面对 Claude 目标模型时，可连续无阻碍地完成上一轮所有 `tool_use` 与 `tool_result` 的 1:1 状态机闭环，彻底根除 `tool_use ids were found without tool_result blocks immediately after` 单侧缺失报错。
+            -   **全模型拓扑同构衔接**: Gemini 原生目标模型（`role: "model"`）在双阶段分区后自然衔接随行媒体拆分逻辑（`zwx-patch`），产出纯净连续的 `model [fs1, fs2]` 与紧随其后的 `user [img1, img2]`，状态机零断层。
+            -   **适配器瘦身与公共化收拢**: 清理 Claude 适配器（`claude/request.rs`）在循环内即时穿插 push 图片的局部缺陷，彻底废除历史残留的 `"result"` 方言统一对齐官方标准 `"output"`；工具回执空文本统一在流水线层注入 `"Command executed successfully."` 防幻觉兜底。
+
     *   **v4.8.6-beta.5 (2026-09-30)**:
         -   **[双向木桶约束与三维配额透镜] 仪表盘与迷你面板全面支持综合加权、5H滚动与7天周配额独立透镜切换，并受相互短板效应严密约束 (Fixes #3556)**:
             -   **双向木桶效应约束计算模型 (`getModelConstrainedQuota`)**: 彻底解决单一配额视角脱离短板造成的认知欺骗。在 `5h` 模式下引入周总配额硬顶压制（`min(5h, weekly)`），当周配额见底耗尽（`<=0%`）时立即触发熔断判定为 0%，并打上 `[熔断]` 徽标；当周配额不足以支撑本轮 5H 时，有效可用上限被周预算截断并提示 `[周限]`；在 `weekly` 模式下引入 5H 即时冷却感知，当本周配额虽有但当前 5H 滑动窗口打满归零时，显式标记 `[冷却]` 徽标，提示此刻正处于冷却重置期。

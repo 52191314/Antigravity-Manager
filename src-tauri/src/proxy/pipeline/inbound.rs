@@ -459,6 +459,16 @@ impl InboundThinkingPipeline {
                                     }
                                 }
                             }
+                            // [Pipeline First] 空输出防幻觉统一兜底：避免空字符串导致模型幻觉或 Gemini 400 校验异常
+                            if let Some(resp_obj) = resp.as_object_mut() {
+                                if let Some(v) = resp_obj.get_mut("output") {
+                                    if let Some(s) = v.as_str() {
+                                        if s.trim().is_empty() {
+                                            *v = json!("Command executed successfully.");
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -949,6 +959,32 @@ impl InboundThinkingPipeline {
                 }
             }
             merged.push(content);
+        }
+
+        // [Pipeline First] 回执轮部件稳定双阶段分区（Stable Partition）：
+        // 彻底根除并发多模态（带图）工具回执中媒体插队破坏 functionResponse 连续性的问题 (Fixes #3560, #3094)。
+        // 严格遵循上游工具回执状态机规范：同一轮次中，所有的 functionResponse 必须紧凑连续置顶在前，
+        // 所有的随行多模态数据（inlineData 等）与辅助说明统一稳定延后追加在末尾。
+        for content in merged.iter_mut() {
+            let has_any_fr = content
+                .get("parts")
+                .and_then(|p| p.as_array())
+                .map_or(false, |parts| parts.iter().any(has_fr));
+            if has_any_fr {
+                if let Some(parts) = content.get_mut("parts").and_then(|p| p.as_array_mut()) {
+                    let mut fr_parts = Vec::new();
+                    let mut other_parts = Vec::new();
+                    for part in parts.drain(..) {
+                        if has_fr(&part) {
+                            fr_parts.push(part);
+                        } else {
+                            other_parts.push(part);
+                        }
+                    }
+                    parts.extend(fr_parts);
+                    parts.extend(other_parts);
+                }
+            }
         }
 
         // [zwx-patch] 回执轮随行媒体拆出为紧随其后的 user 轮：
@@ -2132,6 +2168,35 @@ mod tests {
     }
 
     #[test]
+    fn test_inbound_pipeline_empty_tool_result_sanitizes_to_default_output() {
+        let mut contents = vec![json!({
+            "role": "user",
+            "parts": [{
+                "functionResponse": {
+                    "name": "edit_file",
+                    "response": {
+                        "output": "   "
+                    }
+                }
+            }]
+        })];
+
+        InboundThinkingPipeline::process_contents(
+            &mut contents,
+            "claude-sonnet-4-6",
+            false,
+            None,
+            false,
+        );
+
+        let parts = contents[0]["parts"].as_array().expect("parts array");
+        let output_text = parts[0]["functionResponse"]["response"]["output"]
+            .as_str()
+            .unwrap();
+        assert_eq!(output_text, "Command executed successfully.");
+    }
+
+    #[test]
     fn test_extract_client_thinking_switch_coverage() {
         // 1. 显式关闭 (一票否决)
         assert_eq!(
@@ -2445,6 +2510,87 @@ mod tests {
         assert!(contents[2]["parts"][0].get("functionResponse").is_some());
         assert_eq!(contents[3]["role"], "user");
         assert_eq!(contents[3]["parts"], json!([img]));
+    }
+
+    /// [FIX #3560, #3094] Claude 目标并发多图回执：
+    /// 原始交替穿插 `[fr1, img1, fr2, img2]` 必须归一化重排为稳定的双阶段结构 `[fr1, fr2, img1, img2]`，
+    /// 确保所有工具回执绝对连续排在最前面，防止破坏 Claude 逆向转译器状态机导致 400。
+    #[test]
+    fn test_fr_role_parallel_responses_with_images_topology_claude() {
+        let img1 = json!({"inlineData": {"mimeType": "image/png", "data": "AAA"}});
+        let img2 = json!({"inlineData": {"mimeType": "image/jpeg", "data": "BBB"}});
+        let mut contents = vec![
+            json!({"role": "user", "parts": [{"text": "read two pictures"}]}),
+            json!({"role": "model", "parts": [fc_part("c1", "read_file"), fc_part("c2", "read_file")]}),
+            json!({
+                "role": "user",
+                "parts": [
+                    fr_part("c1", "read_file"),
+                    img1.clone(), // 致命插队！
+                    fr_part("c2", "read_file"),
+                    img2.clone()
+                ]
+            }),
+        ];
+
+        InboundThinkingPipeline::normalize_function_response_roles(
+            &mut contents,
+            "claude-sonnet-4-6",
+        );
+
+        assert_eq!(contents.len(), 3);
+        assert_eq!(contents[2]["role"], "user");
+        let parts = contents[2]["parts"].as_array().unwrap();
+        assert_eq!(parts.len(), 4);
+        // 关键断言：前两个部件必须连续为 functionResponse，且保持原本相对顺序
+        assert!(parts[0].get("functionResponse").is_some());
+        assert_eq!(parts[0]["functionResponse"]["id"], "c1");
+        assert!(parts[1].get("functionResponse").is_some());
+        assert_eq!(parts[1]["functionResponse"]["id"], "c2");
+        // 关键断言：后两个部件必须为随行媒体，且保持原本相对顺序
+        assert_eq!(parts[2]["inlineData"]["data"], "AAA");
+        assert_eq!(parts[3]["inlineData"]["data"], "BBB");
+    }
+
+    /// [FIX #3560, #3094] Gemini 目标并发多图回执：
+    /// 原始交替穿插 `[fr1, img1, fr2, img2]` 经 Stable Partition 后，
+    /// 随行媒体被整洁拆分入紧随其后的 user 轮，model 轮保持连续回执 `[fr1, fr2]`。
+    #[test]
+    fn test_fr_role_parallel_responses_with_images_topology_gemini() {
+        let img1 = json!({"inlineData": {"mimeType": "image/png", "data": "AAA"}});
+        let img2 = json!({"inlineData": {"mimeType": "image/jpeg", "data": "BBB"}});
+        let mut contents = vec![
+            json!({"role": "user", "parts": [{"text": "read two pictures"}]}),
+            json!({"role": "model", "parts": [fc_part("c1", "read_file"), fc_part("c2", "read_file")]}),
+            json!({
+                "role": "user",
+                "parts": [
+                    fr_part("c1", "read_file"),
+                    img1.clone(),
+                    fr_part("c2", "read_file"),
+                    img2.clone()
+                ]
+            }),
+        ];
+
+        InboundThinkingPipeline::normalize_function_response_roles(
+            &mut contents,
+            "gemini-3.8-flash-low",
+        );
+
+        // 拆分为：user(q) -> model(fc) -> model(fr1, fr2) -> user(img1, img2)
+        assert_eq!(contents.len(), 4);
+        assert_eq!(contents[2]["role"], "model");
+        let model_parts = contents[2]["parts"].as_array().unwrap();
+        assert_eq!(model_parts.len(), 2);
+        assert_eq!(model_parts[0]["functionResponse"]["id"], "c1");
+        assert_eq!(model_parts[1]["functionResponse"]["id"], "c2");
+
+        assert_eq!(contents[3]["role"], "user");
+        let user_parts = contents[3]["parts"].as_array().unwrap();
+        assert_eq!(user_parts.len(), 2);
+        assert_eq!(user_parts[0]["inlineData"]["data"], "AAA");
+        assert_eq!(user_parts[1]["inlineData"]["data"], "BBB");
     }
 
     /// 已是 model 形态的媒体回执（历史轮）同样拆分，且再次处理幂等。

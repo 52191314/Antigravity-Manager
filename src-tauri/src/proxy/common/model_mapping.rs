@@ -423,6 +423,36 @@ pub async fn get_all_dynamic_models(
     sorted_ids
 }
 
+/// 动态查找指定的模型。
+/// 支持处理 "models/" 前缀，优先精确匹配，兜底大小写不敏感匹配。
+pub async fn find_dynamic_model(
+    custom_mapping: &tokio::sync::RwLock<std::collections::HashMap<String, String>>,
+    token_manager: Option<&crate::proxy::token_manager::TokenManager>,
+    only_raw_quota_models: bool,
+    requested_model: &str,
+) -> Option<String> {
+    let clean_model = requested_model
+        .strip_prefix("models/")
+        .unwrap_or(requested_model)
+        .trim();
+
+    let all_models =
+        get_all_dynamic_models(custom_mapping, token_manager, only_raw_quota_models).await;
+
+    // 1. 精确匹配
+    if let Some(m) = all_models.iter().find(|&m| m == clean_model) {
+        return Some(m.clone());
+    }
+    // 2. 忽略大小写匹配
+    if let Some(m) = all_models
+        .iter()
+        .find(|&m| m.eq_ignore_ascii_case(clean_model))
+    {
+        return Some(m.clone());
+    }
+    None
+}
+
 /// Wildcard matching - supports multiple wildcards
 ///
 /// **Note**: Matching is **case-sensitive**. Pattern `GPT-4*` will NOT match `gpt-4-turbo`.
@@ -748,6 +778,40 @@ mod tests {
         // When only_raw_quota_models is FALSE, custom_mapping should be included
         let models_all = get_all_dynamic_models(&custom_mapping, None, false).await;
         assert!(models_all.contains(&"my-custom-model".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_find_dynamic_model() {
+        let custom_mapping = tokio::sync::RwLock::new(
+            [(
+                "custom-gpt4".to_string(),
+                "gemini-3.8-flash-high".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        // 1. 内置模型匹配
+        let found = find_dynamic_model(&custom_mapping, None, false, "gemini-2.5-flash").await;
+        assert_eq!(found, Some("gemini-2.5-flash".to_string()));
+
+        // 2. 带 models/ 前缀匹配
+        let found_prefix =
+            find_dynamic_model(&custom_mapping, None, false, "models/gemini-2.5-flash").await;
+        assert_eq!(found_prefix, Some("gemini-2.5-flash".to_string()));
+
+        // 3. 自定义模型匹配
+        let found_custom = find_dynamic_model(&custom_mapping, None, false, "custom-gpt4").await;
+        assert_eq!(found_custom, Some("custom-gpt4".to_string()));
+
+        // 4. 大小写宽容匹配
+        let found_case = find_dynamic_model(&custom_mapping, None, false, "GEMINI-2.5-FLASH").await;
+        assert_eq!(found_case, Some("gemini-2.5-flash".to_string()));
+
+        // 5. 不存在的模型
+        let not_found =
+            find_dynamic_model(&custom_mapping, None, false, "non-existent-model").await;
+        assert_eq!(not_found, None);
     }
 
     #[test]

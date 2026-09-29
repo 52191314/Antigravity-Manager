@@ -614,8 +614,16 @@ impl AxumServer {
         let proxy_routes = Router::new()
             .route("/health", get(health_check_handler))
             .route("/healthz", get(health_check_handler))
-            // OpenAI Protocol
+            // OpenAI Protocol (Chat & Universal Models)
             .route("/v1/models", get(handlers::openai::handle_list_models))
+            .route(
+                "/v1/models/:model",
+                get(handlers::openai::handle_retrieve_model),
+            )
+            .route(
+                "/v1/model/:model",
+                get(handlers::openai::handle_retrieve_model),
+            )
             .route(
                 "/v1/chat/completions",
                 post(handlers::openai::handle_chat_completions),
@@ -624,6 +632,7 @@ impl AxumServer {
                 "/v1/completions",
                 post(handlers::openai::handle_completions),
             )
+            // Responses Protocol (Codex / Responses)
             .route(
                 "/v1/responses",
                 post(handlers::openai::handle_completions)
@@ -633,6 +642,22 @@ impl AxumServer {
             .route(
                 "/responses/compact",
                 post(handlers::openai::handle_completions),
+            )
+            .route(
+                "/v1/responses/models",
+                get(handlers::openai::handle_list_models),
+            )
+            .route(
+                "/v1/responses/models/:model",
+                get(handlers::openai::handle_retrieve_model),
+            )
+            .route(
+                "/responses/models",
+                get(handlers::openai::handle_list_models),
+            )
+            .route(
+                "/responses/models/:model",
+                get(handlers::openai::handle_retrieve_model),
             )
             .route(
                 "/v1/images/generations",
@@ -655,6 +680,10 @@ impl AxumServer {
             .route(
                 "/v1/models/claude",
                 get(handlers::claude::handle_list_models),
+            )
+            .route(
+                "/v1/models/claude/:model",
+                get(handlers::claude::handle_retrieve_model),
             )
             // z.ai MCP (optional reverse-proxy)
             .route(

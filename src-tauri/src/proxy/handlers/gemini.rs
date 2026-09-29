@@ -1171,11 +1171,54 @@ pub async fn handle_list_models(
     Ok(Json(json!({ "models": models })))
 }
 
-pub async fn handle_get_model(Path(model_name): Path<String>) -> impl IntoResponse {
-    Json(json!({
-        "name": format!("models/{}", model_name),
-        "displayName": model_name
-    }))
+pub async fn handle_get_model(
+    State(state): State<AppState>,
+    Path(model_name): Path<String>,
+) -> impl IntoResponse {
+    use crate::proxy::common::model_mapping::find_dynamic_model;
+
+    let only_raw = *state.only_raw_quota_models.read().await;
+    if let Some(matched_id) = find_dynamic_model(
+        &state.custom_mapping,
+        Some(&state.token_manager),
+        only_raw,
+        &model_name,
+    )
+    .await
+    {
+        (
+            StatusCode::OK,
+            Json(json!({
+                "name": format!("models/{}", matched_id),
+                "version": "001",
+                "displayName": matched_id,
+                "description": "",
+                "inputTokenLimit": 128000,
+                "outputTokenLimit": 8192,
+                "supportedGenerationMethods": ["generateContent", "countTokens"],
+                "temperature": 1.0,
+                "topP": 0.95,
+                "topK": 64
+            })),
+        )
+            .into_response()
+    } else {
+        let clean_name = model_name.strip_prefix("models/").unwrap_or(&model_name);
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": {
+                    "code": 404,
+                    "message": format!(
+                        "models/{} is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.",
+                        clean_name
+                    ),
+                    "status": "NOT_FOUND"
+                }
+            })),
+        )
+            .into_response()
+    }
 }
 
 pub async fn handle_count_tokens(

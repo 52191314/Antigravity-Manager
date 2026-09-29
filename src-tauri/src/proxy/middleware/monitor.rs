@@ -774,6 +774,27 @@ pub async fn monitor_middleware(
         uri.split("/v1beta/models/")
             .nth(1)
             .and_then(|s| s.split(':').next())
+            .and_then(|s| s.split('?').next())
+            .map(|s| s.to_string())
+    } else if uri.contains("/v1/models/claude/") {
+        uri.split("/v1/models/claude/")
+            .nth(1)
+            .and_then(|s| s.split('?').next())
+            .map(|s| s.to_string())
+    } else if uri.contains("/v1/models/") {
+        uri.split("/v1/models/")
+            .nth(1)
+            .and_then(|s| s.split('?').next())
+            .map(|s| s.to_string())
+    } else if uri.contains("/v1/model/") {
+        uri.split("/v1/model/")
+            .nth(1)
+            .and_then(|s| s.split('?').next())
+            .map(|s| s.to_string())
+    } else if uri.contains("/responses/models/") {
+        uri.split("/responses/models/")
+            .nth(1)
+            .and_then(|s| s.split('?').next())
             .map(|s| s.to_string())
     } else {
         None
@@ -878,10 +899,12 @@ pub async fn monitor_middleware(
         .map(|s| s.to_string());
 
     // Determine protocol from URL path
-    let protocol = if uri.contains("/v1/messages") {
+    let protocol = if uri.contains("/v1/messages") || uri.contains("/v1/models/claude") {
         Some("anthropic".to_string())
     } else if uri.contains("/v1beta/models") {
         Some("gemini".to_string())
+    } else if uri.contains("/responses") {
+        Some("responses".to_string())
     } else if uri.starts_with("/v1/") {
         Some("openai".to_string())
     } else {

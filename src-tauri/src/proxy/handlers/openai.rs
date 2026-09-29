@@ -4793,6 +4793,49 @@ pub async fn handle_list_models(State(state): State<AppState>) -> impl IntoRespo
     }))
 }
 
+/// OpenAI Models API: GET /v1/models/{model}
+/// 检索指定模型的详细元数据
+pub async fn handle_retrieve_model(
+    State(state): State<AppState>,
+    axum::extract::Path(model): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    use crate::proxy::common::model_mapping::find_dynamic_model;
+
+    let only_raw = *state.only_raw_quota_models.read().await;
+    if let Some(matched_id) = find_dynamic_model(
+        &state.custom_mapping,
+        Some(&state.token_manager),
+        only_raw,
+        &model,
+    )
+    .await
+    {
+        (
+            StatusCode::OK,
+            Json(json!({
+                "id": matched_id,
+                "object": "model",
+                "created": 1706745600,
+                "owned_by": "antigravity"
+            })),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": {
+                    "message": format!("The model '{}' does not exist", model),
+                    "type": "invalid_request_error",
+                    "param": "model",
+                    "code": "model_not_found"
+                }
+            })),
+        )
+            .into_response()
+    }
+}
+
 /// OpenAI Images API: POST /v1/images/generations
 /// 处理图像生成请求，转换为 Gemini API 格式
 pub async fn handle_chat_redirection(

@@ -1908,6 +1908,48 @@ pub async fn handle_list_models(State(state): State<AppState>) -> impl IntoRespo
     }))
 }
 
+/// Claude Models API: GET /v1/models/claude/{model}
+/// 检索指定模型的详细元数据
+pub async fn handle_retrieve_model(
+    State(state): State<AppState>,
+    axum::extract::Path(model): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    use crate::proxy::common::model_mapping::find_dynamic_model;
+
+    let only_raw = *state.only_raw_quota_models.read().await;
+    if let Some(matched_id) = find_dynamic_model(
+        &state.custom_mapping,
+        Some(&state.token_manager),
+        only_raw,
+        &model,
+    )
+    .await
+    {
+        (
+            StatusCode::OK,
+            Json(json!({
+                "type": "model",
+                "id": matched_id.clone(),
+                "display_name": matched_id,
+                "created_at": "2024-10-22T00:00:00Z"
+            })),
+        )
+            .into_response()
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "type": "error",
+                "error": {
+                    "type": "not_found_error",
+                    "message": format!("model: {}", model)
+                }
+            })),
+        )
+            .into_response()
+    }
+}
+
 /// 计算 tokens (占位符)
 pub async fn handle_count_tokens(
     State(state): State<AppState>,

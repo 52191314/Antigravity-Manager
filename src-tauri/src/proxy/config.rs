@@ -146,6 +146,47 @@ pub fn update_image_thinking_mode(mode: Option<String>) {
     }
 }
 
+// ============================================================================
+// 全局多模态交互与保鲜滑窗配置存储
+// ============================================================================
+static GLOBAL_MULTIMODAL_CONFIG: OnceLock<RwLock<MultimodalConfig>> = OnceLock::new();
+
+pub fn get_multimodal_config() -> MultimodalConfig {
+    GLOBAL_MULTIMODAL_CONFIG
+        .get()
+        .and_then(|lock| lock.read().ok())
+        .map(|cfg| cfg.clone())
+        .unwrap_or_default()
+}
+
+pub fn update_multimodal_config(config: MultimodalConfig) {
+    if let Some(lock) = GLOBAL_MULTIMODAL_CONFIG.get() {
+        if let Ok(mut cfg) = lock.write() {
+            if *cfg != config {
+                *cfg = config.clone();
+                tracing::info!(
+                    "[Multimodal-Config] Global config updated: sliding_window={}, strategy={}, max_fresh_images={}, strip_remote_urls={}, max_total_mb={}",
+                    config.enable_sliding_window,
+                    config.strategy,
+                    config.max_fresh_images,
+                    config.strip_remote_urls,
+                    config.max_total_image_mb,
+                );
+            }
+        }
+    } else {
+        let _ = GLOBAL_MULTIMODAL_CONFIG.set(RwLock::new(config.clone()));
+        tracing::info!(
+            "[Multimodal-Config] Global config initialized: sliding_window={}, strategy={}, max_fresh_images={}, strip_remote_urls={}, max_total_mb={}",
+            config.enable_sliding_window,
+            config.strategy,
+            config.max_fresh_images,
+            config.strip_remote_urls,
+            config.max_total_image_mb,
+        );
+    }
+}
+
 static GLOBAL_PAYLOAD_STORAGE_MODE: OnceLock<RwLock<String>> = OnceLock::new();
 static GLOBAL_LOG_RETENTION_DAYS: OnceLock<RwLock<u32>> = OnceLock::new();
 static GLOBAL_THINKING_STORE_ENABLED: OnceLock<RwLock<bool>> = OnceLock::new();
@@ -654,6 +695,54 @@ impl Default for DebugLoggingConfig {
     }
 }
 
+fn default_sliding_strategy() -> String {
+    "count".to_string()
+}
+
+/// 多模态交互与保鲜滑窗配置
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MultimodalConfig {
+    /// 是否启用多模态历史保鲜滑动窗口 (默认关闭，贯彻保真透传)
+    #[serde(default)]
+    pub enable_sliding_window: bool,
+
+    /// 保鲜策略模式: "count" (按图片张数) 或 "memory" (按累积内存大小)
+    #[serde(default = "default_sliding_strategy")]
+    pub strategy: String,
+
+    /// 滑动窗口保鲜最大图片张数（默认 10，填 0 为不限张数）
+    #[serde(default = "default_max_fresh_images")]
+    pub max_fresh_images: usize,
+
+    /// 历史图片剥离时，是否一并剥离远程 / OSS 直链图片 (默认关闭，默认仅剥离 Base64)
+    #[serde(default)]
+    pub strip_remote_urls: bool,
+
+    /// 多模态图片累积最大解码容量限制 (MB，默认 32MB，物理防爆安全红线)
+    #[serde(default = "default_max_total_image_mb")]
+    pub max_total_image_mb: usize,
+}
+
+fn default_max_fresh_images() -> usize {
+    10
+}
+
+fn default_max_total_image_mb() -> usize {
+    32
+}
+
+impl Default for MultimodalConfig {
+    fn default() -> Self {
+        Self {
+            enable_sliding_window: false,
+            strategy: default_sliding_strategy(),
+            max_fresh_images: default_max_fresh_images(),
+            strip_remote_urls: false,
+            max_total_image_mb: default_max_total_image_mb(),
+        }
+    }
+}
+
 /// IP 黑名单配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpBlacklistConfig {
@@ -860,6 +949,10 @@ pub struct ProxyConfig {
     /// 代理池配置
     #[serde(default)]
     pub proxy_pool: ProxyPoolConfig,
+
+    /// 多模态交互与保鲜滑窗配置
+    #[serde(default)]
+    pub multimodal: MultimodalConfig,
 }
 
 /// Request log retention policy.
@@ -1003,6 +1096,7 @@ impl Default for ProxyConfig {
             thinking_budget: ThinkingBudgetConfig::default(),
             global_system_prompt: GlobalSystemPromptConfig::default(),
             proxy_pool: ProxyPoolConfig::default(),
+            multimodal: MultimodalConfig::default(),
             image_thinking_mode: None,
             image_scheduler: ImageSchedulerConfig::default(),
         }

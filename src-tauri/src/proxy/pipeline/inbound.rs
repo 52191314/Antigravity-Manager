@@ -489,6 +489,191 @@ impl InboundThinkingPipeline {
         //    必须放在**末位**：若前置，回执轮会进入上面的 `is_model` 分支，
         //    从而跳过 `role == "user"` 分支里的多模态解构（图片提升为 inlineData）。
         Self::normalize_function_response_roles(contents, target_model);
+
+        // 5. 全协议多模态保鲜滑动窗口与累积容量治理（Pipeline First）：
+        let multimodal_cfg = crate::proxy::config::get_multimodal_config();
+        Self::apply_multimodal_sliding_window_and_limits(contents, &multimodal_cfg);
+    }
+
+    /// 全协议多模态历史保鲜滑动窗口与累积容量治理（Pipeline First）：
+    /// 1. 扫描所有 contents 中的图片 parts（包括 inlineData base64 与 fileData 远程直链）
+    /// 2. 若启用了保鲜滑动窗口（enable_sliding_window=true 且 max_fresh_images > 0）：
+    ///    - 逆序保鲜最近的 N 张图片（从最新轮次往前计数），保留其完整数据；
+    ///    - 对超出保鲜窗口的早期历史图片：
+    ///      * inlineData (Base64)：剥离 Base64 并替换为结构化占位符 `[Historical Image #k: omitted to preserve context (mime)]`
+    ///      * fileData (远程直链)：若 strip_remote_urls=true，亦替换为 `[Historical Remote Image #k: omitted to preserve context]`；否则完整保留 URL
+    /// 3. 内存防爆与累积容量兜底（max_total_image_mb）：
+    ///    - 统计剩余所有 inlineData 图片的总字节大小
+    ///    - 若依然超出上限，执行 LRU / Recency-First 淘汰：自底向上（从最早的历史轮次）继续将旧图剥离为占位符，
+    ///      绝对力保当前轮（最新轮次）的视觉感知输入完好无损！
+    pub fn apply_multimodal_sliding_window_and_limits(
+        contents: &mut [Value],
+        config: &crate::proxy::config::MultimodalConfig,
+    ) -> usize {
+        // 总开关未开启：100% 原始透传，绝对保真
+        if !config.enable_sliding_window {
+            return 0;
+        }
+
+        let mut image_locations: Vec<(usize, usize, bool, String, usize)> = Vec::new();
+        // (content_idx, part_idx, is_remote, mime, approx_byte_len)
+
+        for (c_idx, content) in contents.iter().enumerate() {
+            if let Some(parts) = content.get("parts").and_then(Value::as_array) {
+                for (p_idx, part) in parts.iter().enumerate() {
+                    let inline_obj = part.get("inlineData").or_else(|| part.get("inline_data"));
+                    if let Some(obj) = inline_obj {
+                        let mime = obj
+                            .get("mimeType")
+                            .or_else(|| obj.get("mime_type"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("image/png");
+                        if mime.starts_with("image/") || mime.is_empty() {
+                            let b64_len = obj
+                                .get("data")
+                                .and_then(Value::as_str)
+                                .map_or(0, |s| s.len());
+                            let approx_bytes = b64_len.saturating_mul(3) / 4;
+                            image_locations.push((
+                                c_idx,
+                                p_idx,
+                                false,
+                                mime.to_string(),
+                                approx_bytes,
+                            ));
+                        }
+                    } else {
+                        let file_obj = part.get("fileData").or_else(|| part.get("file_data"));
+                        if let Some(obj) = file_obj {
+                            let uri = obj
+                                .get("fileUri")
+                                .or_else(|| obj.get("file_uri"))
+                                .and_then(Value::as_str)
+                                .unwrap_or_default();
+                            let mime = obj
+                                .get("mimeType")
+                                .or_else(|| obj.get("mime_type"))
+                                .and_then(Value::as_str)
+                                .unwrap_or("image/jpeg");
+                            if uri.starts_with("http://") || uri.starts_with("https://") {
+                                image_locations.push((
+                                    c_idx,
+                                    p_idx,
+                                    true,
+                                    mime.to_string(),
+                                    uri.len(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let total_images = image_locations.len();
+        if total_images == 0 {
+            return 0;
+        }
+
+        let mut pruned_count = 0;
+
+        if config.strategy.eq_ignore_ascii_case("memory") {
+            // =========================================================================
+            // 策略二：基于累积内存体积滑动保鲜 (Memory-Based Strategy)
+            // 逆序从最新轮次往前回溯累加 Base64 字节，超出配额的更早历史图片剥离降级
+            // =========================================================================
+            let budget_bytes = config.max_total_image_mb.max(1).saturating_mul(1024 * 1024);
+            let mut accumulated_bytes = 0usize;
+            let mut keep_from_idx = 0usize;
+
+            // 逆序扫描：从最新的一张图片（total_images - 1）往回计算
+            for (i, (_, _, is_remote, _, bytes)) in image_locations.iter().enumerate().rev() {
+                if !*is_remote {
+                    // 最新的一张图片永远保留；其余图片在预算内保留
+                    if accumulated_bytes.saturating_add(*bytes) <= budget_bytes
+                        || i == total_images - 1
+                    {
+                        accumulated_bytes = accumulated_bytes.saturating_add(*bytes);
+                    } else {
+                        keep_from_idx = i + 1;
+                        break;
+                    }
+                }
+            }
+
+            // 对超出内存预算的早期历史图片进行剥离
+            for i in 0..keep_from_idx {
+                let (c_idx, p_idx, is_remote, mime, _) = &image_locations[i];
+                let seq = i + 1;
+                if *is_remote {
+                    if config.strip_remote_urls {
+                        if let Some(parts) = contents[*c_idx]
+                            .get_mut("parts")
+                            .and_then(Value::as_array_mut)
+                        {
+                            parts[*p_idx] = json!({
+                                "text": format!("[Historical Remote Image #{}: omitted due to memory budget]", seq)
+                            });
+                            pruned_count += 1;
+                        }
+                    }
+                } else if let Some(parts) = contents[*c_idx]
+                    .get_mut("parts")
+                    .and_then(Value::as_array_mut)
+                {
+                    parts[*p_idx] = json!({
+                        "text": format!("[Historical Image #{}: omitted due to memory budget ({}, {} MB max)]", seq, mime, config.max_total_image_mb)
+                    });
+                    pruned_count += 1;
+                }
+            }
+        } else {
+            // =========================================================================
+            // 策略一：基于图片张数滑动保鲜 (Count-Based Strategy)
+            // 逆序保鲜最近的 N 张图片，超过 N 张的早期历史图片剥离降级
+            // =========================================================================
+            if config.max_fresh_images > 0 && total_images > config.max_fresh_images {
+                let to_prune = total_images.saturating_sub(config.max_fresh_images);
+                for i in 0..to_prune {
+                    let (c_idx, p_idx, is_remote, mime, _) = &image_locations[i];
+                    let seq = i + 1;
+                    if *is_remote {
+                        if config.strip_remote_urls {
+                            if let Some(parts) = contents[*c_idx]
+                                .get_mut("parts")
+                                .and_then(Value::as_array_mut)
+                            {
+                                parts[*p_idx] = json!({
+                                    "text": format!("[Historical Remote Image #{}: omitted to preserve context]", seq)
+                                });
+                                pruned_count += 1;
+                            }
+                        }
+                    } else if let Some(parts) = contents[*c_idx]
+                        .get_mut("parts")
+                        .and_then(Value::as_array_mut)
+                    {
+                        parts[*p_idx] = json!({
+                            "text": format!("[Historical Image #{}: omitted to preserve context ({})]", seq, mime)
+                        });
+                        pruned_count += 1;
+                    }
+                }
+            }
+        }
+
+        if pruned_count > 0 {
+            tracing::info!(
+                "[Multimodal-Pipeline] Pruned {} historical image(s) via strategy '{}' (total: {}, fresh_limit: {}, max_mb: {})",
+                pruned_count,
+                config.strategy,
+                total_images,
+                config.max_fresh_images,
+                config.max_total_image_mb,
+            );
+        }
+
+        pruned_count
     }
 
     /// 工具调用 ID 统一规范化治理（Pipeline First）：
@@ -2509,5 +2694,175 @@ mod tests {
         let fr = &contents[2]["parts"][0]["functionResponse"];
         assert!(fr["response"].is_object());
         assert_eq!(fr["response"]["output"], "raw string output from shell");
+    }
+
+    #[test]
+    fn test_multimodal_sliding_window_disabled_by_default() {
+        let fake_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        let mut contents = vec![
+            json!({
+                "role": "user",
+                "parts": [{"inlineData": {"mimeType": "image/png", "data": fake_b64}}]
+            }),
+            json!({
+                "role": "model",
+                "parts": [{"text": "Seen image 1"}]
+            }),
+            json!({
+                "role": "user",
+                "parts": [{"inlineData": {"mimeType": "image/png", "data": fake_b64}}]
+            }),
+        ];
+
+        let config = crate::proxy::config::MultimodalConfig {
+            enable_sliding_window: false,
+            strategy: "count".to_string(),
+            max_fresh_images: 1,
+            strip_remote_urls: false,
+            max_total_image_mb: 32,
+        };
+
+        let pruned = InboundThinkingPipeline::apply_multimodal_sliding_window_and_limits(
+            &mut contents,
+            &config,
+        );
+        assert_eq!(
+            pruned, 0,
+            "When sliding window is disabled, 0 images should be pruned"
+        );
+        assert!(contents[0]["parts"][0].get("inlineData").is_some());
+        assert!(contents[2]["parts"][0].get("inlineData").is_some());
+    }
+
+    #[test]
+    fn test_multimodal_sliding_window_prunes_older_images_and_protects_latest() {
+        let fake_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        let mut contents = vec![
+            json!({
+                "role": "user",
+                "parts": [{"inlineData": {"mimeType": "image/png", "data": fake_b64}}]
+            }),
+            json!({
+                "role": "user",
+                "parts": [{"inlineData": {"mimeType": "image/png", "data": fake_b64}}]
+            }),
+            json!({
+                "role": "user",
+                "parts": [{"inlineData": {"mimeType": "image/png", "data": fake_b64}}]
+            }),
+        ];
+
+        // 保鲜最近 1 张，前 2 张应被修剪
+        let config = crate::proxy::config::MultimodalConfig {
+            enable_sliding_window: true,
+            strategy: "count".to_string(),
+            max_fresh_images: 1,
+            strip_remote_urls: false,
+            max_total_image_mb: 32,
+        };
+
+        let pruned = InboundThinkingPipeline::apply_multimodal_sliding_window_and_limits(
+            &mut contents,
+            &config,
+        );
+        assert_eq!(pruned, 2);
+
+        // 前 2 张转换为占位符文本
+        assert_eq!(
+            contents[0]["parts"][0]["text"].as_str().unwrap(),
+            "[Historical Image #1: omitted to preserve context (image/png)]"
+        );
+        assert_eq!(
+            contents[1]["parts"][0]["text"].as_str().unwrap(),
+            "[Historical Image #2: omitted to preserve context (image/png)]"
+        );
+        // 最新 1 张完整保留
+        assert!(contents[2]["parts"][0].get("inlineData").is_some());
+    }
+
+    #[test]
+    fn test_multimodal_sliding_window_remote_urls_option() {
+        let mut contents = vec![
+            json!({
+                "role": "user",
+                "parts": [{"fileData": {"fileUri": "https://oss.example.com/test1.png", "mimeType": "image/png"}}]
+            }),
+            json!({
+                "role": "user",
+                "parts": [{"fileData": {"fileUri": "https://oss.example.com/test2.png", "mimeType": "image/png"}}]
+            }),
+        ];
+
+        // 1. strip_remote_urls = false: 远程直链保留
+        let config_keep = crate::proxy::config::MultimodalConfig {
+            enable_sliding_window: true,
+            strategy: "count".to_string(),
+            max_fresh_images: 1,
+            strip_remote_urls: false,
+            max_total_image_mb: 32,
+        };
+        let pruned_keep = InboundThinkingPipeline::apply_multimodal_sliding_window_and_limits(
+            &mut contents,
+            &config_keep,
+        );
+        assert_eq!(
+            pruned_keep, 0,
+            "Remote URL should not be pruned when strip_remote_urls is false"
+        );
+        assert!(contents[0]["parts"][0].get("fileData").is_some());
+
+        // 2. strip_remote_urls = true: 远程直链被剥离
+        let config_strip = crate::proxy::config::MultimodalConfig {
+            enable_sliding_window: true,
+            strategy: "count".to_string(),
+            max_fresh_images: 1,
+            strip_remote_urls: true,
+            max_total_image_mb: 32,
+        };
+        let pruned_strip = InboundThinkingPipeline::apply_multimodal_sliding_window_and_limits(
+            &mut contents,
+            &config_strip,
+        );
+        assert_eq!(pruned_strip, 1);
+        assert_eq!(
+            contents[0]["parts"][0]["text"].as_str().unwrap(),
+            "[Historical Remote Image #1: omitted to preserve context]"
+        );
+        assert!(contents[1]["parts"][0].get("fileData").is_some());
+    }
+
+    #[test]
+    fn test_multimodal_sliding_window_memory_strategy() {
+        let fake_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        let mut contents = vec![
+            json!({
+                "role": "user",
+                "parts": [{"inlineData": {"mimeType": "image/png", "data": fake_b64}}]
+            }),
+            json!({
+                "role": "user",
+                "parts": [{"inlineData": {"mimeType": "image/png", "data": fake_b64}}]
+            }),
+        ];
+
+        // 内存策略：设定容量极小 (1MB)，而 2 张图都在 1MB 内，因此全部保留
+        let config_fits = crate::proxy::config::MultimodalConfig {
+            enable_sliding_window: true,
+            strategy: "memory".to_string(),
+            max_fresh_images: 10,
+            strip_remote_urls: false,
+            max_total_image_mb: 1,
+        };
+
+        let pruned_fits = InboundThinkingPipeline::apply_multimodal_sliding_window_and_limits(
+            &mut contents,
+            &config_fits,
+        );
+        assert_eq!(
+            pruned_fits, 0,
+            "Images fitting in memory budget should all be preserved"
+        );
+        assert!(contents[0]["parts"][0].get("inlineData").is_some());
+        assert!(contents[1]["parts"][0].get("inlineData").is_some());
     }
 }

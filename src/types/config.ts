@@ -29,6 +29,15 @@ export interface ProxyConfig {
     image_thinking_mode?: 'enabled' | 'disabled'; // [NEW] 图像思维模式开关
     only_raw_quota_models?: boolean; // [NEW] 是否只暴露真实配额模型
     proxy_pool?: ProxyPoolConfig;
+    multimodal?: MultimodalConfig;
+}
+
+export interface MultimodalConfig {
+    enable_sliding_window?: boolean;
+    strategy?: 'count' | 'memory';
+    max_fresh_images?: number;
+    strip_remote_urls?: boolean;
+    max_total_image_mb?: number;
 }
 
 export interface LogRetentionConfig {

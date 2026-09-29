@@ -1122,6 +1122,9 @@
           "sync_success_count": "Added {{count}} model(s) to Droid",
           "sync_error": "Sync failed: {{error}}"
         }
+      },
+      "multimodal_settings": {
+        "title": "多模態交互設定 (Multimodal Settings)"
       }
     },
     "example": {
@@ -1454,6 +1457,33 @@
     },
     "error": {
       "load_failed": "載入失敗"
+    },
+    "model_config": {
+      "title": "模型配置"
+    },
+    "multimodal": {
+      "banner_title": "多模態交互與長程保鮮治理 (Pipeline First)",
+      "banner_desc": "針對長程多模態 Agent（如 Codex、Claude Code、Cursor）頻繁查看截圖或文檔的場景，提供協議無關的多模態歷史保鮮滑窗與物理記憶體防爆治理，徹底根治會話歷史因累積圖片過多引發的 400 阻斷崩潰與 Token 急速膨脹。",
+      "sliding_window_title": "多模態歷史保鮮滑動視窗",
+      "opt_in_tag": "長程 Agent 推薦 (預設關閉)",
+      "sliding_window_desc": "預設關閉（100% 原始透傳所有圖片）。開啟後，網關在請求流水線中自動保鮮最新 N 張圖片，對超出的更早歷史圖片剔除 Base64 並替換為結構化佔位符。",
+      "max_fresh_images_label": "保鮮圖片最大張數",
+      "max_fresh_images_hint": "僅保留最新的 N 張圖片完整多模態視覺嵌入。更早的歷史圖片將自動剝離 Base64 並替換為結構化佔位符。填 0 表示不限制張數（僅受累積容量限制）。",
+      "unit_images": "張",
+      "strip_remote_urls_label": "同時剝離歷史遠端 / OSS 圖片直鏈",
+      "strip_remote_urls_hint": "預設不勾選（僅剝離過往 Base64 實體，保留輕量 HTTP/HTTPS 直鏈）。勾選此項後，歷史輪次中的遠端圖片直鏈也將一併剝離為佔位符，極致節省視覺 Token。",
+      "max_total_mb_title": "多模態圖片累計最大解碼容量",
+      "hard_safety_tag": "記憶體安全紅線 (常開)",
+      "max_total_mb_desc": "單次請求中所有保留的多模態圖片總解碼體積上限（預設 32MB）。若即使在保鮮視窗內的圖片總和依然超出此上限，網關將執行 LRU 策略優先淘汰最早歷史圖片，絕對保障當前最新一輪（Current Turn）的視覺感知！",
+      "hot_reload_hint": "多模態配置儲存後立即熱生效，無需重啟反代服務。",
+      "save_btn": "儲存多模態設定",
+      "strategy_select_label": "保鮮治理策略模式 (二選一獨立策略，互不干擾)",
+      "strategy_count_title": "按圖片張數保鮮 (Count-Based)",
+      "strategy_count_desc": "固定保留最近 N 張圖片，不管單圖大小。操作直觀，嚴格與對話輪數對應。",
+      "strategy_memory_title": "按累積記憶體保鮮 (Memory-Based)",
+      "strategy_memory_desc": "自最新輪次往前回溯計算 Base64 體積，配額內全保留，超出配額的更早舊圖自動剔除。",
+      "memory_budget_label": "累積記憶體保鮮上限",
+      "memory_budget_hint": "以 Base64 總解碼體積為限額。從最新輪次往前回溯，只要累積在限額內的圖片完整保留，更早超額舊圖剝離降級為佔位符。"
     }
   },
   "monitor": {

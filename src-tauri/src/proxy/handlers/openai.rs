@@ -19,7 +19,6 @@ use crate::proxy::server::AppState;
 use crate::proxy::upstream::client::mask_email;
 
 const MAX_RETRY_ATTEMPTS: usize = 3;
-const MAX_INPUT_IMAGES: usize = 16;
 const MAX_INPUT_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 const MAX_TOTAL_INPUT_IMAGE_BYTES: usize = 32 * 1024 * 1024;
 const CODEX_VISIBLE_THOUGHT_MESSAGE_PREFIX: &str = "msg_thought_";
@@ -44,26 +43,24 @@ struct NormalizedInputImage {
 }
 
 fn validate_input_image_limits(
-    image_count: usize,
+    _image_count: usize,
     image_bytes: usize,
     total_bytes: usize,
 ) -> Result<(), String> {
-    if image_count > MAX_INPUT_IMAGES {
-        return Err(format!(
-            "Too many input images: maximum is {}",
-            MAX_INPUT_IMAGES
-        ));
-    }
     if image_bytes > MAX_INPUT_IMAGE_BYTES {
         return Err(format!(
             "Input image is too large: maximum decoded size is {} bytes",
             MAX_INPUT_IMAGE_BYTES
         ));
     }
-    if total_bytes > MAX_TOTAL_INPUT_IMAGE_BYTES {
+    let max_total = crate::proxy::config::get_multimodal_config()
+        .max_total_image_mb
+        .max(1)
+        .saturating_mul(1024 * 1024);
+    if total_bytes > max_total {
         return Err(format!(
             "Total input image data is too large: maximum decoded size is {} bytes",
-            MAX_TOTAL_INPUT_IMAGE_BYTES
+            max_total
         ));
     }
     Ok(())
@@ -941,7 +938,7 @@ mod stream_peek_tests {
     use super::stream_chunk_has_image_data;
     use super::validate_input_image_limits;
     use super::validate_responses_image_data_url;
-    use super::{MAX_INPUT_IMAGES, MAX_INPUT_IMAGE_BYTES, MAX_TOTAL_INPUT_IMAGE_BYTES};
+    use super::{MAX_INPUT_IMAGE_BYTES, MAX_TOTAL_INPUT_IMAGE_BYTES};
     use crate::proxy::mappers::openai::{transform_openai_request, OpenAIRequest};
     use serde_json::{json, Value};
 
@@ -1187,18 +1184,13 @@ data: {"type":"response.failed","response":{"status":"failed","error":{"code":"u
         )
         .unwrap_err()
         .starts_with("Total input image data is too large"));
-        assert!(validate_input_image_limits(
-            MAX_INPUT_IMAGES,
-            2 * 1024 * 1024,
-            MAX_TOTAL_INPUT_IMAGE_BYTES
-        )
-        .is_ok());
-        assert!(validate_input_image_limits(
-            MAX_INPUT_IMAGES,
-            2 * 1024 * 1024,
-            MAX_TOTAL_INPUT_IMAGE_BYTES + 1
-        )
-        .is_err());
+        assert!(
+            validate_input_image_limits(100, 2 * 1024 * 1024, MAX_TOTAL_INPUT_IMAGE_BYTES).is_ok()
+        );
+        assert!(
+            validate_input_image_limits(100, 2 * 1024 * 1024, MAX_TOTAL_INPUT_IMAGE_BYTES + 1)
+                .is_err()
+        );
     }
 
     #[tokio::test]
@@ -1534,12 +1526,11 @@ data: {"type":"response.failed","response":{"status":"failed","error":{"code":"u
             assert!(parse_generation_input_images(Some(&input)).is_err());
         }
 
-        let too_many = Value::Array(
-            (0..=MAX_INPUT_IMAGES)
-                .map(|_| json!("data:image/png;base64,AQ=="))
-                .collect(),
-        );
-        assert!(parse_generation_input_images(Some(&too_many)).is_err());
+        let oversized = Value::Array(vec![json!(format!(
+            "data:image/png;base64,{}",
+            "AAAA".repeat(MAX_INPUT_IMAGE_BYTES / 3 + 1)
+        ))]);
+        assert!(parse_generation_input_images(Some(&oversized)).is_err());
         assert!(validate_input_image_limits(1, MAX_INPUT_IMAGE_BYTES + 1, 0).is_err());
         assert!(validate_input_image_limits(1, 1, MAX_TOTAL_INPUT_IMAGE_BYTES + 1).is_err());
 

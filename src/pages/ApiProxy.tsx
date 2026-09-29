@@ -38,6 +38,7 @@ import CircuitBreaker from '../components/settings/CircuitBreaker';
 import GlobalSystemPrompt from '../components/settings/GlobalSystemPrompt';
 import ImageThinkingMode from '../components/settings/ImageThinkingMode';
 import ThinkingBudget from '../components/settings/ThinkingBudget';
+import MultimodalSettings from '../components/settings/MultimodalSettings';
 import { CircuitBreakerConfig } from '../types/config';
 
 interface ProxyStatus {
@@ -158,7 +159,7 @@ export default function ApiProxy() {
     });
 
     const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
-    const [activeMenuTab, setActiveMenuTab] = useState<'settings' | 'cli' | 'protocols'>('settings');
+    const [activeMenuTab, setActiveMenuTab] = useState<'settings' | 'models' | 'cli' | 'protocols'>('settings');
     const [configLoading, setConfigLoading] = useState(true);
     const [configError, setConfigError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -1658,6 +1659,18 @@ print(response.choices[0].message.content)`;
                                 </button>
                                 <button
                                     type="button"
+                                    onClick={() => setActiveMenuTab('models')}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                                        activeMenuTab === 'models'
+                                            ? 'bg-white dark:bg-base-100 text-blue-600 dark:text-blue-400 shadow-xs'
+                                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    <BrainCircuit size={14} className={activeMenuTab === 'models' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400'} />
+                                    {t('proxy.model_config.title', { defaultValue: '模型配置' })}
+                                </button>
+                                <button
+                                    type="button"
                                     onClick={() => setActiveMenuTab('cli')}
                                     className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
                                         activeMenuTab === 'cli'
@@ -2117,6 +2130,52 @@ print(response.choices[0].message.content)`;
                             </div>
                         )}
 
+                        {/* TAB: 模型配置 (models) */}
+                        {activeMenuTab === 'models' && (
+                            <div className="p-4 space-y-4">
+                                {/* 思考设置 (Thinking & Reasoning Settings) - 默认收起 */}
+                                <CollapsibleCard
+                                    title={t('proxy.config.thinking_settings.title', { defaultValue: '思考设置 (Thinking Settings)' })}
+                                    icon={<BrainCircuit size={18} className="text-purple-500" />}
+                                    defaultExpanded={false}
+                                >
+                                    <ThinkingBudget
+                                        config={appConfig.proxy.thinking_budget}
+                                        onChange={(tbConfig) => updateProxyConfig({ thinking_budget: tbConfig })}
+                                        onSave={handleSaveProxySettings}
+                                        thinkingStoreEnabled={appConfig.proxy.experimental?.thinking_store_enabled !== false}
+                                        onThinkingStoreChange={(enabled) =>
+                                            updateExperimentalConfig({ thinking_store_enabled: enabled })
+                                        }
+                                        thinkingMaxMemoryTurns={appConfig.proxy.experimental?.thinking_max_memory_turns ?? 600}
+                                        onThinkingMaxMemoryTurnsChange={(turns: number) =>
+                                            updateExperimentalConfig({ thinking_max_memory_turns: turns })
+                                        }
+                                        thinkingRetentionDays={appConfig.proxy.experimental?.thinking_retention_days ?? 15}
+                                        onThinkingRetentionDaysChange={(days: number) =>
+                                            updateExperimentalConfig({ thinking_retention_days: days })
+                                        }
+                                    />
+                                </CollapsibleCard>
+
+                                {/* 多模态交互设置 (Multimodal Settings) - 默认收起 */}
+                                <CollapsibleCard
+                                    title={t('proxy.config.multimodal_settings.title', { defaultValue: '多模态交互设置 (Multimodal Settings)' })}
+                                    icon={<Sparkles size={18} className="text-pink-500" />}
+                                    defaultExpanded={false}
+                                >
+                                    <MultimodalSettings
+                                        config={appConfig.proxy.multimodal}
+                                        onChange={(mConfig) => updateProxyConfig({ multimodal: mConfig })}
+                                        onSave={handleSaveProxySettings}
+                                    />
+                                </CollapsibleCard>
+
+                                {/* 模型路由中心 紧随其后 */}
+                                {renderModelRouterSection()}
+                            </div>
+                        )}
+
                         {/* TAB 2: CLI 一键配置 (cli) */}
                         {activeMenuTab === 'cli' && (
                             <div className="p-4">
@@ -2143,34 +2202,6 @@ print(response.choices[0].message.content)`;
                 {
                     !configLoading && !configError && appConfig && activeMenuTab === 'settings' && (
                         <div className="space-y-4">
-                            {/* 思考设置 (Thinking & Reasoning Settings) */}
-                            <CollapsibleCard
-                                title={t('proxy.config.thinking_settings.title', { defaultValue: '思考设置 (Thinking Settings)' })}
-                                icon={<BrainCircuit size={18} className="text-purple-500" />}
-                                defaultExpanded={true}
-                            >
-                                <ThinkingBudget
-                                    config={appConfig.proxy.thinking_budget}
-                                    onChange={(tbConfig) => updateProxyConfig({ thinking_budget: tbConfig })}
-                                    onSave={handleSaveProxySettings}
-                                    thinkingStoreEnabled={appConfig.proxy.experimental?.thinking_store_enabled !== false}
-                                    onThinkingStoreChange={(enabled) =>
-                                        updateExperimentalConfig({ thinking_store_enabled: enabled })
-                                    }
-                                    thinkingMaxMemoryTurns={appConfig.proxy.experimental?.thinking_max_memory_turns ?? 600}
-                                    onThinkingMaxMemoryTurnsChange={(turns: number) =>
-                                        updateExperimentalConfig({ thinking_max_memory_turns: turns })
-                                    }
-                                    thinkingRetentionDays={appConfig.proxy.experimental?.thinking_retention_days ?? 15}
-                                    onThinkingRetentionDaysChange={(days: number) =>
-                                        updateExperimentalConfig({ thinking_retention_days: days })
-                                    }
-                                />
-                            </CollapsibleCard>
-
-                            {/* 模型路由中心 紧随思考设置之后 */}
-                            {renderModelRouterSection()}
-
                             {/* z.ai (GLM) Dispatcher */}
                             <CollapsibleCard
                                 title={t('proxy.config.zai.title')}

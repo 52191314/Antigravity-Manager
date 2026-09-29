@@ -1095,6 +1095,9 @@
       },
       "prompt_multimodal": {
         "title": "Global Prompt & Multimodal Settings"
+      },
+      "multimodal_settings": {
+        "title": "Multimodal Settings"
       }
     },
     "cloudflared": {
@@ -1423,6 +1426,33 @@
         "clear_success": "OpenClaw configuration cleared successfully",
         "clear_error": "Failed to clear OpenClaw configuration: {{error}}"
       }
+    },
+    "model_config": {
+      "title": "Model Config"
+    },
+    "multimodal": {
+      "banner_title": "Multimodal Interaction & Longevity Governance (Pipeline First)",
+      "banner_desc": "Designed for long-horizon multimodal agents (Codex, Claude Code, Cursor) that frequently inspect screenshots and files. Provides protocol-agnostic sliding-window freshness and memory explosion safeguards, preventing 400 errors and token inflation from accumulated historical images.",
+      "sliding_window_title": "Multimodal History Freshness Sliding Window",
+      "opt_in_tag": "Recommended for Long-Horizon Agents (Disabled by default)",
+      "sliding_window_desc": "Disabled by default (100% transparent forwarding). When enabled, the gateway preserves full multimodal embeddings for the latest N images, stripping Base64 from older history and replacing them with structured placeholders.",
+      "max_fresh_images_label": "Max Fresh Images in Window",
+      "max_fresh_images_hint": "Retains full visual multimodal embeddings for the latest N images. Older images have their Base64 stripped and replaced by placeholders. Set 0 for unlimited image count (bounded only by total capacity).",
+      "unit_images": "images",
+      "strip_remote_urls_label": "Also strip historical remote / OSS image direct links",
+      "strip_remote_urls_hint": "Disabled by default (only strips heavy Base64 payloads, preserving lightweight HTTP/HTTPS URLs). When checked, historical remote direct links are also replaced with placeholders to maximize token savings.",
+      "max_total_mb_title": "Cumulative Decoded Image Memory Limit",
+      "hard_safety_tag": "Physical Safety Redline (Always Active)",
+      "max_total_mb_desc": "Maximum decoded volume of all retained multimodal images in a single request (default 32MB). If retained images still exceed this limit, LRU eviction drops the oldest historical images first, always protecting the current latest turn!",
+      "hot_reload_hint": "Settings take effect immediately upon saving without restarting proxy service.",
+      "save_btn": "Save Multimodal Settings",
+      "strategy_select_label": "Freshness Strategy Mode (Choose one independent strategy)",
+      "strategy_count_title": "Count-Based Freshness",
+      "strategy_count_desc": "Preserves the latest N images regardless of size. Intuitive and strictly maps to conversation turns.",
+      "strategy_memory_title": "Memory-Based Freshness",
+      "strategy_memory_desc": "Scans backward from latest turn by Base64 volume. Retains images within budget, evicts older ones.",
+      "memory_budget_label": "Cumulative Memory Freshness Limit",
+      "memory_budget_hint": "Sets total decoded Base64 volume budget. Scans backward from latest turn; images within budget are kept, earlier excess images are replaced with placeholders."
     }
   },
   "monitor": {

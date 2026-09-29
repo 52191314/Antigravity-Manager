@@ -192,6 +192,7 @@ export interface AppConfig {
     antigravity_cli_executable?: string; // [NEW] 手动指定的 Antigravity CLI (agy) 路径
     antigravity_args?: string[]; // [NEW] Antigravity 启动参数
     auto_launch?: boolean; // 开机自动启动
+    quiet_autostart?: boolean; // 开机自启时留在托盘。缺省视为开启
     auto_check_update?: boolean; // 自动检查更新
     update_check_interval?: number; // 更新检查间隔（小时）
     update_channel?: 'stable' | 'beta'; // 更新通道：正式版 vs 预览版

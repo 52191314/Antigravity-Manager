@@ -1019,9 +1019,13 @@ pub async fn migrate_data_dir(new_path: String, clean_source: bool) -> Result<()
     Ok(())
 }
 
-/// 显示主窗口
+/// 显示主窗口。登录项的免打扰启动只跳过这一次自动显示。
 #[tauri::command]
 pub async fn show_main_window(window: tauri::Window) -> Result<(), String> {
+    if crate::modules::startup_quiet::take() {
+        tracing::info!("Skipped the automatic first window show for a quiet login launch");
+        return Ok(());
+    }
     window.show().map_err(|e| e.to_string())
 }
 

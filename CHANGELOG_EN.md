@@ -4,6 +4,22 @@
 
 *   **Version History**:
     *   **v4.8.6-beta.1 (2026-09-29)**:
+        -   **[Multimodal Freshness Sliding Window & 16-Image Limit Removal] Repeal Responses 16-Image Hardcap, Implement Decoupled Dual-Strategy Multimodal Freshness in Pipeline (Fixes #3545, Thanks to @jeikl)**:
+            -   **Repeal Responses 16-Image Hardcap (Fixes #3545)**: Completely eliminated legacy `const MAX_INPUT_IMAGES = 16` in `openai.rs`, fixing HTTP 400 `Too many input images: maximum is 16` crashing long-horizon agents at the 17th image; dynamically bound total decoded memory to `max_total_image_mb`.
+            -   **Protocol-Agnostic Inbound Pipeline (Pipeline First)**: Unified multimodal payload governance across all protocols (Responses, Chat, Claude, Gemini) in `InboundThinkingPipeline`, defaulting to 100% transparent forwarding.
+            -   **Decoupled Dual-Strategy Freshness (Strategy Pattern)**:
+                -   **Count-Based (Default)**: Keeps latest N images (default 10, 0 for unlimited); strips Base64 from older history into `[Historical Image #k: omitted to preserve context (mime)]`.
+                -   **Memory-Based**: Bounded by cumulative Base64 bytes backward from latest turn; enforces **Recency-First**, ensuring current turn visual inputs are never pruned.
+            -   **Remote / OSS URL Direct Link Sub-option**: Retains lightweight HTTP/HTTPS URLs by default; optionally strips them when enabled to maximize token savings.
+        -   **[UI Architecture Refactor & Dedicated "Model Config" Panel] Separation of Concerns, Thinking Settings Relocation, and Multimodal Settings (Thanks to @jeikl)**:
+            -   **Dedicated "Model Config" Tab**: Expanded top navigation to `Service Config`, `Model Config`, `CLI Sync`, and `Multi-Protocol`, separating network infra from AI cognitive pipeline.
+            -   **Thinking Settings Relocation**: Migrated Thinking Settings into Model Config, default collapsed (`defaultExpanded={false}`).
+            -   **New Multimodal Settings Card**: Features master toggle, strategy selector (Count/Memory), direct link toggle, and memory limit, default collapsed with instant hot-reload.
+            -   **Model Router Unification**: Integrated Model Router into Model Config for cohesive management.
+        -   **[Internal Error Sliding-Window Logging] Ring-Buffer Capture of Internal Error Diagnostics Without Disk Flooding (Thanks to @jeikl)**:
+            -   **In-Memory Ring Buffer**: Implemented `InternalErrorWindow` ring buffer to capture function names, input arguments, and error classifications (`error_classifier`).
+            -   **On-Demand Disk Flushes**: Normal requests remain 100% in-memory with zero I/O overhead; flushed only upon internal failures.
+            -   **ProxyMonitor Diagnostic Enhancement**: Added detail inspection, error filtering, and one-click log purging in frontend.
         -   **[Gemini 3+ Tool Signature Self-Healing & Sentinel Passthrough] Inbound Sentinel Signature Preservation, Causal Pseudo-Hash Penetration Matching via SQLite, and Outbound Pre-flight Gatekeeper**:
             -   **Preserve Inbound Sentinel Signature**: Fixed an issue where `is_real_signature` falsely categorized Google's official bypass sentinel `skip_thought_signature_validator` as invalid during inbound sanitization, ensuring client-provided bypass signatures are preserved.
             -   **Non-native Tool ID Matching via Synthetic Causal Hashes & Sentinel Fallback**: When non-native tool IDs (e.g. `Write-76`) miss in-memory cache, compute ID-agnostic deterministic causal synthetic IDs (`synthesize_tool_id`) to penetratively query SQLite `tool_signatures` and `thinking_records` tables. If found, backfill and populate memory cache; if not found, backfill with `SENTINEL_SIGNATURE` to prevent empty fields.

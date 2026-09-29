@@ -464,7 +464,7 @@ impl ThinkingStore {
                         .and_then(|fc| fc.get("id"))
                         .and_then(|id| id.as_str())
                         .and_then(|id| {
-                            crate::proxy::SignatureCache::global().get_tool_signature(id)
+                            crate::proxy::SignatureCache::global().get_tool_signature(store_key, id)
                         })
                         .filter(|s| is_real_signature(s))
                 })
@@ -894,7 +894,12 @@ impl ThinkingStore {
                         .as_deref()
                         .filter(|s| is_real_signature(s) && is_claude_signature(s));
                     let wrapped = fallback.map(|s| ensure_google_claude_thought_signature(s));
-                    place_turn_signature_with(&mut *parts, wrapped.as_deref(), false);
+                    place_turn_signature_scoped(
+                        &mut *parts,
+                        wrapped.as_deref(),
+                        false,
+                        Some(store_key),
+                    );
                 } else {
                     // Gemini 原生：把本轮捕获到的真实签名归位到「该轮第一个非思考 part」。
                     //
@@ -905,7 +910,7 @@ impl ThinkingStore {
                         .signature
                         .as_deref()
                         .filter(|s| is_real_signature(s) && is_likely_gemini_signature(s));
-                    place_turn_signature(&mut *parts, fallback);
+                    place_turn_signature_scoped(&mut *parts, fallback, true, Some(store_key));
                 }
                 parts.insert(0, thought_part);
                 restored += 1;
@@ -919,13 +924,20 @@ impl ThinkingStore {
                         .as_deref()
                         .filter(|s| is_real_signature(s) && is_claude_signature(s));
                     let wrapped = fallback.map(|s| ensure_google_claude_thought_signature(s));
-                    place_turn_signature_with(&mut *parts, wrapped.as_deref(), false);
+                    place_turn_signature_scoped(
+                        &mut *parts,
+                        wrapped.as_deref(),
+                        false,
+                        Some(store_key),
+                    );
                 } else {
                     let fallback = rec
                         .signature
                         .as_deref()
                         .filter(|s| is_real_signature(s) && is_likely_gemini_signature(s));
-                    if place_turn_signature(&mut *parts, fallback).is_some() {
+                    if place_turn_signature_scoped(&mut *parts, fallback, true, Some(store_key))
+                        .is_some()
+                    {
                         restored += 1;
                     }
                 }
@@ -1144,13 +1156,13 @@ pub struct EndSessionResult {
 
 #[derive(Debug, Clone)]
 pub struct SessionScope {
-    /// 带内容锚点的会话号。思维库与签名缓存用它，主子 agent 因此不串。
+    /// 带内容锚点的会话号。思维库、签名缓存、上游 `sessionId` 用它。
     pub client_id: String,
-    /// `{tenant}:{client_id}`。思维库、签名缓存的存储键。
+    /// `{tenant}:{client_id}`。思维库、签名缓存、上游 `sessionId` 的存储键。
     pub store_key: String,
-    /// 不含内容锚点的稳定会话号。只在存在显式会话头、query 或 body 会话号时与 `client_id` 分开。
+    /// 不含内容锚点的稳定会话号。没有稳定会话身份时与 `client_id` 相同。
     pub affinity_id: String,
-    /// `{tenant}:{affinity_id}`。账号粘性与上游 `sessionId` 用它，审批前缀变化不再换账号。
+    /// `{tenant}:{affinity_id}`。只决定用哪个 Google 账号。
     pub affinity_key: String,
 }
 
@@ -1173,35 +1185,27 @@ impl SessionScope {
         query: Option<&str>,
         fallback: impl Into<String>,
     ) -> Self {
-        let fallback = fallback.into();
-        let tenant = tenant_from_headers(headers);
-        let session_headers = collect_session_semantic_headers(headers);
-        let query_sid = extract_query_session_id(headers, query);
-        let body_sid = extract_body_session_id(body);
+        Self::resolve(headers, body, query, fallback, None)
+    }
 
-        // 显式会话身份存在时，账号粘性不再混入会漂移的内容锚点。
-        // 思维库始终混入锚点，主子 agent / 审批请求的签名不会并到一起。
-        let has_stable_identity =
-            !session_headers.is_empty() || query_sid.is_some() || body_sid.is_some();
-        let affinity_anchor = if has_stable_identity {
+    /// `tenant_id` 来自中间件已经解析出的用户 Token。没有时再哈希请求头里的凭证。
+    pub fn resolve(
+        headers: &HeaderMap,
+        body: Option<&Value>,
+        query: Option<&str>,
+        fallback: impl Into<String>,
+        tenant_id: Option<&str>,
+    ) -> Self {
+        let fallback = fallback.into();
+        let tenant = tenant_component(headers, tenant_id);
+        let winner = stable_session_winner(headers, body, query);
+        let affinity_anchor = if winner.is_some() {
             ""
         } else {
             fallback.as_str()
         };
-        let affinity_id = derive_blended_session_id(
-            &tenant,
-            &session_headers,
-            query_sid.as_deref(),
-            body_sid.as_deref(),
-            affinity_anchor,
-        );
-        let client_id = derive_blended_session_id(
-            &tenant,
-            &session_headers,
-            query_sid.as_deref(),
-            body_sid.as_deref(),
-            &fallback,
-        );
+        let affinity_id = derive_winner_session_id(&tenant, winner.as_deref(), affinity_anchor);
+        let client_id = derive_winner_session_id(&tenant, winner.as_deref(), &fallback);
         let store_key = format!("{}:{}", tenant, client_id);
         let affinity_key = format!("{}:{}", tenant, affinity_id);
         Self {
@@ -1210,6 +1214,11 @@ impl SessionScope {
             affinity_id,
             affinity_key,
         }
+    }
+
+    pub fn purge_signatures(&self, model: &str) {
+        ThinkingStore::global().purge_corrupted_signatures(&self.store_key, model);
+        crate::proxy::SignatureCache::global().delete_session_signature(&self.store_key);
     }
 }
 
@@ -1617,88 +1626,76 @@ pub fn finalize_gemini_contents_thinking_with_session(
             // ① 原生/传入 tool_id -> 内存 L1 + SQLite L2 (tool_signatures)
             // ② 若未命中（非原生 ID 如 Write-76 或缓存失配），计算 ID 无关的确定性因果伪哈希 ID (synthetic_id) 穿透匹配 SQLite
             // ③ 若找到则回填并反向自愈写入缓存，回填不了则由后序 chosen_sig 统一带上官方哨兵 (SENTINEL_SIGNATURE)
-            let cached_tool_sig: Option<String> = if !is_claude_turn && turn_real_sig.is_none() {
-                let mut found_sig = None;
-                let mut fc_counter = 0usize;
-                for p in &other_parts {
-                    if let Some(fc) = p.get("functionCall") {
-                        let id = fc.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                        // 1. 先用原生 ID 查内存 L1 与 SQLite L2 (tool_signatures 表)
-                        if !id.is_empty() {
-                            if let Some(sig) = crate::proxy::SignatureCache::global()
-                                .get_tool_signature(id)
-                                .filter(|s| is_likely_gemini_signature(s))
-                            {
-                                found_sig = Some(sig);
-                                break;
-                            }
-                            if let Ok(Some(sig)) = crate::modules::proxy_db::load_tool_signature(id)
-                            {
-                                if is_likely_gemini_signature(&sig) {
-                                    found_sig = Some(sig);
-                                    break;
-                                }
-                            }
-                        }
-
-                        // 2. 若未命中（非原生 ID 如 Write-76，或缓存失配）：
-                        // 使用 ID 无关的确定性因果伪哈希 ID 穿透匹配 SQLite
-                        let name = fc.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                        let synthetic_id =
-                            synthesize_tool_id(name, fc.get("args"), _anchor, fc_counter);
-                        fc_counter += 1;
-
-                        // 2.1 先查内存 L1 与 SQLite L2 (tool_signatures 表)
-                        if let Some(sig) = crate::proxy::SignatureCache::global()
-                            .get_tool_signature(&synthetic_id)
-                            .filter(|s| is_likely_gemini_signature(s))
-                        {
+            let cached_tool_sig: Option<String> =
+                if !is_claude_turn && turn_real_sig.is_none() {
+                    let mut found_sig = None;
+                    let mut fc_counter = 0usize;
+                    for p in &other_parts {
+                        if let Some(fc) = p.get("functionCall") {
+                            let id = fc.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                            // 1. 先用原生 ID 查内存 L1 与 SQLite L2 (tool_signatures 表)
                             if !id.is_empty() {
-                                crate::proxy::SignatureCache::global()
-                                    .cache_tool_signature(id, sig.clone());
-                            }
-                            found_sig = Some(sig);
-                            break;
-                        }
-                        if let Ok(Some(sig)) =
-                            crate::modules::proxy_db::load_tool_signature(&synthetic_id)
-                        {
-                            if is_likely_gemini_signature(&sig) {
-                                if !id.is_empty() {
-                                    crate::proxy::SignatureCache::global()
-                                        .cache_tool_signature(id, sig.clone());
+                                if let Some(sid) = session_id {
+                                    if let Some(sig) = crate::proxy::SignatureCache::global()
+                                        .get_tool_signature(sid, id)
+                                        .filter(|s| is_likely_gemini_signature(s))
+                                    {
+                                        found_sig = Some(sig);
+                                        break;
+                                    }
                                 }
-                                found_sig = Some(sig);
-                                break;
                             }
-                        }
 
-                        // 2.2 若仍未命中，尝试按 session_key 在 SQLite thinking_records 极速穿透点查 (causal_tool_id)
-                        if let Some(sid) = session_id {
-                            if let Ok(Some(rec)) =
-                                crate::modules::proxy_db::load_thinking_by_tool_id(
-                                    sid,
-                                    &synthetic_id,
-                                )
-                            {
-                                if let Some(sig) =
-                                    rec.signature.filter(|s| is_likely_gemini_signature(s))
+                            // 2. 若未命中（非原生 ID 如 Write-76，或缓存失配）：
+                            // 使用 ID 无关的确定性因果伪哈希 ID 穿透匹配 SQLite
+                            let name = fc.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                            let synthetic_id =
+                                synthesize_tool_id(name, fc.get("args"), _anchor, fc_counter);
+                            fc_counter += 1;
+
+                            // 2.1 先查内存 L1 与 SQLite L2 (tool_signatures 表)
+                            if let Some(sid) = session_id {
+                                if let Some(sig) = crate::proxy::SignatureCache::global()
+                                    .get_tool_signature(sid, &synthetic_id)
+                                    .filter(|s| is_likely_gemini_signature(s))
                                 {
                                     if !id.is_empty() {
                                         crate::proxy::SignatureCache::global()
-                                            .cache_tool_signature(id, sig.clone());
+                                            .cache_tool_signature(sid, id, sig.clone());
                                     }
                                     found_sig = Some(sig);
                                     break;
                                 }
                             }
+
+                            // 2.2 若仍未命中，尝试按 session_key 在 SQLite thinking_records 极速穿透点查 (causal_tool_id)
+                            if let Some(sid) = session_id {
+                                if let Ok(Some(rec)) =
+                                    crate::modules::proxy_db::load_thinking_by_tool_id(
+                                        sid,
+                                        &synthetic_id,
+                                    )
+                                {
+                                    if let Some(sig) =
+                                        rec.signature.filter(|s| is_likely_gemini_signature(s))
+                                    {
+                                        if !id.is_empty() {
+                                            if let Some(sid) = session_id {
+                                                crate::proxy::SignatureCache::global()
+                                                    .cache_tool_signature(sid, id, sig.clone());
+                                            }
+                                        }
+                                        found_sig = Some(sig);
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
-                }
-                found_sig
-            } else {
-                None
-            };
+                    found_sig
+                } else {
+                    None
+                };
 
             let is_last_model_turn = last_model_idx == Some(msg_idx);
             let cached_session_sig: Option<String> = if !is_claude_turn
@@ -1765,10 +1762,11 @@ pub fn finalize_gemini_contents_thinking_with_session(
                 }
 
                 // 黄金法则 3：
-                let placed = place_turn_signature_with(
+                let placed = place_turn_signature_scoped(
                     &mut other_parts,
                     chosen_sig.as_deref(),
                     !is_claude_turn,
+                    session_id,
                 );
                 if let Some(final_sig) = placed {
                     if final_sig != SENTINEL_SIGNATURE && is_likely_gemini_signature(&final_sig) {
@@ -1844,80 +1842,31 @@ pub fn extract_session_from_query_str(query: &str) -> Option<String> {
     None
 }
 
-/// 全生态显式会话标识解析（包含 URL Query、Header 扩展与 Body 扩展）
+/// 全生态显式会话标识。只返回一个赢家，后面的来源全部丢掉。
 pub fn explicit_session_id_with_query(
     headers: &HeaderMap,
     body: Option<&Value>,
     query: Option<&str>,
 ) -> Option<String> {
-    // 1. 显式 URL Query 参数（最高优先级：用户配置 Base URL 直接挂载 ?session_id=win1）
-    if let Some(q) = query {
-        if let Some(sid) = extract_session_from_query_str(q) {
-            return Some(sid);
-        }
-    }
+    stable_session_winner(headers, body, query)
+}
 
-    // 2. 从反代请求头中抓取 URL Query (x-forwarded-uri, x-original-uri)
-    for uri_h in ["x-forwarded-uri", "x-original-uri"] {
-        if let Some(raw_uri) = headers.get(uri_h).and_then(|h| h.to_str().ok()) {
-            if let Some(pos) = raw_uri.find('?') {
-                if let Some(sid) = extract_session_from_query_str(&raw_uri[pos + 1..]) {
-                    return Some(sid);
-                }
-            }
-        }
-    }
-
-    // 3. 从 Web 客户端 Referer 中嗅探 Query
-    if let Some(referer) = headers.get("referer").and_then(|h| h.to_str().ok()) {
-        if let Some(pos) = referer.find('?') {
-            if let Some(sid) = extract_session_from_query_str(&referer[pos + 1..]) {
-                return Some(sid);
-            }
-        }
-    }
-
-    // 4. 全生态 HTTP Headers：先精确名单，再通配 x-*-session-id / x-*-sessionid
+/// 稳定会话号的唯一优先级：
+/// 产品会话头（`x-claude-code-session-id` 最先）→ 其它通配会话头 →
+/// 通用 `x-session-id` → 别名头 → query → body 稳定字段。
+/// `previous_response_id` 是每轮游标，不在名单里。
+pub fn stable_session_winner(
+    headers: &HeaderMap,
+    body: Option<&Value>,
+    query: Option<&str>,
+) -> Option<String> {
     if let Some(sid) = session_id_from_headers(headers) {
         return Some(sid);
     }
-
-    // 5. JSON Body 及 Metadata 深度提取
-    if let Some(body) = body {
-        for field in [
-            "session_id",
-            "conversation_id",
-            "chat_id",
-            "thread_id",
-            "client_session_id",
-            "previous_response_id",
-        ] {
-            if let Some(v) = body.get(field).and_then(|v| v.as_str()) {
-                let v = v.trim();
-                if !v.is_empty() {
-                    return Some(sanitize_session_id(v));
-                }
-            }
-        }
-        if let Some(metadata) = body.get("metadata") {
-            for field in [
-                "conversation_id",
-                "chat_id",
-                "session_id",
-                "thread_id",
-                "user_id",
-            ] {
-                if let Some(v) = metadata.get(field).and_then(|v| v.as_str()) {
-                    let v = v.trim();
-                    if !v.is_empty() && !v.contains("session-") {
-                        return Some(sanitize_session_id(v));
-                    }
-                }
-            }
-        }
+    if let Some(sid) = extract_query_session_id(headers, query) {
+        return Some(sid);
     }
-
-    None
+    extract_body_session_id(body)
 }
 
 pub fn explicit_session_id(headers: &HeaderMap, body: Option<&Value>) -> Option<String> {
@@ -1926,6 +1875,7 @@ pub fn explicit_session_id(headers: &HeaderMap, body: Option<&Value>) -> Option<
 
 /// Product-specific `x-**-session-id` / `x-**-sessionid`. Checked before generic `x-session-id`.
 const PRODUCT_SESSION_HEADERS: &[&str] = &[
+    "x-claude-code-session-id",
     "x-jeikcode-sessionid",
     "x-jeikcode-session-id",
     "x-atomcode-session-id",
@@ -1988,25 +1938,37 @@ fn is_wildcard_session_header(name: &str) -> bool {
 }
 
 fn session_id_from_headers(headers: &HeaderMap) -> Option<String> {
-    // 1. Product-specific x-**-session-id / x-**-sessionid
+    // 1. Product-specific x-**-session-id / x-**-sessionid，名单顺序即优先级。
     for name in PRODUCT_SESSION_HEADERS {
         if let Some(sid) = header_session_value(headers, name) {
             return Some(sid);
         }
     }
+    let mut wildcards = std::collections::BTreeMap::new();
     for (name, value) in headers.iter() {
-        if is_generic_x_session_id(name.as_str()) {
+        let key = name.as_str();
+        if is_generic_x_session_id(key)
+            || PRODUCT_SESSION_HEADERS
+                .iter()
+                .any(|listed| key.eq_ignore_ascii_case(listed))
+        {
             continue;
         }
-        if !is_wildcard_session_header(name.as_str()) {
+        if !is_wildcard_session_header(key) {
             continue;
         }
         if let Ok(v) = value.to_str() {
             let v = v.trim();
             if !v.is_empty() {
-                return Some(sanitize_session_id(v));
+                let sanitized = sanitize_session_id(v);
+                if sanitized != "sid-unknown" {
+                    wildcards.insert(key.to_ascii_lowercase(), sanitized);
+                }
             }
         }
+    }
+    if let Some((_, sid)) = wildcards.iter().next() {
+        return Some(sid.clone());
     }
 
     // 2. Generic x-session-id
@@ -2023,6 +1985,18 @@ fn session_id_from_headers(headers: &HeaderMap) -> Option<String> {
     None
 }
 
+fn hash16(raw: &str) -> String {
+    let hash = format!("{:x}", Sha256::digest(raw.as_bytes()));
+    hash[..16].to_string()
+}
+
+fn tenant_component(headers: &HeaderMap, tenant_id: Option<&str>) -> String {
+    if let Some(id) = tenant_id.map(str::trim).filter(|id| !id.is_empty()) {
+        return hash16(id);
+    }
+    tenant_from_headers(headers)
+}
+
 fn tenant_from_headers(headers: &HeaderMap) -> String {
     let raw = headers
         .get(axum::http::header::AUTHORIZATION)
@@ -2031,8 +2005,7 @@ fn tenant_from_headers(headers: &HeaderMap) -> String {
         .or_else(|| headers.get("x-api-key").and_then(|h| h.to_str().ok()))
         .or_else(|| headers.get("x-goog-api-key").and_then(|h| h.to_str().ok()))
         .unwrap_or("anon");
-    let hash = format!("{:x}", Sha256::digest(raw.as_bytes()));
-    hash[..16].to_string()
+    hash16(raw)
 }
 
 pub fn sanitize_session_id(raw: &str) -> String {
@@ -2047,71 +2020,6 @@ pub fn sanitize_session_id(raw: &str) -> String {
     } else {
         out
     }
-}
-
-/// 判断 HTTP Header 是否属于会话语义相关头（严格排除易变随机头如 x-request-id 等）
-pub fn is_session_semantic_header(name: &str) -> bool {
-    let key = name.trim().to_ascii_lowercase().replace('_', "-");
-    if key == "mcp-session-id" {
-        return false;
-    }
-    if key.ends_with("-request-id")
-        || key.ends_with("-trace-id")
-        || key.ends_with("-correlation-id")
-        || key == "x-request-id"
-        || key == "request-id"
-        || key == "traceparent"
-        || key == "tracestate"
-        || key == "content-length"
-        || key == "content-type"
-        || key == "host"
-        || key == "user-agent"
-        || key.starts_with("sec-")
-        || key.starts_with("cf-")
-        || key.starts_with("x-forwarded-")
-        || key.starts_with("x-real-")
-    {
-        return false;
-    }
-
-    if PRODUCT_SESSION_HEADERS.iter().any(|h| key == *h) {
-        return true;
-    }
-    if ALIAS_SESSION_HEADERS.iter().any(|h| key == *h) {
-        return true;
-    }
-    if key == GENERIC_SESSION_HEADER || key == "session-id" {
-        return true;
-    }
-
-    let compact = key.replace('-', "");
-    (compact.contains("session")
-        || compact.contains("conversation")
-        || compact.contains("chat")
-        || compact.contains("thread"))
-        && compact.ends_with("id")
-}
-
-/// 收集所有具有会话隔离语义的 HTTP Header（键按字典序保存在 BTreeMap 中）
-pub fn collect_session_semantic_headers(
-    headers: &HeaderMap,
-) -> std::collections::BTreeMap<String, String> {
-    let mut map = std::collections::BTreeMap::new();
-    for (name, val) in headers.iter() {
-        let key = name.as_str().to_ascii_lowercase();
-        if is_session_semantic_header(&key) {
-            if let Ok(v) = val.to_str() {
-                let trimmed = v.trim();
-                if !trimmed.is_empty() {
-                    let sanitized = sanitize_session_id(trimmed);
-                    if !sanitized.is_empty() && sanitized != "sid-unknown" {
-                        map.insert(key, sanitized);
-                    }
-                }
-            }
-        }
-    }
-    map
 }
 
 /// 从 URL Query、代理跳转 Header (x-forwarded-uri, x-original-uri) 以及 Referer 中提取会话参数
@@ -2150,7 +2058,6 @@ pub fn extract_body_session_id(body: Option<&Value>) -> Option<String> {
         "chat_id",
         "thread_id",
         "client_session_id",
-        "previous_response_id",
         "_session_thinking_id",
     ] {
         if let Some(v) = body.get(field).and_then(|v| v.as_str()) {
@@ -2198,47 +2105,22 @@ pub fn extract_body_session_id(body: Option<&Value>) -> Option<String> {
     None
 }
 
-/// 正交确定性会话哈希：
-/// 1. 租户（API Key / Authorization）
-/// 2. 稳定会话身份（排序后的会话语义头 + query + body 会话号）
-/// 3. 内容锚点（首条用户消息 + system + tools）。账号粘性在第 2 维存在时省略第 3 维。
-pub fn derive_blended_session_id(
-    tenant: &str,
-    session_headers: &std::collections::BTreeMap<String, String>,
-    query_sid: Option<&str>,
-    body_sid: Option<&str>,
-    fallback: &str,
-) -> String {
+/// 只哈希一个稳定会话号。有赢家时账号键省略内容锚点，思维库键保留锚点。
+pub fn derive_winner_session_id(tenant: &str, stable_id: Option<&str>, anchor: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"v2|");
+    hasher.update(b"v3|");
     hasher.update(tenant.as_bytes());
     hasher.update([0xff]);
-
-    for (k, v) in session_headers {
-        hasher.update(k.as_bytes());
-        hasher.update(b"=");
-        hasher.update(v.as_bytes());
+    if let Some(id) = stable_id.map(str::trim).filter(|id| !id.is_empty()) {
+        hasher.update(b"sid=");
+        hasher.update(id.as_bytes());
         hasher.update([0xfe]);
     }
-
-    if let Some(q) = query_sid {
-        hasher.update(b"query=");
-        hasher.update(q.as_bytes());
-        hasher.update([0xfd]);
-    }
-
-    if let Some(b) = body_sid {
-        hasher.update(b"body=");
-        hasher.update(b.as_bytes());
-        hasher.update([0xfc]);
-    }
-
-    let clean_fallback = fallback.trim();
-    if !clean_fallback.is_empty() {
+    let anchor = anchor.trim();
+    if !anchor.is_empty() {
         hasher.update(b"anchor=");
-        hasher.update(clean_fallback.as_bytes());
+        hasher.update(anchor.as_bytes());
     }
-
     let hash = format!("{:x}", hasher.finalize());
     format!("sess-{}", &hash[..16])
 }
@@ -2463,13 +2345,22 @@ pub fn find_turn_anchor_with(parts: &[Value], prefer_function_call: bool) -> Opt
 ///
 /// 返回最终写入锚点的签名（若有）。
 pub fn place_turn_signature(parts: &mut Vec<Value>, fallback_sig: Option<&str>) -> Option<String> {
-    place_turn_signature_with(parts, fallback_sig, true)
+    place_turn_signature_scoped(parts, fallback_sig, true, None)
 }
 
 pub fn place_turn_signature_with(
     parts: &mut Vec<Value>,
     fallback_sig: Option<&str>,
     prefer_function_call: bool,
+) -> Option<String> {
+    place_turn_signature_scoped(parts, fallback_sig, prefer_function_call, None)
+}
+
+pub fn place_turn_signature_scoped(
+    parts: &mut Vec<Value>,
+    fallback_sig: Option<&str>,
+    prefer_function_call: bool,
+    store_key: Option<&str>,
 ) -> Option<String> {
     // 1. 签名抢救与提取（必须在任何清空或过滤之前执行）：
     // 必须经过严格校验（is_real_signature && is_likely_gemini_signature），只有合法才接受！
@@ -2548,8 +2439,12 @@ pub fn place_turn_signature_with(
     // 反向入库优化：如果锚点是工具调用且不是哨兵占位，反向更新/修补回签名缓存与 SQLite tool_signatures 库！
     if final_sig != SENTINEL_SIGNATURE {
         if let Some(fc) = parts[anchor].get("functionCall") {
-            if let Some(id) = fc.get("id").and_then(|v| v.as_str()) {
-                crate::proxy::SignatureCache::global().cache_tool_signature(id, final_sig.clone());
+            if let (Some(scope), Some(id)) = (store_key, fc.get("id").and_then(|v| v.as_str())) {
+                crate::proxy::SignatureCache::global().cache_tool_signature(
+                    scope,
+                    id,
+                    final_sig.clone(),
+                );
             }
         }
     }
@@ -3430,6 +3325,17 @@ mod tests {
             explicit_session_id_with_query(&only_generic, None, None).as_deref(),
             Some("generic-session")
         );
+
+        let mut claude = HeaderMap::new();
+        claude.insert("x-session-id", "generic-session".parse().unwrap());
+        claude.insert(
+            "x-claude-code-session-id",
+            "claude-session".parse().unwrap(),
+        );
+        assert_eq!(
+            explicit_session_id_with_query(&claude, None, None).as_deref(),
+            Some("claude-session")
+        );
     }
 
     #[test]
@@ -3503,6 +3409,43 @@ mod tests {
             "Cross-protocol requests in the same session must share the identical store_key"
         );
         assert_eq!(scope_claude.affinity_key, scope_openai.affinity_key);
+
+        // 6. 产品头压过会变的通用 x-session-id。审批文案只拆思维库，不换账号。
+        let mut main_headers = HeaderMap::new();
+        main_headers.insert("x-claude-code-session-id", "cli-session".parse().unwrap());
+        main_headers.insert("x-session-id", "generic-a".parse().unwrap());
+        let mut approval_headers = HeaderMap::new();
+        approval_headers.insert("x-claude-code-session-id", "cli-session".parse().unwrap());
+        approval_headers.insert("x-session-id", "generic-b".parse().unwrap());
+        let scope_main = SessionScope::from_headers(&main_headers, "anchor-main");
+        let scope_approval = SessionScope::from_headers(&approval_headers, "anchor-approval");
+        assert_eq!(scope_main.affinity_key, scope_approval.affinity_key);
+        assert_ne!(scope_main.store_key, scope_approval.store_key);
+
+        // 7. previous_response_id 每轮都变，不能当稳定身份。
+        let body_turn = json!({ "previous_response_id": "resp-1" });
+        let body_next = json!({ "previous_response_id": "resp-2" });
+        let resp_a =
+            SessionScope::from_headers_and_body(&HeaderMap::new(), Some(&body_turn), "anchor");
+        let resp_b =
+            SessionScope::from_headers_and_body(&HeaderMap::new(), Some(&body_next), "anchor");
+        assert_eq!(resp_a.affinity_key, resp_b.affinity_key);
+        assert_eq!(resp_a.store_key, resp_b.store_key);
+
+        let rooted = json!({
+            "session_id": "resp-root",
+            "previous_response_id": "resp-9"
+        });
+        let rooted_next = json!({
+            "session_id": "resp-root",
+            "previous_response_id": "resp-10"
+        });
+        let root_a =
+            SessionScope::from_headers_and_body(&HeaderMap::new(), Some(&rooted), "anchor-a");
+        let root_b =
+            SessionScope::from_headers_and_body(&HeaderMap::new(), Some(&rooted_next), "anchor-a");
+        assert_eq!(root_a.affinity_key, root_b.affinity_key);
+        assert_eq!(root_a.store_key, root_b.store_key);
     }
 
     #[test]
@@ -5129,13 +5072,19 @@ mod signature_placement_tests {
         })];
 
         // place_turn_signature 必须拒绝客户端伪造的无效签名，采纳 fallback_sig 并反向入库
-        let placed = place_turn_signature(&mut parts, Some(&real_sig));
+        let placed =
+            place_turn_signature_scoped(&mut parts, Some(&real_sig), true, Some("test-store"));
         assert_eq!(placed, Some(real_sig.clone()));
         assert_eq!(parts[0]["thoughtSignature"], real_sig);
 
-        // 验证反向入库已生效
-        let cached =
-            crate::proxy::SignatureCache::global().get_tool_signature("call_invalid_test_1");
+        // 验证反向入库已生效，并且不落到别的会话。
+        let cached = crate::proxy::SignatureCache::global()
+            .get_tool_signature("test-store", "call_invalid_test_1");
+        assert_eq!(
+            crate::proxy::SignatureCache::global()
+                .get_tool_signature("other-store", "call_invalid_test_1"),
+            None
+        );
         assert_eq!(cached, Some(real_sig));
     }
 

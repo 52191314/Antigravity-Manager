@@ -430,6 +430,9 @@ pub async fn handle_messages(
     upstream_recorder: Option<
         axum::extract::Extension<crate::proxy::monitor::UpstreamRequestBodyHolder>,
     >,
+    user_identity: Option<
+        axum::extract::Extension<crate::proxy::middleware::auth::UserTokenIdentity>,
+    >,
     Json(body): Json<Value>,
 ) -> Response {
     // [FIX] 保存原始请求体的完整副本，用于日志记录
@@ -906,10 +909,14 @@ pub async fn handle_messages(
         // 内容锚点只进思维库。账号粘性与上游 sessionId 用 affinity_key。
         let anchor =
             crate::proxy::session_manager::SessionManager::extract_session_id(&request_for_body);
-        let session_scope = crate::proxy::thinking_store::SessionScope::from_headers_and_body(
+        let session_scope = crate::proxy::thinking_store::SessionScope::resolve(
             &headers,
             Some(&original_body),
+            None,
             anchor,
+            user_identity
+                .as_ref()
+                .map(|identity| identity.token_id.as_str()),
         );
         let store_key = session_scope.store_key.clone();
         let affinity_key = session_scope.affinity_key.clone();
@@ -1153,6 +1160,7 @@ pub async fn handle_messages(
 
         // 成功
         if status.is_success() {
+            token_manager.commit_session(&affinity_key, &account_id);
             // [智能限流] 请求成功，重置该账号的连续失败计数
             token_manager.mark_account_success(&email);
 
@@ -1558,16 +1566,13 @@ pub async fn handle_messages(
                     Some(&request_with_mapped.model),
                 )
                 .await;
-
-            token_manager
-                .unbind_session_and_clear_last_used(session_id)
-                .await;
-            if let Some(sid) = session_id {
-                debug!(
-                    "[{}] Unbound session {} from account {} due to status {}",
-                    trace_id, sid, email, status_code
-                );
-            }
+        }
+        if classification.abandons_sticky_account() {
+            token_manager.abandon_session(&affinity_key, &account_id);
+            debug!(
+                "[{}] Unbound session {} from account {} due to status {}",
+                trace_id, affinity_key, email, status_code
+            );
         }
 
         // 4. 处理 400 错误 (Thinking 签名失效 或 块顺序错误)
@@ -1637,9 +1642,7 @@ pub async fn handle_messages(
 
             // 精准定向净化 ThinkingStore 中当前 session 的异构污染签名，保留思考文本与健康历史签名，
             // 彻底防止重试阶段再次把坏签名还原回 contents
-            crate::proxy::thinking_store::ThinkingStore::global()
-                .purge_corrupted_signatures(&store_key, &mapped_model);
-            crate::proxy::SignatureCache::global().delete_session_signature(&client_session_id);
+            session_scope.purge_signatures(&mapped_model);
 
             // [FIX Prompt-Cache] 严禁在重试路径中注入合成消息 (close_tool_loop_for_thinking)！
             // 保持历史消息真实纯净，由 InboundThinkingPipeline 与 finalize_gemini_contents_thinking 统一兜底签名与占位。
@@ -1712,8 +1715,7 @@ pub async fn handle_messages(
         // 之后该 sessionId 的所有请求都 400 "input token count exceeds ... 1048576"。
         // 给 (账号, 对话) 的 sessionId 升代并立即重试:新 sessionId = 上游全新会话,对话无感恢复。
         if status_code == 400 && error_text.contains("exceeds the maximum number of tokens") {
-            let generation =
-                crate::proxy::common::session::bump_session(&account_id, &affinity_key);
+            let generation = crate::proxy::common::session::bump_session(&account_id, &store_key);
             tracing::warn!(
                 "[Claude] Upstream session token accumulation exceeded 1M on account {}. sessionId bumped to generation {}, retrying with a fresh upstream session.",
                 email, generation

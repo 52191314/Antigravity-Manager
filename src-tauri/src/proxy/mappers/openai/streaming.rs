@@ -187,7 +187,7 @@ where
                                                                         });
 
                                                                     if let Some(sig) = part.get("thoughtSignature").or(part.get("thought_signature")).and_then(|s| s.as_str()) {
-                                                                        crate::proxy::SignatureCache::global().cache_tool_signature(&call_id, sig.to_string());
+                                                                        crate::proxy::SignatureCache::global().cache_tool_signature(&session_id, &call_id, sig.to_string());
                                                                     }
                                                                     thinking_acc.record_tool_id(name, &call_id);
 
@@ -879,7 +879,7 @@ where
                                                                     });
 
                                                                 if let Some(sig) = part.get("thoughtSignature").or(part.get("thought_signature")).and_then(|s| s.as_str()) {
-                                                                    crate::proxy::SignatureCache::global().cache_tool_signature(&call_id, sig.to_string());
+                                                                    crate::proxy::SignatureCache::global().cache_tool_signature(&session_id, &call_id, sig.to_string());
                                                                 }
                                                                 thinking_acc.record_tool_id(name, &call_id);
 

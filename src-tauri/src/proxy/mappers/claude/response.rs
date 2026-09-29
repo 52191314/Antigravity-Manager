@@ -169,8 +169,12 @@ impl NonStreamingProcessor {
                 *sig = signature.clone();
             }
 
-            if let Some(ref sig) = signature {
-                crate::proxy::SignatureCache::global().cache_tool_signature(&tool_id, sig.clone());
+            if let (Some(sig), Some(sid)) = (signature.as_ref(), self.session_id.as_deref()) {
+                crate::proxy::SignatureCache::global().cache_tool_signature(
+                    sid,
+                    &tool_id,
+                    sig.clone(),
+                );
             }
 
             self.content_blocks.push(tool_use);

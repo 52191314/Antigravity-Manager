@@ -1264,12 +1264,11 @@ pub fn transform_openai_request_with_session(
     //   - 不同对话使用不同 sessionId,避免共享同一服务端累计会话
     //   - 检测到上游 1M 累计报错后 bump 代数,新 sessionId = 全新上游会话,对话无感恢复
     if let Some(t) = token {
-        let generation = crate::proxy::common::session::current_bump(&t.account_id, &session_id);
-        inner_request["sessionId"] = json!(crate::proxy::common::session::derive_session_scoped(
+        crate::proxy::common::session::apply_upstream_session(
+            &mut inner_request,
             &t.account_id,
-            &session_id,
-            generation
-        ));
+            &thinking_store_key,
+        );
     }
 
     // [CACHE] 重建 inner_request 字段顺序——稳定前缀在前，动态内容在后
@@ -1283,8 +1282,10 @@ pub fn transform_openai_request_with_session(
 
     // requestId：官方 5 段形态，三适配器共用（含 unixMs → 幂等隔离）。
     // 历史教训：复用 session / message-count 的 ID 会把后续请求 pin 到一次更早的 429 结果。
-    let request_id =
-        super::super::common_utils::build_official_request_id(&session_id, message_count as u64);
+    let request_id = super::super::common_utils::build_official_request_id(
+        &thinking_store_key,
+        message_count as u64,
+    );
 
     // 官方客户端指纹（企业 / GCP 账号为 jetski）—— 三适配器共用，避免指纹漂移
     let (official_user_agent, _official_ide_type) =
@@ -2996,11 +2997,14 @@ mod tests {
         let call_2_id = format!("call_2_{}", uuid::Uuid::new_v4());
 
         // 缓存第 1 轮工具的专属签名
-        crate::proxy::SignatureCache::global()
-            .cache_tool_signature(&call_1_id, sig_round_1.clone());
+        let prev_resp_id = format!("resp-prev-{}", uuid::Uuid::new_v4());
+        crate::proxy::SignatureCache::global().cache_tool_signature(
+            &prev_resp_id,
+            &call_1_id,
+            sig_round_1.clone(),
+        );
 
         // 模拟第 2 轮刚完成，产生了会话级别的最新签名 sig_round_2 (通过 previous_response_id)
-        let prev_resp_id = format!("resp-prev-{}", uuid::Uuid::new_v4());
         crate::proxy::SignatureCache::global().cache_session_signature(
             &prev_resp_id,
             sig_round_2.clone(),
@@ -3354,11 +3358,15 @@ mod tests {
     fn test_openai_tool_call_retrieves_signature_from_signature_cache() {
         let tool_id = "call_cached_test_999";
         let valid_gemini_sig = "EmIKYAFpFH0TDqviLY1vZ8EuHqBLLj5xxD+0hchYg2VaoyolUQRP+hSCsKRpSpj+yrQA2H27yVFnF7tlp5OHIUvTdZKKErAqILJzK5FG8RJg42jCaaI2/iwqoBuRd5BDVwBxaQ==";
-        crate::proxy::SignatureCache::global()
-            .cache_tool_signature(tool_id, valid_gemini_sig.to_string());
+        crate::proxy::SignatureCache::global().cache_tool_signature(
+            "scope-test",
+            tool_id,
+            valid_gemini_sig.to_string(),
+        );
 
         let req = OpenAIRequest {
             model: "gemini-3.8-flash".to_string(),
+            session_id: Some("scope-test".to_string()),
             messages: vec![
                 OpenAIMessage {
                     role: "user".to_string(),

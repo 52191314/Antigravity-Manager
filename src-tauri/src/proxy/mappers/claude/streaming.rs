@@ -1103,7 +1103,9 @@ impl<'a> PartProcessor<'a> {
             tool_use["signature"] = json!(sig);
 
             // 2. Cache tool signature (Layer 1 recovery)
-            SignatureCache::global().cache_tool_signature(&tool_id, sig.clone());
+            if let Some(sid) = self.state.session_id.as_deref() {
+                SignatureCache::global().cache_tool_signature(sid, &tool_id, sig.clone());
+            }
 
             // 3. [NEW v3.3.17] Cache to session-based storage
             if let Some(session_id) = &self.state.session_id {

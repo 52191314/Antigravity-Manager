@@ -367,9 +367,9 @@ fn build_canonical_consolidated_response(
         for tc in &tool_calls {
             if let Some(call_id) = tc.get("id").and_then(|v| v.as_str()) {
                 if !call_id.is_empty() {
-                    if let Some(sig) =
-                        crate::proxy::SignatureCache::global().get_tool_signature(call_id)
-                    {
+                    if let Some(sig) = session_id.and_then(|sid| {
+                        crate::proxy::SignatureCache::global().get_tool_signature(sid, call_id)
+                    }) {
                         thinking_signature = sig;
                         break;
                     }

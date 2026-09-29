@@ -285,8 +285,14 @@ impl InboundThinkingPipeline {
                                         {
                                             if let Some(fc) = obj.get("functionCall") {
                                                 if let Some(id) = fc.get("id").and_then(|v| v.as_str()) {
-                                                    crate::proxy::SignatureCache::global()
-                                                        .cache_tool_signature(id, sig_str.to_string());
+                                                    if let Some(sid) = session_id {
+                                                        crate::proxy::SignatureCache::global()
+                                                            .cache_tool_signature(
+                                                                sid,
+                                                                id,
+                                                                sig_str.to_string(),
+                                                            );
+                                                    }
                                                 }
                                             }
                                             if let Some(sid) = session_id {
@@ -3039,8 +3045,11 @@ mod tests {
         // 3. 初始化并存入签名 (以 synthetic_id 为 key，同时写入内存缓存与 SQLite)
         let _ = crate::modules::proxy_db::init_db();
         let real_test_sig = "test-signature-real-valid-mock-length-32-chars-long";
-        crate::proxy::SignatureCache::global()
-            .cache_tool_signature(&synthetic_id, real_test_sig.to_string());
+        crate::proxy::SignatureCache::global().cache_tool_signature(
+            "test_session_non_native",
+            &synthetic_id,
+            real_test_sig.to_string(),
+        );
 
         // 4. 执行 finalize
         finalize_gemini_contents_thinking_with_session(

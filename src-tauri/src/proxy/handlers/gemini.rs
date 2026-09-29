@@ -74,6 +74,9 @@ pub async fn handle_generate(
     upstream_recorder: Option<
         axum::extract::Extension<crate::proxy::monitor::UpstreamRequestBodyHolder>,
     >,
+    user_identity: Option<
+        axum::extract::Extension<crate::proxy::middleware::auth::UserTokenIdentity>,
+    >,
     Json(mut body): Json<Value>, // 改为 mut 以支持修复提示词注入
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let clean_start = std::time::Instant::now();
@@ -114,7 +117,16 @@ pub async fn handle_generate(
     // 1. 验证方法
     // [NEW] :countTokens 冒号语法，直接代理到上游 v1internal:countTokens
     if method == "countTokens" {
-        return Ok(execute_count_tokens(state, model_name, body).await);
+        return Ok(execute_count_tokens(
+            state,
+            headers,
+            user_identity
+                .as_ref()
+                .map(|identity| identity.token_id.clone()),
+            model_name,
+            body,
+        )
+        .await);
     }
 
     if method != "generateContent" && method != "streamGenerateContent" {
@@ -225,10 +237,14 @@ pub async fn handle_generate(
 
         // 内容锚点只进思维库。账号粘性与上游 sessionId 用 affinity_key。
         let anchor = SessionManager::gemini_content_anchor(&body);
-        let session_scope = crate::proxy::thinking_store::SessionScope::from_headers_and_body(
+        let session_scope = crate::proxy::thinking_store::SessionScope::resolve(
             &headers,
             Some(&body),
+            None,
             anchor,
+            user_identity
+                .as_ref()
+                .map(|identity| identity.token_id.as_str()),
         );
         let session_id = session_scope.store_key.clone();
         let affinity_key = session_scope.affinity_key.clone();
@@ -452,6 +468,7 @@ pub async fn handle_generate(
             .map(|s| s.to_string());
 
         if status.is_success() {
+            token_manager.commit_session(&affinity_key, &account_id);
             // 6. 响应处理
             if is_stream {
                 use axum::body::Body;
@@ -931,25 +948,12 @@ pub async fn handle_generate(
         // 之后该 sessionId 的所有请求都 400 "input token count exceeds ... 1048576"。
         // 给 (账号, 对话) 的 sessionId 升代并立即重试:新 sessionId = 上游全新会话,对话无感恢复。
         if status_code == 400 && error_text.contains("exceeds the maximum number of tokens") {
-            let generation =
-                crate::proxy::common::session::bump_session(&account_id, &affinity_key);
+            let generation = crate::proxy::common::session::bump_session(&account_id, &session_id);
             tracing::warn!(
                 "[Gemini] Upstream session token accumulation exceeded 1M on account {}. sessionId bumped to generation {}, retrying with a fresh upstream session.",
                 email, generation
             );
             continue; // 重试:下一轮读取新代数,派生全新 sessionId
-        }
-
-        if status_code == 429 || status_code == 529 {
-            token_manager
-                .unbind_session_and_clear_last_used(Some(&affinity_key))
-                .await;
-            tracing::debug!(
-                "[Gemini] Unbound session {} from account {} due to status {}",
-                affinity_key,
-                email,
-                status_code
-            );
         }
 
         let scheduling_mode = token_manager.get_scheduling_mode().await;
@@ -977,6 +981,15 @@ pub async fn handle_generate(
             &error_text,
             retry_after.as_deref(),
         );
+        if classification.abandons_sticky_account() {
+            token_manager.abandon_session(&affinity_key, &account_id);
+            tracing::debug!(
+                "[Gemini] Unbound session {} from account {} due to status {}",
+                affinity_key,
+                email,
+                status_code
+            );
+        }
 
         if classification.is_model_not_found() {
             tracing::warn!(
@@ -1008,10 +1021,7 @@ pub async fn handle_generate(
                     status_code
                 );
                 // 1. 精准定向净化 ThinkingStore 中的异构污染签名
-                crate::proxy::thinking_store::ThinkingStore::global()
-                    .purge_corrupted_signatures(&session_id, &mapped_model);
-                // 2. 清理当前 session 的 SignatureCache
-                crate::proxy::SignatureCache::global().delete_session_signature(&client_session_id);
+                session_scope.purge_signatures(&mapped_model);
                 // 3. 保持同一账号原地重试
                 force_rotate = false;
                 continue;
@@ -1215,9 +1225,20 @@ pub async fn handle_get_model(
 pub async fn handle_count_tokens(
     State(state): State<AppState>,
     Path(model_name): Path<String>,
+    headers: HeaderMap,
+    user_identity: Option<
+        axum::extract::Extension<crate::proxy::middleware::auth::UserTokenIdentity>,
+    >,
     Json(body): Json<Value>,
 ) -> Response {
-    execute_count_tokens(state, model_name, body).await
+    execute_count_tokens(
+        state,
+        headers,
+        user_identity.map(|identity| identity.token_id.clone()),
+        model_name,
+        body,
+    )
+    .await
 }
 
 /// 核心 countTokens 实现：透明代理到上游 v1internal:countTokens
@@ -1226,6 +1247,8 @@ pub async fn handle_count_tokens(
 /// 返回真实的 token 计数，而不是硬编码的 0
 pub async fn execute_count_tokens(
     state: AppState,
+    headers: HeaderMap,
+    tenant_id: Option<String>,
     model_name: String,
     mut body: Value,
 ) -> Response {
@@ -1258,14 +1281,21 @@ pub async fn execute_count_tokens(
         Some(&body),
     );
 
-    let session_id = SessionManager::extract_gemini_session_id(&body, &model_name);
+    let anchor = SessionManager::gemini_content_anchor(&body);
+    let session_scope = crate::proxy::thinking_store::SessionScope::resolve(
+        &headers,
+        Some(&body),
+        None,
+        anchor,
+        tenant_id.as_deref(),
+    );
 
     let (access_token, _project_id, email, account_id, _wait_ms) = match state
         .token_manager
         .get_token(
             &config.request_type,
             false,
-            Some(&session_id),
+            Some(&session_scope.affinity_key),
             &config.final_model,
         )
         .await

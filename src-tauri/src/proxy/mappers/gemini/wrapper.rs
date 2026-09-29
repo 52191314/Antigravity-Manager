@@ -788,17 +788,14 @@ pub fn wrap_request_v2(
 
     // [ADDED v4.1.24] 注入基于账号的稳定 sessionId
     // [FIX session-1M] 混入对话指纹与代数,不同对话隔离服务端会话,1M 累计报错后 bump 自愈
+    let sid = session_id.or(upstream_session_id).unwrap_or("default");
     if let Some(account_id_str) = account_id {
-        let fingerprint = upstream_session_id.or(session_id).unwrap_or("default");
-        let generation = crate::proxy::common::session::current_bump(account_id_str, fingerprint);
-        inner_request["sessionId"] = json!(crate::proxy::common::session::derive_session_scoped(
+        crate::proxy::common::session::apply_upstream_session(
+            &mut inner_request,
             account_id_str,
-            fingerprint,
-            generation
-        ));
+            sid,
+        );
     }
-
-    let sid = upstream_session_id.or(session_id).unwrap_or("default");
 
     // [NEW] 1. requestId：官方 5 段形态，三适配器共用。
     // 含 unixMs 保证幂等隔离（避免重试命中上一次的 429 / 旧缓存），形态也与其他入口一致。

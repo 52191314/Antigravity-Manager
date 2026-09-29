@@ -81,6 +81,15 @@ impl UpstreamClassification {
         matches!(self, UpstreamClassification::RateLimited { .. })
     }
 
+    /// 这个账号不能再被当前会话粘住。401 / 403 / 429 / 529。
+    pub fn abandons_sticky_account(&self) -> bool {
+        match self {
+            UpstreamClassification::RateLimited { .. } => true,
+            UpstreamClassification::OtherClientError(401 | 403) => true,
+            _ => false,
+        }
+    }
+
     /// 该分类是否为模型不存在
     pub fn is_model_not_found(&self) -> bool {
         matches!(self, UpstreamClassification::ModelNotFound)

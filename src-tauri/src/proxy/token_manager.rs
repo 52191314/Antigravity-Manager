@@ -2125,17 +2125,39 @@ impl TokenManager {
                 }
             }
 
-            // 【核心固化】凡解析出可用账号且当前为粘性会话调度，确保立即固化绑定，防止轮换或会话漂移
+            // 同一会话的并发第一次绑定归到已经写下的账号，后到的请求改用赢家。
             if let Some(ref selected) = target_token {
                 if let Some(sid) = session_id {
                     if scheduling.mode != SchedulingMode::PerformanceFirst && !rotate {
-                        self.session_accounts
-                            .insert(sid.to_string(), selected.account_id.clone());
-                        tracing::info!(
-                            "Sticky Session: Ensured binding account {} to session {}",
-                            selected.email,
-                            sid
-                        );
+                        let bound = {
+                            self.session_accounts
+                                .entry(sid.to_string())
+                                .or_insert_with(|| selected.account_id.clone())
+                                .clone()
+                        };
+                        if bound != selected.account_id {
+                            if let Some(winner) =
+                                tokens_snapshot.iter().find(|t| t.account_id == bound)
+                            {
+                                let winner_limited = self
+                                    .is_rate_limited(&winner.account_id, Some(&normalized_target))
+                                    .await;
+                                if !winner_limited {
+                                    tracing::info!(
+                                        "Sticky Session: Adopted concurrent binding {} for session {}",
+                                        winner.email,
+                                        sid
+                                    );
+                                    target_token = Some(winner.clone());
+                                }
+                            }
+                        } else {
+                            tracing::info!(
+                                "Sticky Session: Ensured binding account {} to session {}",
+                                selected.email,
+                                sid
+                            );
+                        }
                     }
                 }
             }
@@ -2386,6 +2408,9 @@ impl TokenManager {
                                 }
                                 last_error = Some(format!("Token refresh failed: {}", e));
                                 attempted.insert(token.account_id.clone());
+                                if let Some(sid) = session_id {
+                                    self.abandon_session(sid, &token.account_id);
+                                }
                                 if quota_group != "image_gen"
                                     && matches!(&last_used_account_id, Some((id, _)) if id == &token.account_id)
                                 {
@@ -3584,13 +3609,35 @@ impl TokenManager {
         self.session_accounts.remove(session_id);
     }
 
-    /// [FIX] 遭遇 429/529 等限流或过载时解绑会话并清空最近使用记录，打破粘性死锁
+    /// 比较并删除：只有映射里仍然是这个账号才清掉当前会话。
+    pub fn abandon_session(&self, session_id: &str, account_id: &str) -> bool {
+        let still_bound = self
+            .session_accounts
+            .get(session_id)
+            .map(|bound| bound.as_str() == account_id)
+            .unwrap_or(false);
+        if still_bound {
+            self.session_accounts.remove(session_id);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 上游成功后写下真正用过的账号。轮换成功的新账号也从这里进入粘性表。
+    pub fn commit_session(&self, session_id: &str, account_id: &str) {
+        if session_id.is_empty() || account_id.is_empty() {
+            return;
+        }
+        self.session_accounts
+            .insert(session_id.to_string(), account_id.to_string());
+    }
+
+    /// 解绑当前会话。不清全局 last_used，避免一个租户的失败打散别人的 60 秒窗口。
     pub async fn unbind_session_and_clear_last_used(&self, session_id: Option<&str>) {
         if let Some(sid) = session_id {
             self.session_accounts.remove(sid);
         }
-        let mut last_used = self.last_used_account.lock().await;
-        *last_used = None;
     }
 
     /// 获取当前 Token 池内有效账号数量

@@ -416,6 +416,25 @@ impl UpstreamClient {
             headers.remove("x-goog-user-project");
         }
 
+        // [PIPELINE ALIGNMENT] 统一对齐官方上游特权头：所有 Claude 系列模型出站统一注入 anthropic-beta 声明
+        let target_model_str = body
+            .get("model")
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                body.get("request")
+                    .and_then(|r| r.get("model"))
+                    .and_then(|v| v.as_str())
+            })
+            .unwrap_or("");
+        if target_model_str.to_lowercase().contains("claude")
+            && !headers.contains_key("anthropic-beta")
+        {
+            headers.insert(
+                header::HeaderName::from_static("anthropic-beta"),
+                header::HeaderValue::from_static("claude-code-20250219"),
+            );
+        }
+
         // [DEBUG] Log headers for verification
         tracing::debug!(?headers, "Final Upstream Request Headers");
 
@@ -553,7 +572,14 @@ impl UpstreamClient {
             }
 
             // 如果没有触发降级且所有端点都尝试过，返回最后的错误
-            return Err(last_err.unwrap_or_else(|| "All endpoints failed".to_string()));
+            let final_err = last_err.unwrap_or_else(|| "All endpoints failed".to_string());
+            tracing::error!(
+                error = %final_err,
+                account = ?account_id,
+                method = %method,
+                "Upstream network request failed across all endpoints (non-server fault)"
+            );
+            return Err(final_err);
         }
     }
 
@@ -665,6 +691,10 @@ impl UpstreamClient {
                 // 与主请求路径同一判定：仅 408 / 404 / 5xx 换端点；
                 // 其余状态（如 400）说明请求本身有问题，直接终止，不做三倍重试。
                 if !Self::should_try_next_endpoint(status) {
+                    tracing::error!(
+                        error = %last_error,
+                        "Auxiliary v1internal request failed with non-retryable status (non-server fault)"
+                    );
                     return Err(last_error);
                 }
                 tracing::warn!(
@@ -681,11 +711,16 @@ impl UpstreamClient {
                 .map_err(|e| format!("failed to parse response from {}: {}", url, e));
         }
 
-        Err(if last_error.is_empty() {
+        let final_err = if last_error.is_empty() {
             "no v1internal endpoint available".to_string()
         } else {
             last_error
-        })
+        };
+        tracing::error!(
+            error = %final_err,
+            "Auxiliary v1internal request failed across all endpoints (non-server fault)"
+        );
+        Err(final_err)
     }
 }
 

@@ -716,16 +716,16 @@ pub async fn warmup_model_directly(
                 true
             } else {
                 let text = response.text().await.unwrap_or_default();
-                crate::modules::logger::log_warn(&format!(
-                    "[Warmup] ✗ {} for {} (was {}%): HTTP {} - {}",
+                crate::modules::logger::log_error(&format!(
+                    "[Warmup] ✗ {} for {} (was {}%): HTTP {} - {} (非服务端故障)",
                     model_name, email, percentage, status, text
                 ));
                 false
             }
         }
         Err(e) => {
-            crate::modules::logger::log_warn(&format!(
-                "[Warmup] ✗ {} for {} (was {}%): {}",
+            crate::modules::logger::log_error(&format!(
+                "[Warmup] ✗ {} for {} (was {}%): {} (网络请求异常，非服务端故障)",
                 model_name, email, percentage, e
             ));
             false
@@ -858,45 +858,51 @@ pub async fn warm_up_all_accounts() -> Result<String, String> {
 
             tokio::spawn(async move {
                 let mut success = 0;
-                let batch_size = 3;
                 let now_ts = chrono::Utc::now().timestamp();
 
-                for (batch_idx, batch) in warmup_items.chunks(batch_size).enumerate() {
-                    let mut handles = Vec::new();
+                // 按账号组织预热任务：同一账号内的多个模型必须串行执行并保持安全间隔（1.5s），
+                // 彻底杜绝因同 Token 并发涌入触发 Google 上游单会话并发互斥与 Cloud Armor WAF 403 频控拦截；
+                // 不同账号之间并发执行以保障处理效率。
+                let mut account_tasks: std::collections::HashMap<
+                    String,
+                    Vec<(String, String, String, String, String, i32)>,
+                > = std::collections::HashMap::new();
 
-                    for (id, email, model, token, pid, pct) in batch.iter() {
-                        let id = id.clone();
-                        let email = email.clone();
-                        let model = model.clone();
-                        let token = token.clone();
-                        let pid = pid.clone();
-                        let pct = *pct;
+                for item in warmup_items {
+                    account_tasks.entry(item.1.clone()).or_default().push(item);
+                }
 
-                        let handle = tokio::spawn(async move {
-                            let result =
+                let mut account_handles = Vec::new();
+                for (_email, items) in account_tasks {
+                    let handle = tokio::spawn(async move {
+                        let mut local_success = 0;
+                        let item_count = items.len();
+                        for (idx, (id, email, model, token, pid, pct)) in
+                            items.into_iter().enumerate()
+                        {
+                            let ok =
                                 warmup_model_directly(&token, &model, &pid, &email, pct, Some(&id))
                                     .await;
-                            (result, email, model)
-                        });
-                        handles.push(handle);
-                    }
-
-                    for handle in handles {
-                        match handle.await {
-                            Ok((true, email, model)) => {
-                                success += 1;
+                            if ok {
+                                local_success += 1;
                                 let history_key = format!("{}:{}:100", email, model);
                                 crate::modules::scheduler::record_warmup_history(
                                     &history_key,
                                     now_ts,
                                 );
                             }
-                            _ => {}
+                            if idx + 1 < item_count {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+                            }
                         }
-                    }
+                        local_success
+                    });
+                    account_handles.push(handle);
+                }
 
-                    if batch_idx < (warmup_items.len() + batch_size - 1) / batch_size - 1 {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                for handle in account_handles {
+                    if let Ok(count) = handle.await {
+                        success += count;
                     }
                 }
 

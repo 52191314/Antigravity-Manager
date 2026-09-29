@@ -3,6 +3,15 @@
 > 完整版本历史记录。返回项目主页请查看 [README.md](README.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.6-beta.4 (2026-09-29)**:
+        -   **[通用错误透明诊断与预热并发限流治理] 响应报文与双轨制诊断标注非服务端故障，内部日志全量捕获异常，并按账号串行重构预热调度杜绝 403 震荡 (Fixes #3555, Thanks to @ddmixi)**:
+            -   **非服务端报错透明诊断 (Fixes #3555)**: 通用双轨制错误构造器（`build_dual_track_error`）与预热响应全面注入 `"is_server_error": false` 标识；底层自动检测连接失败、连接重置、超时、DNS 异常等网络中断，归类为 `upstream_network_error` 并生成明确的人类可读诊断与排查建议，杜绝将网络异常误判为本地服务端崩溃。
+            -   **内部报错日志全面捕获 (error.log)**: 将预热失败、网络连接中断与所有端点降级失败统一升级为 `ERROR` 级别，全面跨越 `LevelFilter::ERROR` 门槛落盘至 `error.log`，彻底解决内部报错日志无法捕获预热与网络异常的问题。
+            -   **预热调度按账号串行流控**: 重构 `warm_up_all_accounts` 批量预热执行引擎。针对单账号下多个满额模型（如 Opus 4.6、Sonnet 4.6、GPT-OSS 120B 等），严格实行单账号按序串行执行并保持 1.5 秒安全间隔，彻底根除因同 Token 瞬时并发涌入导致触发 Google 上游单会话并发互斥锁与 Cloud Armor WAF 403 / 503 阻断的偶发震荡。
+            -   **流量监控报文完整落盘**: 预热请求在记录到 `ProxyRequestLog` 时完整持久化转出报文（`upstream_request_body`）与上游真实响应体（`response_body`），UI 详情页直观展示上游拒绝原因，消除空白占位。
+            -   **特权出站 Header 管道级对齐**: 将 Claude 系列模型所需的 `anthropic-beta` 平台特性声明统一下沉至通用出站客户端（`UpstreamClient`），使任意协议与预热流量在流水线出站前 100% 自动对齐官方标准。
+            -   **拦截误杀隔离防护**: 预热遭遇 403 时识别 WAF 突发频控与瞬时错误，杜绝因单模型偶发 403 误将整个账号标记为封禁（`proxy_disabled`），保障正常账号可用性。
+
     *   **v4.8.6-beta.3 (2026-09-29)**:
         -   **[统一会话单一赢家与双键正交隔离] 确立产品专属头与通配会话顶格优先，拆分账号粘性与思维签名，彻底防止 Agent 缓存雪崩并消除串话 (Fixes #3554, Thanks to @relifenoxiao)**:
             -   **单一赢家会话决策机制 (Fixes #3554)**: 统一全局会话身份解析，将 `x-claude-code-session-id` 以及各生态专属头提至最高优先级。彻底解决 Claude Code 等客户端在触发权限审批或子任务执行时，因命令文本微变导致会话哈希漂移脱离主账号的痛点，Google 5 分钟 Prompt Cache 命中率稳固在 90% 以上。

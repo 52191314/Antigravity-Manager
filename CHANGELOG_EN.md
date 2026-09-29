@@ -3,6 +3,18 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.6-beta.3 (2026-09-29)**:
+        -   **[Unified Session Winner & Orthogonal Dual-Key Architecture] Elevate Product Session Headers, Decouple Account Stickiness from Thinking Cache, Preserve Google Prompt Cache and Eliminate Agent Cross-talk (Fixes #3554, Thanks to @relifenoxiao)**:
+            -   **Single-Winner Session Resolution (Fixes #3554)**: Unified session identity resolution across all protocols with `x-claude-code-session-id` elevated to top priority. Eliminates account rotation caused by slight prompt mutations during Claude Code tool approval checks or sub-tasks, keeping Google 5-minute Prompt Cache hit rate above 90%.
+            -   **Orthogonal Dual-Key Decoupling**: Sticky account key (`affinity_key`) binds strictly to tenant and stable session identity to resist prefix churn; thinking store, session signatures, scoped tool signatures, and upstream `sessionId` track content anchors (`store_key`), ensuring parent/sub-agents share upstream cache without cross-talk or thinking penetration.
+            -   **Responses Cursor Isolation & Protocol Alignment**: Stripped dynamic `previous_response_id` cursors from session scope extraction, fixing account drift across multi-turn Responses requests; aligned Gemini `countTokens` and image generation into unified scope resolution.
+            -   **Atomic Sticky State Machine & Multi-Tenant Safety**: Introduced CAS-based `commit_session` and `abandon_session` in `TokenManager`, automatically handling 401/403/429/529 failover and converging concurrent initial allocations; unbinding a session no longer resets the global `last_used_account`.
+            -   **Scoped Tool Signatures**: Upgraded tool signature storage keys to `{store_key}\x1f{tool_id}`, preventing cross-tenant or cross-agent signature collisions.
+        -   **[CI Dependency Caching] Enable Rust Dependency Caching in Release Workflow Matrix (PR #3552, Thanks to @relifenoxiao)**:
+            -   **Build Matrix Acceleration**: Integrated Rust dependency caching into release CI workflows, significantly reducing multi-platform packaging times.
+        -   **[Model Mapping Normalization] Stop Mapping Upstream Internal Model IDs Back to Client Public Names**:
+            -   **Fidelity Output**: Fixed response and SSE streaming serializers overwriting client-requested public model names with upstream internal checkpoint names, maintaining strict consistency across request/response headers.
+
     *   **v4.8.6-beta.2 (2026-09-29)**:
         -   **[Quiet Login Launch and Lightweight Startup] Login-item launches can stay in the tray and release the WebView (Thanks to @relifenoxiao)**:
             -   **Quiet startup**: Settings gains "Quiet Startup (Stay in Tray)", on by default. `--minimized` only marks a login-item launch; opening the app yourself still shows the window.

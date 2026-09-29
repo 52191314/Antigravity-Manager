@@ -3,6 +3,18 @@
 > 完整版本历史记录。返回项目主页请查看 [README.md](README.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.6-beta.3 (2026-09-29)**:
+        -   **[统一会话单一赢家与双键正交隔离] 确立产品会话头顶格优先，拆分账号粘性与思维签名，彻底稳固 Google Prompt Cache 并消除 Agent 串话 (Fixes #3554, Thanks to @relifenoxiao)**:
+            -   **单一赢家会话决策机制 (Fixes #3554)**: 统一全局会话身份解析，将 `x-claude-code-session-id` 提至最高优先级。彻底解决 Claude Code 触发权限审批或子任务时因命令文本微变导致会话哈希漂移换号的痛点，Google 5 分钟 Prompt Cache 命中率稳固在 90% 以上。
+            -   **正交双键解耦 (Orthogonal Dual-Key)**: 账号粘性键（`affinity_key`）只跟租户与稳定会话走，抗前缀与命令抖动；思维库、会话签名、作用域工具签名与上游 `sessionId` 走内容锚点键（`store_key`），主子 Agent 既共享长上下文缓存又绝不串话或穿透思维块。
+            -   **Responses 游标隔离与全协议对齐**: 彻底剥离 `previous_response_id` 对会话身份的污染，修复多轮对话每轮漂移账号的问题；Gemini `countTokens` 与图片请求全量接入统一作用域解析。
+            -   **原子化粘性状态机与多租户安全**: `TokenManager` 引入 CAS 语义的 `commit_session` 与 `abandon_session`，401/403/429/529 自动安全换绑，并发首次绑定自动收敛；解绑会话不再清理全局 `last_used_account`。
+            -   **工具签名租户化作用域隔离**: 工具签名键全面升级为 `{store_key}\x1f{tool_id}`，配合精确净化接口，彻底杜绝不同租户或 Agent 间同名工具调用的签名污染。
+        -   **[CI 依赖缓存优化] Release 工作流矩阵启用 Rust 依赖缓存加速构建 (PR #3552, Thanks to @relifenoxiao)**:
+            -   **构建矩阵缓存加速**: 在 Release 构建流水线中引入 Rust 依赖高效缓存，大幅缩短多平台发版构建等待时间。
+        -   **[模型映射规范化] 停止将上游真实模型 ID 逆向映回客户端公开名**:
+            -   **保真输出**: 修复响应与流式输出中将上游内部模型标识（如 checkpoint 或变体）逆向覆盖客户端公开模型名的问题，保持请求与响应模型字段严格一致。
+
     *   **v4.8.6-beta.2 (2026-09-29)**:
         -   **[开机免打扰与轻量自启] 登录项启动可留在托盘，并按轻量模式释放 WebView (Thanks to @relifenoxiao)**:
             -   **免打扰启动**: 设置里新增「免打扰启动（留在托盘）」，默认开启。`--minimized` 只表示这次由系统登录项拉起；手动打开仍显示主窗口。

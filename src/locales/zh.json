@@ -159,7 +159,21 @@
     "quota_tight_short": "偏紧",
     "rolling_5h": "5小时滚动:",
     "weekly_7d": "7天周配额:",
-    "zero_weekly_warning": "{{count}} 个可用账号因周配额已耗尽触发熔断 (判定 0%)"
+    "zero_weekly_warning": "{{count}} 个可用账号因周配额已耗尽触发熔断 (判定 0%)",
+    "view_mode_weighted": "综合加权",
+    "view_mode_5h": "5H 滚动",
+    "view_mode_weekly": "7天周配额",
+    "view_mode_title_weighted": "综合加权：结合套餐等级与双向木桶短板的全局调度可用度",
+    "view_mode_title_5h": "5H 滚动：近 5 小时冲刺可用度 (受周配额硬顶约束)",
+    "view_mode_title_weekly": "7天周配额：本周宏观总预算 (受 5H 瞬时冷却阀门约束)",
+    "constrained_by_weekly": "受周额度压制",
+    "constrained_by_weekly_desc": "原始 5H 虽有 {{raw5h}}%，但周总配额仅剩 {{rawWeekly}}%，当前有效上限被压制为 {{effective}}%",
+    "cooling_5h": "5H 冷却中",
+    "cooling_5h_desc": "本周总配额为 {{rawWeekly}}%，但当前 5H 滑动窗口已打满耗尽，处于即时冷却重置期",
+    "weekly_exhausted_badge": "周额度熔断",
+    "mini_tag_constrained": "周限",
+    "mini_tag_cooling": "冷却",
+    "mini_tag_exhausted": "熔断"
   },
   "accounts": {
     "account": "账号",

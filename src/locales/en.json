@@ -161,7 +161,21 @@
     "quota_tight_short": "Tight",
     "rolling_5h": "5h Rolling:",
     "weekly_7d": "7d Weekly:",
-    "zero_weekly_warning": "{{count}} active account(s) circuit-broken due to zero weekly quota (rated 0%)"
+    "zero_weekly_warning": "{{count}} active account(s) circuit-broken due to zero weekly quota (rated 0%)",
+    "view_mode_weighted": "Weighted",
+    "view_mode_5h": "5h Rolling",
+    "view_mode_weekly": "7d Weekly",
+    "view_mode_title_weighted": "Weighted Effective: Overall health considering tier weights & bidirectional bucket constraints",
+    "view_mode_title_5h": "5h Rolling: Burst quota within 5 hours (capped by weekly ceiling)",
+    "view_mode_title_weekly": "7d Weekly: Macro weekly budget (throttled by 5h cooling valve)",
+    "constrained_by_weekly": "Capped by Weekly",
+    "constrained_by_weekly_desc": "Raw 5h is {{raw5h}}%, but weekly budget is {{rawWeekly}}%. Effective cap is constrained to {{effective}}%",
+    "cooling_5h": "5h Cooling",
+    "cooling_5h_desc": "Weekly budget has {{rawWeekly}}%, but current 5h window is exhausted and cooling down",
+    "weekly_exhausted_badge": "Weekly Zero",
+    "mini_tag_constrained": "Capped",
+    "mini_tag_cooling": "Cooling",
+    "mini_tag_exhausted": "Zero"
   },
   "accounts": {
     "account": "Account",

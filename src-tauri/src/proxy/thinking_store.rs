@@ -1607,7 +1607,8 @@ pub fn finalize_gemini_contents_thinking_with_session(
                                 found_sig = Some(sig);
                                 break;
                             }
-                            if let Ok(Some(sig)) = crate::modules::proxy_db::load_tool_signature(id) {
+                            if let Ok(Some(sig)) = crate::modules::proxy_db::load_tool_signature(id)
+                            {
                                 if is_likely_gemini_signature(&sig) {
                                     found_sig = Some(sig);
                                     break;
@@ -1618,7 +1619,8 @@ pub fn finalize_gemini_contents_thinking_with_session(
                         // 2. 若未命中（非原生 ID 如 Write-76，或缓存失配）：
                         // 使用 ID 无关的确定性因果伪哈希 ID 穿透匹配 SQLite
                         let name = fc.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                        let synthetic_id = synthesize_tool_id(name, fc.get("args"), _anchor, fc_counter);
+                        let synthetic_id =
+                            synthesize_tool_id(name, fc.get("args"), _anchor, fc_counter);
                         fc_counter += 1;
 
                         // 2.1 先查内存 L1 与 SQLite L2 (tool_signatures 表)
@@ -1627,15 +1629,19 @@ pub fn finalize_gemini_contents_thinking_with_session(
                             .filter(|s| is_likely_gemini_signature(s))
                         {
                             if !id.is_empty() {
-                                crate::proxy::SignatureCache::global().cache_tool_signature(id, sig.clone());
+                                crate::proxy::SignatureCache::global()
+                                    .cache_tool_signature(id, sig.clone());
                             }
                             found_sig = Some(sig);
                             break;
                         }
-                        if let Ok(Some(sig)) = crate::modules::proxy_db::load_tool_signature(&synthetic_id) {
+                        if let Ok(Some(sig)) =
+                            crate::modules::proxy_db::load_tool_signature(&synthetic_id)
+                        {
                             if is_likely_gemini_signature(&sig) {
                                 if !id.is_empty() {
-                                    crate::proxy::SignatureCache::global().cache_tool_signature(id, sig.clone());
+                                    crate::proxy::SignatureCache::global()
+                                        .cache_tool_signature(id, sig.clone());
                                 }
                                 found_sig = Some(sig);
                                 break;
@@ -1644,10 +1650,18 @@ pub fn finalize_gemini_contents_thinking_with_session(
 
                         // 2.2 若仍未命中，尝试按 session_key 在 SQLite thinking_records 极速穿透点查 (causal_tool_id)
                         if let Some(sid) = session_id {
-                            if let Ok(Some(rec)) = crate::modules::proxy_db::load_thinking_by_tool_id(sid, &synthetic_id) {
-                                if let Some(sig) = rec.signature.filter(|s| is_likely_gemini_signature(s)) {
+                            if let Ok(Some(rec)) =
+                                crate::modules::proxy_db::load_thinking_by_tool_id(
+                                    sid,
+                                    &synthetic_id,
+                                )
+                            {
+                                if let Some(sig) =
+                                    rec.signature.filter(|s| is_likely_gemini_signature(s))
+                                {
                                     if !id.is_empty() {
-                                        crate::proxy::SignatureCache::global().cache_tool_signature(id, sig.clone());
+                                        crate::proxy::SignatureCache::global()
+                                            .cache_tool_signature(id, sig.clone());
                                     }
                                     found_sig = Some(sig);
                                     break;
@@ -1712,7 +1726,9 @@ pub fn finalize_gemini_contents_thinking_with_session(
                     (Some(sig.clone()), true)
                 } else if let Some(sig) = pending_thought_sig.take() {
                     (Some(sig), false)
-                } else if !is_claude_turn && other_parts.iter().any(|p| p.get("functionCall").is_some()) {
+                } else if !is_claude_turn
+                    && other_parts.iter().any(|p| p.get("functionCall").is_some())
+                {
                     (Some(SENTINEL_SIGNATURE.to_string()), true)
                 } else {
                     (None, false)
@@ -2439,7 +2455,8 @@ pub fn place_turn_signature_with(
             .and_then(|s| s.as_str())
             .filter(|s| {
                 *s == SENTINEL_SIGNATURE
-                    || (is_real_signature(s) && (is_likely_gemini_signature(s) || is_claude_signature(s)))
+                    || (is_real_signature(s)
+                        && (is_likely_gemini_signature(s) || is_claude_signature(s)))
             })
             .map(str::to_string)
     });
@@ -2476,20 +2493,23 @@ pub fn place_turn_signature_with(
     }
 
     // 6. 锚点自带/抢救优先，缺失才使用回填来源（真实签名或哨兵）
-    let sig = own_sig.or_else(|| {
-        fallback_sig
-            .filter(|s| {
-                *s == SENTINEL_SIGNATURE
-                    || (is_real_signature(s) && (is_likely_gemini_signature(s) || is_claude_signature(s)))
-            })
-            .map(str::to_string)
-    }).or_else(|| {
-        if prefer_function_call && has_fc {
-            Some(SENTINEL_SIGNATURE.to_string())
-        } else {
-            None
-        }
-    })?;
+    let sig = own_sig
+        .or_else(|| {
+            fallback_sig
+                .filter(|s| {
+                    *s == SENTINEL_SIGNATURE
+                        || (is_real_signature(s)
+                            && (is_likely_gemini_signature(s) || is_claude_signature(s)))
+                })
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            if prefer_function_call && has_fc {
+                Some(SENTINEL_SIGNATURE.to_string())
+            } else {
+                None
+            }
+        })?;
 
     // 权威防裂化：如果签名是原始二进制 protobuf (首字节 0x12)，必须转为标准 Base64 编码后再发送给 Gemini！
     let final_sig = if sig.as_bytes().first() == Some(&0x12) {

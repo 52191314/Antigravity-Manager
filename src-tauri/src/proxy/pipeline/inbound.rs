@@ -1254,9 +1254,14 @@ impl InboundThinkingPipeline {
                     .iter()
                     .rposition(|c| {
                         c.get("role").and_then(|r| r.as_str()) == Some("user")
-                            && c.get("parts").and_then(|p| p.as_array()).map_or(false, |parts| {
-                                parts.iter().any(|p| p.get("functionResponse").is_none() && p.get("text").is_some())
-                            })
+                            && c.get("parts")
+                                .and_then(|p| p.as_array())
+                                .map_or(false, |parts| {
+                                    parts.iter().any(|p| {
+                                        p.get("functionResponse").is_none()
+                                            && p.get("text").is_some()
+                                    })
+                                })
                     })
                     .unwrap_or(0);
 
@@ -1273,7 +1278,8 @@ impl InboundThinkingPipeline {
                                     tracing::warn!(
                                         "[Gatekeeper] Found functionCall missing thoughtSignature in active turn, auto-injecting sentinel!"
                                     );
-                                    part["thoughtSignature"] = json!(crate::proxy::thinking_store::SENTINEL_SIGNATURE);
+                                    part["thoughtSignature"] =
+                                        json!(crate::proxy::thinking_store::SENTINEL_SIGNATURE);
                                 }
                             }
                         }
@@ -2987,10 +2993,14 @@ mod tests {
             Some("agent/test/123/abc/4"),
         );
 
-        let contents = inner_request["contents"].as_array().expect("contents array");
+        let contents = inner_request["contents"]
+            .as_array()
+            .expect("contents array");
         let active_model_part = &contents[3]["parts"][0];
         assert_eq!(
-            active_model_part.get("thoughtSignature").and_then(|v| v.as_str()),
+            active_model_part
+                .get("thoughtSignature")
+                .and_then(|v| v.as_str()),
             Some(crate::proxy::thinking_store::SENTINEL_SIGNATURE),
             "活跃 Turn 内缺失签名的工具调用出站时必须被安全门禁自动补齐哨兵签名"
         );
@@ -3019,12 +3029,18 @@ mod tests {
 
         // 2. 先计算出该轮次的前置因果锚点与对应的 ID 无关伪哈希 ID
         let anchor = compute_causal_anchor(contents.get(0));
-        let synthetic_id = synthesize_tool_id("Write", contents[1]["parts"][0]["functionCall"].get("args"), &anchor, 0);
+        let synthetic_id = synthesize_tool_id(
+            "Write",
+            contents[1]["parts"][0]["functionCall"].get("args"),
+            &anchor,
+            0,
+        );
 
         // 3. 初始化并存入签名 (以 synthetic_id 为 key，同时写入内存缓存与 SQLite)
         let _ = crate::modules::proxy_db::init_db();
         let real_test_sig = "test-signature-real-valid-mock-length-32-chars-long";
-        crate::proxy::SignatureCache::global().cache_tool_signature(&synthetic_id, real_test_sig.to_string());
+        crate::proxy::SignatureCache::global()
+            .cache_tool_signature(&synthetic_id, real_test_sig.to_string());
 
         // 4. 执行 finalize
         finalize_gemini_contents_thinking_with_session(
@@ -3067,7 +3083,9 @@ mod tests {
         );
         let fc_part_not_found = &contents_not_found[1]["parts"][0];
         assert_eq!(
-            fc_part_not_found.get("thoughtSignature").and_then(|v| v.as_str()),
+            fc_part_not_found
+                .get("thoughtSignature")
+                .and_then(|v| v.as_str()),
             Some(SENTINEL_SIGNATURE),
             "伪哈希 ID 在 SQLite 仍未命中时，必须兜底回填官方哨兵"
         );

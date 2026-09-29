@@ -3,6 +3,19 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.6-beta.2 (2026-09-29)**:
+        -   **[Quiet Login Launch and Lightweight Startup] Login-item launches can stay in the tray and release the WebView (Thanks to @relifenoxiao)**:
+            -   **Quiet startup**: Settings gains "Quiet Startup (Stay in Tray)", on by default. `--minimized` only marks a login-item launch; opening the app yourself still shows the window.
+            -   **Lightweight mode**: When quiet startup and the tray are available and lightweight mode is on, the WebView is destroyed once the event loop is ready, without overwriting the saved window geometry. macOS switches to Accessory. If the tray is unavailable, the window is shown.
+        -   **[Empty Config Recovery] Headless mode no longer crashes on a 0-byte gui_config.json (Fixes #3548)**:
+            -   **Blank files become the default config**: A missing, empty, or whitespace-only config is replaced with defaults and written back atomically. Invalid JSON still errors, so a half-written config is not overwritten.
+            -   **Visible write failures**: A failed write of the initial or healed config is logged, so a permission problem cannot silently rotate the API key on the next start.
+        -   **[Client Discovery and Proxy-Only Account Switch] Cross-platform install lookup, and account switches no longer fail when no client is installed (Fixes #3530)**:
+            -   **Install locations and PATH**: Windows also checks LocalAppData folders without a Programs prefix, `ProgramW6432`, and the IDE executable names. macOS and Linux scan PATH. If the requested variant is missing, startup falls back to another installed variant.
+            -   **Narrow proxy-only fallback**: If the client was not running and no executable can be found, the switch completes after credentials are written. Real launch failures, such as access denied, are still returned.
+        -   **[Single Model Lookup] All four protocol adapters can retrieve one model by ID**:
+            -   **Retrieve Model**: The OpenAI, Claude, and Gemini single-model endpoints share the same model catalog as the list endpoints.
+
     *   **v4.8.6-beta.1 (2026-09-29)**:
         -   **[Multimodal Freshness Sliding Window & 16-Image Limit Removal] Repeal Responses 16-Image Hardcap, Implement Decoupled Dual-Strategy Multimodal Freshness in Pipeline (Fixes #3545, Thanks to @jeikl)**:
             -   **Repeal Responses 16-Image Hardcap (Fixes #3545)**: Completely eliminated legacy `const MAX_INPUT_IMAGES = 16` in `openai.rs`, fixing HTTP 400 `Too many input images: maximum is 16` crashing long-horizon agents at the 17th image; dynamically bound total decoded memory to `max_total_image_mb`.

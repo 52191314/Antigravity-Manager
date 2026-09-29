@@ -3,6 +3,12 @@
 > 完整版本历史记录。返回项目主页请查看 [README.md](README.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.6-beta.1 (2026-09-29)**:
+        -   **[Gemini 3+ 工具签名自愈与哨兵放行] 进站放行官方合法哨兵签名、非原生工具 ID 伪哈希穿透匹配 SQLite 及出站终审安全门禁**:
+            -   **进站放行官方合法哨兵签名**: 修复进站清洗阶段 `is_real_signature` 将 Google 官方跳过验签哨兵 `skip_thought_signature_validator` 判定为非法并误杀剥离的问题，合法保留客户端自带的跳过哨兵标记。
+            -   **非原生工具 ID 伪哈希穿透匹配 SQLite 与哨兵保底**: 针对第三方客户端生成的非原生工具 ID（如 `Write-76`）在本地缓存未命中时，计算与 ID 无关的确定性因果伪哈希 ID（`synthesize_tool_id`），极速穿透匹配 SQLite 中的 `tool_signatures` 与 `thinking_records` 表取回真实签名并反向自愈写入缓存；若全部未命中则由 `chosen_sig` 与 `place_turn_signature_with` 统一回填官方哨兵，杜绝字段置空。
+            -   **出站终审安全门禁 (Pre-flight Gatekeeper)**: 在请求最终序列化发往 Google 上游前，强制校验当前活跃 Turn 内的所有多步工具调用；一旦发现签名缺失的调用，自动补齐官方哨兵，100% 根绝上游 HTTP 400 `Function call is missing a thought_signature` 拦截。
+
     *   **v4.8.5-beta.10 (2026-09-29)**:
         -   **[Claude 签名落点] 签名固定在第一个非思考 part，并补上 IDE 抓包 (Thanks to @jeikl)**:
             -   **Claude 与 Gemini 分开落签名**: Claude 的 `thoughtSignature` 固定在该轮第一个非思考 part。前面有正文就留在正文，不挪到后面的 `functionCall`，也不挂到思考块上。Gemini 不变：有工具调用时挂在第一个 `functionCall`，只有正文时挂在正文，历史不回传思考块。

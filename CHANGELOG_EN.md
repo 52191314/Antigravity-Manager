@@ -3,6 +3,12 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.6-beta.1 (2026-09-29)**:
+        -   **[Gemini 3+ Tool Signature Self-Healing & Sentinel Passthrough] Inbound Sentinel Signature Preservation, Causal Pseudo-Hash Penetration Matching via SQLite, and Outbound Pre-flight Gatekeeper**:
+            -   **Preserve Inbound Sentinel Signature**: Fixed an issue where `is_real_signature` falsely categorized Google's official bypass sentinel `skip_thought_signature_validator` as invalid during inbound sanitization, ensuring client-provided bypass signatures are preserved.
+            -   **Non-native Tool ID Matching via Synthetic Causal Hashes & Sentinel Fallback**: When non-native tool IDs (e.g. `Write-76`) miss in-memory cache, compute ID-agnostic deterministic causal synthetic IDs (`synthesize_tool_id`) to penetratively query SQLite `tool_signatures` and `thinking_records` tables. If found, backfill and populate memory cache; if not found, backfill with `SENTINEL_SIGNATURE` to prevent empty fields.
+            -   **Outbound Pre-flight Gatekeeper**: Enforced a final pre-flight verification before dispatching payloads to Google upstream. Any tool call in the active turn missing a thought signature is automatically patched with the official sentinel, completely eliminating HTTP 400 `Function call is missing a thought_signature`.
+
     *   **v4.8.5-beta.10 (2026-09-29)**:
         -   **[Claude Signature Anchor] Keep the signature on the first non-thought part, and add the IDE capture (Thanks to @jeikl)**:
             -   **Claude and Gemini use different anchors**: For Claude, `thoughtSignature` stays on the first non-thought part of the turn. If visible text comes first, the signature stays on that text and is not moved onto a later `functionCall` or onto the thought block. Gemini is unchanged: a tool call carries the signature on the first `functionCall`; a text-only turn carries it on the text; thought text is not replayed.

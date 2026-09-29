@@ -278,7 +278,9 @@ impl InboundThinkingPipeline {
                                     if let Some(sig_str) =
                                         obj.get("thoughtSignature").and_then(|s| s.as_str())
                                     {
-                                        if crate::proxy::thinking_store::is_real_signature(sig_str)
+                                        if sig_str == crate::proxy::thinking_store::SENTINEL_SIGNATURE {
+                                            // 官方跳过验签哨兵 (skip_thought_signature_validator)：客户端自带的合法哨兵，予以保留
+                                        } else if crate::proxy::thinking_store::is_real_signature(sig_str)
                                             && crate::proxy::thinking_store::is_likely_gemini_signature(sig_str)
                                         {
                                             if let Some(fc) = obj.get("functionCall") {
@@ -1240,7 +1242,45 @@ impl InboundThinkingPipeline {
         };
 
         // 1. contents (官方报文中 contents 置于首位)
-        let canonical_contents = req_obj.remove("contents").unwrap_or(json!([]));
+        let mut canonical_contents = req_obj.remove("contents").unwrap_or(json!([]));
+
+        // [Gatekeeper 2026-09-29] Gemini 目标出站终审安全自愈门禁：
+        // Google Gemini 3+ 规则：活跃 Turn (从最后一个非 functionResponse 的真实 user 消息开始) 内
+        // 的所有多步工具调用 (Sequential Function Calling) 均强制校验 thoughtSignature。
+        // 若某个 functionCall 缺少签名，出站前统一自动注入官方合法哨兵 SENTINEL_SIGNATURE，彻底杜绝上游 400！
+        if target_model.to_lowercase().contains("gemini") {
+            if let Some(contents_arr) = canonical_contents.as_array_mut() {
+                let last_user_turn = contents_arr
+                    .iter()
+                    .rposition(|c| {
+                        c.get("role").and_then(|r| r.as_str()) == Some("user")
+                            && c.get("parts").and_then(|p| p.as_array()).map_or(false, |parts| {
+                                parts.iter().any(|p| p.get("functionResponse").is_none() && p.get("text").is_some())
+                            })
+                    })
+                    .unwrap_or(0);
+
+                for content in &mut contents_arr[last_user_turn..] {
+                    if let Some(parts) = content.get_mut("parts").and_then(|p| p.as_array_mut()) {
+                        for part in parts.iter_mut() {
+                            if part.get("functionCall").is_some() {
+                                let has_sig = part
+                                    .get("thoughtSignature")
+                                    .or_else(|| part.get("thought_signature"))
+                                    .and_then(|s| s.as_str())
+                                    .map_or(false, |s| !s.trim().is_empty());
+                                if !has_sig {
+                                    tracing::warn!(
+                                        "[Gatekeeper] Found functionCall missing thoughtSignature in active turn, auto-injecting sentinel!"
+                                    );
+                                    part["thoughtSignature"] = json!(crate::proxy::thinking_store::SENTINEL_SIGNATURE);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // 2. systemInstruction (规范化统一键序: role -> parts -> 其余)
         let canonical_si = if let Some(si) = req_obj.remove("systemInstruction") {
@@ -2864,5 +2904,172 @@ mod tests {
         );
         assert!(contents[0]["parts"][0].get("inlineData").is_some());
         assert!(contents[1]["parts"][0].get("inlineData").is_some());
+    }
+
+    #[test]
+    fn test_inbound_preserves_sentinel_signature() {
+        let mut contents = vec![
+            json!({
+                "role": "user",
+                "parts": [{"text": "run command"}]
+            }),
+            json!({
+                "role": "model",
+                "parts": [{
+                    "thoughtSignature": crate::proxy::thinking_store::SENTINEL_SIGNATURE,
+                    "functionCall": {
+                        "name": "Write",
+                        "id": "Write-76",
+                        "args": {"path": "test.txt"}
+                    }
+                }]
+            }),
+            json!({
+                "role": "user",
+                "parts": [{
+                    "functionResponse": {
+                        "name": "Write",
+                        "id": "Write-76",
+                        "response": {"result": "ok"}
+                    }
+                }]
+            }),
+        ];
+
+        InboundThinkingPipeline::process_contents(
+            &mut contents,
+            "gemini-3.8-flash-high",
+            true,
+            None,
+            false,
+        );
+
+        let fc_part = &contents[1]["parts"][0];
+        assert_eq!(
+            fc_part.get("thoughtSignature").and_then(|v| v.as_str()),
+            Some(crate::proxy::thinking_store::SENTINEL_SIGNATURE),
+            "客户端自带的官方合法哨兵必须保留，绝不能被进站剥离"
+        );
+    }
+
+    #[test]
+    fn test_gatekeeper_auto_heals_missing_signature_in_active_turn() {
+        let mut inner_request = json!({
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": "historical question"}]
+                },
+                {
+                    "role": "model",
+                    "parts": [{"text": "historical answer"}]
+                },
+                {
+                    "role": "user",
+                    "parts": [{"text": "current question"}]
+                },
+                {
+                    "role": "model",
+                    "parts": [{
+                        "functionCall": {
+                            "name": "Write",
+                            "id": "Write-76",
+                            "args": {"file": "output.txt"}
+                        }
+                    }]
+                }
+            ]
+        });
+
+        InboundThinkingPipeline::align_google_request_prefix_topology_with_model(
+            &mut inner_request,
+            "gemini-3.8-flash-high",
+            Some("agent/test/123/abc/4"),
+        );
+
+        let contents = inner_request["contents"].as_array().expect("contents array");
+        let active_model_part = &contents[3]["parts"][0];
+        assert_eq!(
+            active_model_part.get("thoughtSignature").and_then(|v| v.as_str()),
+            Some(crate::proxy::thinking_store::SENTINEL_SIGNATURE),
+            "活跃 Turn 内缺失签名的工具调用出站时必须被安全门禁自动补齐哨兵签名"
+        );
+    }
+
+    #[test]
+    fn test_non_native_tool_id_matches_via_synthetic_id_or_falls_back_to_sentinel() {
+        use crate::proxy::thinking_store::*;
+        // 1. 模拟一个包含非原生 ID 的 contents (如 Write-76)
+        let mut contents = vec![
+            json!({
+                "role": "user",
+                "parts": [{"text": "create file"}]
+            }),
+            json!({
+                "role": "model",
+                "parts": [{
+                    "functionCall": {
+                        "name": "Write",
+                        "id": "Write-76",
+                        "args": {"path": "main.py"}
+                    }
+                }]
+            }),
+        ];
+
+        // 2. 先计算出该轮次的前置因果锚点与对应的 ID 无关伪哈希 ID
+        let anchor = compute_causal_anchor(contents.get(0));
+        let synthetic_id = synthesize_tool_id("Write", contents[1]["parts"][0]["functionCall"].get("args"), &anchor, 0);
+
+        // 3. 初始化并存入签名 (以 synthetic_id 为 key，同时写入内存缓存与 SQLite)
+        let _ = crate::modules::proxy_db::init_db();
+        let real_test_sig = "test-signature-real-valid-mock-length-32-chars-long";
+        crate::proxy::SignatureCache::global().cache_tool_signature(&synthetic_id, real_test_sig.to_string());
+
+        // 4. 执行 finalize
+        finalize_gemini_contents_thinking_with_session(
+            &mut contents,
+            true,
+            Some("gemini-3.8-flash-high"),
+            Some("test_session_non_native"),
+        );
+
+        // 5. 校验：非原生 ID 成功通过伪哈希 ID 命中并回填了真实签名！
+        let fc_part = &contents[1]["parts"][0];
+        assert_eq!(
+            fc_part.get("thoughtSignature").and_then(|v| v.as_str()),
+            Some(real_test_sig),
+            "非原生 ID 缓存未命中时，必须通过伪哈希 ID 从 SQLite 成功匹配并回填真实签名"
+        );
+
+        // 6. 验证：回填不了时，自动带哨兵 (SENTINEL_SIGNATURE)
+        let mut contents_not_found = vec![
+            json!({
+                "role": "user",
+                "parts": [{"text": "unknown command"}]
+            }),
+            json!({
+                "role": "model",
+                "parts": [{
+                    "functionCall": {
+                        "name": "CustomTool",
+                        "id": "CustomTool-999",
+                        "args": {"cmd": "random"}
+                    }
+                }]
+            }),
+        ];
+        finalize_gemini_contents_thinking_with_session(
+            &mut contents_not_found,
+            true,
+            Some("gemini-3.8-flash-high"),
+            Some("test_session_not_found"),
+        );
+        let fc_part_not_found = &contents_not_found[1]["parts"][0];
+        assert_eq!(
+            fc_part_not_found.get("thoughtSignature").and_then(|v| v.as_str()),
+            Some(SENTINEL_SIGNATURE),
+            "伪哈希 ID 在 SQLite 仍未命中时，必须兜底回填官方哨兵"
+        );
     }
 }

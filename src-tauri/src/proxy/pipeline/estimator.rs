@@ -53,9 +53,11 @@ pub fn estimate_inline_data_tokens(mime_type: &str, data_len: usize) -> u32 {
         let raw_bytes = (data_len * 3) / 4;
         if raw_bytes > 4_000_000 {
             10_000
-        } else if raw_bytes > 1_000_000 {
-            let factor = raw_bytes as f32 / 1_000_000.0;
-            (258.0 * factor * 4.0).ceil() as u32
+        } else if raw_bytes > 80_000 {
+            // 高清全屏截图或大图（典型 Cowork 截图 300KB ~ 3MB）:
+            // 按 Anthropic 官方高分辨率多模态规格折算约为 1600~2000 tokens
+            let factor = (raw_bytes as f32 / 1_000_000.0).max(1.0);
+            (1600.0 * factor).ceil() as u32
         } else {
             258
         }
@@ -320,7 +322,57 @@ impl PipelineTokenEstimator {
                                     total += 10;
                                     if let Some(c) = block.get("content") {
                                         if let Some(s) = c.as_str() {
-                                            total += estimate_tokens_from_str(s);
+                                            if s.contains("data:image/") {
+                                                let mut dummy_parts = Vec::new();
+                                                let clean_s = crate::proxy::mappers::common_utils::extract_multimodal_from_tool_text(s, &mut dummy_parts);
+                                                total += estimate_tokens_from_str(&clean_s);
+                                                for p in dummy_parts {
+                                                    if let Some(inline) = p
+                                                        .get("inlineData")
+                                                        .or_else(|| p.get("inline_data"))
+                                                    {
+                                                        let mime = inline
+                                                            .get("mimeType")
+                                                            .and_then(Value::as_str)
+                                                            .unwrap_or("image/png");
+                                                        let b64_len = inline
+                                                            .get("data")
+                                                            .and_then(Value::as_str)
+                                                            .map_or(0, |d| d.len());
+                                                        total += estimate_inline_data_tokens(
+                                                            mime, b64_len,
+                                                        );
+                                                    }
+                                                }
+                                            } else {
+                                                total += estimate_tokens_from_str(s);
+                                            }
+                                        } else if let Some(arr) = c.as_array() {
+                                            for sub in arr {
+                                                if let Some(t) =
+                                                    sub.get("text").and_then(Value::as_str)
+                                                {
+                                                    total += estimate_tokens_from_str(t);
+                                                } else if sub.get("source").is_some()
+                                                    || sub.get("type").and_then(Value::as_str)
+                                                        == Some("image")
+                                                {
+                                                    let source = sub.get("source");
+                                                    let mime = source
+                                                        .and_then(|s| s.get("media_type"))
+                                                        .and_then(Value::as_str)
+                                                        .unwrap_or("image/png");
+                                                    let data_len = source
+                                                        .and_then(|s| s.get("data"))
+                                                        .and_then(Value::as_str)
+                                                        .map_or(0, |d| d.len());
+                                                    total +=
+                                                        estimate_inline_data_tokens(mime, data_len);
+                                                } else {
+                                                    total +=
+                                                        estimate_tokens_from_str(&sub.to_string());
+                                                }
+                                            }
                                         } else {
                                             total += estimate_tokens_from_str(&c.to_string());
                                         }

@@ -733,6 +733,108 @@ pub async fn handle_messages(
     let experimental = state.experimental.read().await;
     let scaling_enabled = experimental.enable_usage_scaling;
 
+    // [全链路会话生命周期与自愈分流体系 (Pipeline First)]
+    // 分流 A: 客户端原生发起的压缩总结请求 (Compaction Summary Request) -> 生命线直通放行，绝对不误杀
+    let is_compaction_header = headers
+        .get("x-stainless-helper")
+        .and_then(|h| h.to_str().ok())
+        .map_or(false, |v| v.contains("compaction"));
+
+    let is_compaction_request = is_compaction_header
+        || request.messages.iter().any(|m| {
+            let text = match &m.content {
+                crate::proxy::mappers::claude::models::MessageContent::String(s) => s.as_str(),
+                crate::proxy::mappers::claude::models::MessageContent::Array(blocks) => blocks
+                    .iter()
+                    .find_map(|b| match b {
+                        crate::proxy::mappers::claude::models::ContentBlock::Text { text } => {
+                            Some(text.as_str())
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or(""),
+            };
+            crate::proxy::mappers::common_utils::is_compaction_request_text(text)
+        })
+        || request.system.as_ref().map_or(false, |sys| {
+            let sys_text = match sys {
+                crate::proxy::mappers::claude::models::SystemPrompt::String(s) => s.as_str(),
+                crate::proxy::mappers::claude::models::SystemPrompt::Array(arr) => {
+                    arr.first().map(|b| b.text.as_str()).unwrap_or("")
+                }
+            };
+            crate::proxy::mappers::common_utils::is_compaction_request_text(sys_text)
+        });
+
+    // 分流 B: 已完成压缩提纯的会话接续 (Post-Compaction Continuation) -> 赋予长上下文永久豁免保护，由 Gemini 1M 承接
+    let is_post_compaction = request.messages.iter().any(|m| {
+        let text = match &m.content {
+            crate::proxy::mappers::claude::models::MessageContent::String(s) => s.as_str(),
+            crate::proxy::mappers::claude::models::MessageContent::Array(blocks) => blocks
+                .iter()
+                .find_map(|b| match b {
+                    crate::proxy::mappers::claude::models::ContentBlock::Text { text } => {
+                        Some(text.as_str())
+                    }
+                    _ => None,
+                })
+                .unwrap_or(""),
+        };
+        crate::proxy::mappers::common_utils::is_post_compaction_continuation_text(text)
+    });
+
+    // 分流 C: 超限自愈假报警触发门禁 (必须自定义开启 + 双重确权)
+    // 铁律：普通 Agent 与未开启配置时，绝对不拦截，100% 享受 Gemini 百万超长上下文！
+    if experimental.enable_cowork_auto_compact && !is_compaction_request && !is_post_compaction {
+        let is_cowork = request.tools.as_ref().map_or(false, |tools| {
+            tools.iter().any(|t| {
+                let n = t.get_name();
+                n.starts_with("mcp__cowork") || n.starts_with("mcp__workspace")
+            })
+        });
+
+        if is_cowork {
+            let threshold = experimental.cowork_compact_threshold.max(50_000);
+            let est_tokens = crate::proxy::pipeline::estimate_tokens(&original_body);
+            if est_tokens >= threshold {
+                tracing::warn!(
+                    "[{}] [Cowork-Gatekeeper] Cowork session reached {} tokens >= threshold {}, triggering native reactive compact",
+                    trace_id,
+                    est_tokens,
+                    threshold
+                );
+                let err_msg = format!(
+                    "prompt is too long: {} tokens > {} maximum",
+                    est_tokens, threshold
+                );
+                return (
+                    StatusCode::BAD_REQUEST,
+                    [("content-type", "application/json")],
+                    Json(json!({
+                        "type": "error",
+                        "error": {
+                            "type": "invalid_request_error",
+                            "message": err_msg
+                        }
+                    })),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    if is_compaction_request {
+        tracing::info!(
+            "[{}] [Lifecycle] Compaction summary request detected, passing through to upstream",
+            trace_id
+        );
+    } else if is_post_compaction {
+        tracing::debug!(
+            "[{}] [Lifecycle] Post-compaction continuation session detected, granted upstream 1M immunity",
+            trace_id
+        );
+    }
+
     // 获取最新一条“有意义”的消息内容（用于日志记录和后台任务检测）
     // 策略：反向遍历，首先筛选出所有角色为 "user" 的消息，然后从中找到第一条非 "Warmup" 且非空的文本消息
     // 获取最新一条“有意义”的消息内容（用于日志记录和后台任务检测）

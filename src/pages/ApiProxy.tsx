@@ -23,7 +23,8 @@ import {
     X,
     Edit2,
     Save,
-    Share2
+    Share2,
+    Bot
 } from 'lucide-react';
 import { AppConfig, ProxyConfig, StickySessionConfig, ExperimentalConfig } from '../types/config';
 import HelpTooltip from '../components/common/HelpTooltip';
@@ -39,6 +40,7 @@ import GlobalSystemPrompt from '../components/settings/GlobalSystemPrompt';
 import ImageThinkingMode from '../components/settings/ImageThinkingMode';
 import ThinkingBudget from '../components/settings/ThinkingBudget';
 import MultimodalSettings from '../components/settings/MultimodalSettings';
+import AgentSettings from '../components/settings/AgentSettings';
 import { CircuitBreakerConfig } from '../types/config';
 
 interface ProxyStatus {
@@ -2167,6 +2169,19 @@ print(response.choices[0].message.content)`;
                                     <MultimodalSettings
                                         config={appConfig.proxy.multimodal}
                                         onChange={(mConfig) => updateProxyConfig({ multimodal: mConfig })}
+                                        onSave={handleSaveProxySettings}
+                                    />
+                                </CollapsibleCard>
+
+                                {/* 特定 Agent 特性配置 (Specific Agent Settings) - 默认收起 */}
+                                <CollapsibleCard
+                                    title={t('proxy.config.agent_settings.title', { defaultValue: '特定 Agent 配置 (Specific Agent Settings)' })}
+                                    icon={<Bot size={18} className="text-cyan-500" />}
+                                    defaultExpanded={false}
+                                >
+                                    <AgentSettings
+                                        experimentalConfig={appConfig.proxy.experimental}
+                                        onChange={updateExperimentalConfig}
                                         onSave={handleSaveProxySettings}
                                     />
                                 </CollapsibleCard>

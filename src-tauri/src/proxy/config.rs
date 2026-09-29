@@ -452,6 +452,14 @@ pub struct ExperimentalConfig {
     /// 每轮会话在内存中保留的最大思考块轮次（默认 600，滑动窗口淘汰并由 SQLite 索引承接）
     #[serde(default = "default_thinking_max_memory_turns")]
     pub thinking_max_memory_turns: u32,
+
+    /// Claude Desktop Cowork 模式自动响应式自愈压缩 (Auto Reactive Compact for Cowork)
+    #[serde(default = "default_false")]
+    pub enable_cowork_auto_compact: bool,
+
+    /// Cowork 自动响应式压缩触发阈值 (默认 200,000 Tokens)
+    #[serde(default = "default_cowork_compact_threshold")]
+    pub cowork_compact_threshold: u32,
 }
 
 impl Default for ExperimentalConfig {
@@ -466,8 +474,14 @@ impl Default for ExperimentalConfig {
             thinking_store_enabled: default_thinking_store_enabled(),
             thinking_retention_days: default_thinking_retention_days(),
             thinking_max_memory_turns: default_thinking_max_memory_turns(),
+            enable_cowork_auto_compact: false,
+            cowork_compact_threshold: default_cowork_compact_threshold(),
         }
     }
+}
+
+fn default_cowork_compact_threshold() -> u32 {
+    200_000
 }
 
 fn default_payload_storage_mode() -> String {

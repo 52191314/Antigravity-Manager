@@ -171,6 +171,8 @@ export interface ExperimentalConfig {
     thinking_store_enabled?: boolean;
     thinking_retention_days?: number;
     thinking_max_memory_turns?: number;
+    enable_cowork_auto_compact?: boolean;
+    cowork_compact_threshold?: number;
 }
 
 export interface CircuitBreakerConfig {

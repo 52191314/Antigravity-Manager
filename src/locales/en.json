@@ -1116,6 +1116,9 @@
       },
       "multimodal_settings": {
         "title": "Multimodal Settings"
+      },
+      "agent_settings": {
+        "title": "Specific Agent Settings"
       }
     },
     "cloudflared": {

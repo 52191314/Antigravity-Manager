@@ -18,6 +18,14 @@
         -   **[强制工具调用全协议治理与流水线透传保护] 贯彻客户端有就传没有就不传原则，彻底根治 tool_choice / functionCallingConfig 瘫痪 (Fixes #3562, Thanks to @cubelikeplayDaniel)**:
             -   **适配器特性归一化 (`map_claude_tool_choice_to_gemini`, `map_openai_tool_choice_to_gemini`)**: 在 Claude 模型定义补齐 `tool_choice` 声明，并在 Claude 与 OpenAI 协议适配器中将客户端传入的 `tool_choice`（`auto`, `any`, `required`, `none`, 指定函数名等）精确翻译为 Google Gemini 标准的 `toolConfig.functionCallingConfig`，消除协议方言鸿沟。
             -   **流水线拓扑治理原则落地（有就传，没有就不传）**: 彻底废除进站流水线一刀切强行剥除 `toolConfig` 的历史激进逻辑。客户端未指定时不主动伪造注入任何配置，100% 保持官方 IDE 干净拓扑同构；客户端显式指定时完整保留并置于 `tools` 之后有序发送至上游，彻底解禁各类 Coding Agent（LangChain、LlamaIndex 等）强制调用指定工具的核心能力。
+        -   **[Claude Cowork 响应式自愈压缩门禁与特定 Agent 收纳架构] 流水线四段式分流破除超长上下文卡死与二次误杀，前端首发 Claude Desktop 独立可调配置 (Fixes #3563, Thanks to @cubelikeplayDaniel)**:
+            -   **四段式全链路生命周期感知与自愈分流 (Pipeline First)**:
+                -   **分流 A（生命线放行）**: 识别 Header `x-stainless-helper: compaction` 与 Prompt 官方总结签名，全协议通用无条件直通，绝对不误杀压缩请求；
+                -   **分流 B（已压缩接续保护 - Post-Compaction Immunity）**: 识别 `This session is being continued...` 或已注入 `<summary>`，已提纯会话赋予长上下文永久豁免，由 Gemini 1M 承接绝不再二次拦截，彻底消除客户端 `This conversation is too long` 弹窗崩溃；
+                -   **分流 C（超限假报警门禁）**: 仅在用户显式开启且双重确权（tools 包含 `mcp__cowork` / `mcp__workspace`）且未命中 A/B 时介入，达到门限时返回 Anthropic 官方 400 假报警，激活 Desktop 原生 Summarizer 打上 `compact_boundary` 自愈折叠历史与截图，恢复秒级极速响应；
+                -   **分流 D（常规透传）**: 普通请求 100% 保持纯净线缆直通，完全保留 Gemini 100万 Token 超长上下文优势。
+            -   **前端模型配置新增「特定 Agent 配置」独立收纳菜单**: 在多模态设置下方增设专属折叠卡片，首发 **Claude Desktop 板块**，提供开关与自由调节的门限数字编辑框（默认 200,000，步长 10,000，带快捷预设）和安全确权说明。
+            -   **全屏截图多模态精准折算**: 在 `PipelineTokenEstimator` 中将全屏截图 Base64 精确折算为标准的 ~1600 tokens/张，并在工具回执中剥离 Base64 计算，消除了 80+ 张全屏截图被抹零或误算爆的失真问题。
 
     *   **v4.8.6-beta.5 (2026-09-30)**:
         -   **[双向木桶约束与三维配额透镜] 仪表盘与迷你面板全面支持综合加权、5H滚动与7天周配额独立透镜切换，并受相互短板效应严密约束 (Fixes #3556)**:

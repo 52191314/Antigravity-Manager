@@ -1107,6 +1107,9 @@
       },
       "multimodal_settings": {
         "title": "多模态交互设置 (Multimodal Settings)"
+      },
+      "agent_settings": {
+        "title": "特定 Agent 配置 (Specific Agent Settings)"
       }
     },
     "cloudflared": {

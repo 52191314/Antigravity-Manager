@@ -713,6 +713,27 @@ pub fn has_any_tools(tools: &Option<Vec<Value>>) -> bool {
     }
 }
 
+/// 分流 A: 识别客户端发起的原生压缩总结请求 (Compaction Summary Request)
+/// 覆盖 Claude Desktop、Claude Code、Stainless SDK 等主流客户端发起的自动会话压缩。
+/// 流水线层应将其识别为最高优先级的“生命线请求”，绝对予以无条件透传放行。
+pub fn is_compaction_request_text(text: &str) -> bool {
+    text.contains("continuation summary")
+        || text.contains("wrap your summary")
+        || text.contains("conversation history will be replaced")
+        || text.contains("Summarize this coding conversation")
+        || (text.contains("<summary>") && text.contains("Summarize"))
+        || text.contains("This conversation is too long")
+}
+
+/// 分流 B: 识别已完成压缩提纯的会话接续请求 (Post-Compaction Continuation)
+/// 当会话在客户端成功生成 compact_boundary 或注入历史摘要后，后续接续轮次携带此特征。
+/// 流水线层应给予其永久豁免保护，绝不再执行二次伪装拦截，由底层 1M 超大上下文平滑承接。
+pub fn is_post_compaction_continuation_text(text: &str) -> bool {
+    text.contains("This session is being continued from a previous conversation")
+        || text.contains("compact_boundary")
+        || (text.contains("<summary>") && text.contains("previous conversation"))
+}
+
 /// 检查 contents 中是否包含工具调用或工具返回结果 (表明处于多轮 Agent 会话中)
 pub fn contents_has_tool_interactions(contents: &Value) -> bool {
     if let Some(arr) = contents.as_array() {

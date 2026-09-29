@@ -296,6 +296,18 @@ pub fn resolve(canonical: &str, budget_tokens: Option<u32>) -> Option<RealModelS
     resolve_with_tier(canonical, None, budget_tokens)
 }
 
+/// 已经是 Variant 解析出的上游真实模型 id。
+/// 请求路由不能再把它映回客户端公开名，否则上游会收到无法生成的别名。
+pub fn is_physical_upstream_id(model: &str) -> bool {
+    let key = model.trim();
+    GEMINI_FAMILIES.iter().any(|family| {
+        family
+            .tiers
+            .iter()
+            .any(|(_, spec)| spec.id.eq_ignore_ascii_case(key))
+    })
+}
+
 // ── verified real model specs (from upstream spec) ──
 // gemini-3.5-flash family (maxOutputTokens = 65536)
 const SPEC_35_FLASH_EXTRA_LOW: RealModelSpec = RealModelSpec {

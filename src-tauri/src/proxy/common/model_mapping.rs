@@ -64,14 +64,15 @@ static CLAUDE_TO_GEMINI: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m.insert("gemini-3.5-flash-low", "gemini-3.5-flash-low");
     m.insert("gemini-3.5-flash-extra-low", "gemini-3.5-flash-extra-low");
 
-    m.insert("gemini-3.1-pro-high", "gemini-3.1-pro-high");
+    // 下游公开名。generate 只接受内部 id：high → gemini-pro-agent，low 保持 gemini-3.1-pro-low。
+    // 不要登记反向规则（gemini-pro-agent → gemini-3.1-pro-high），否则会覆盖 Variant 的真实 id。
+    m.insert("gemini-3.1-pro-high", "gemini-pro-agent");
     m.insert("gemini-3.1-pro-low", "gemini-3.1-pro-low");
-    m.insert("gemini-3.1-pro", "gemini-3.1-pro-high");
-    m.insert("gemini-3.1-pro-preview", "gemini-3.1-pro-high");
-    m.insert("gemini-3-pro-high", "gemini-3.1-pro-high");
+    m.insert("gemini-3.1-pro", "gemini-pro-agent");
+    m.insert("gemini-3.1-pro-preview", "gemini-pro-agent");
+    m.insert("gemini-3-pro-high", "gemini-pro-agent");
     m.insert("gemini-3-pro-low", "gemini-3.1-pro-low");
-    m.insert("gemini-3-pro", "gemini-3.1-pro-high");
-    m.insert("gemini-pro-agent", "gemini-3.1-pro-high");
+    m.insert("gemini-3-pro", "gemini-pro-agent");
 
     m.insert("gemini-3.1-flash-image", "gemini-3.1-flash-image");
     m.insert("gemini-3-pro-image", "gemini-3-pro-image");
@@ -81,12 +82,11 @@ static CLAUDE_TO_GEMINI: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m.insert("gemini-2.5-flash-thinking", "gemini-2.5-flash-thinking");
     m.insert("gemini-2.5-flash-lite", "gemini-2.5-flash-lite");
 
-    // 历史淘汰模型重定向
+    // 历史淘汰模型重定向。gemini-3-flash-agent 是 3.5 Flash high 的真实上游 id，保持透传。
     m.insert("gemini-3-flash", "gemini-3.8-flash-high");
-    m.insert("gemini-3-flash-agent", "gemini-3.8-flash-high");
     m.insert("gemini-3.1-flash-lite", "gemini-2.5-flash-lite");
-    m.insert("gemini-1.5-pro", "gemini-3.1-pro-high");
-    m.insert("gemini-2.0-pro", "gemini-3.1-pro-high");
+    m.insert("gemini-1.5-pro", "gemini-pro-agent");
+    m.insert("gemini-2.0-pro", "gemini-pro-agent");
     m.insert("gemini-1.5-flash", "gemini-3.8-flash-high");
     m.insert("gemini-2.0-flash", "gemini-3.8-flash-high");
 
@@ -203,7 +203,8 @@ pub fn map_claude_model_to_gemini(input: &str) -> String {
         | "gemini-3-pro-preview"
         | "gemini-3.1-pro-preview"
         | "gemini-3.1-pro"
-        | "gemini-3-pro-high" => return "gemini-3.1-pro-high".to_string(),
+        | "gemini-3-pro-high"
+        | "gemini-3.1-pro-high" => return "gemini-pro-agent".to_string(),
         "gemini-3-pro-low" => return "gemini-3.1-pro-low".to_string(),
         "gemini-1.5-flash" | "gemini-2.0-flash" | "gemini-3-flash" => {
             return "gemini-3.8-flash-high".to_string()
@@ -588,6 +589,11 @@ pub fn resolve_model_route_with_effort(
     }
 
     // 3. 系统默认映射
+    // Variant 已经写出的上游真实 id 在此停住，避免公开名反向覆盖（Issue #3551）。
+    if crate::proxy::common::variant_mapping::is_physical_upstream_id(original_model) {
+        return original_model.to_string();
+    }
+
     // [NEW] 3.x Flash 裸模型依据客户端思考档位路由：
     // - high（或未传档位）：默认路由至对应的 3.x-flash-high（例如 gemini-3.8-flash-high）
     // - low：直接路由至对应的 3.x-flash-low（例如 gemini-3.8-flash-low）
@@ -749,10 +755,10 @@ mod tests {
             "gemini-2.5-flash-mini-test"
         );
         assert_eq!(map_claude_model_to_gemini("unknown-model"), "unknown-model");
-        // Gemini Pro concrete IDs should pass through unchanged.
+        // 旧 Pro 公开名必须落到上游可生成的真实 id。
         assert_eq!(
             map_claude_model_to_gemini("gemini-3-pro-high"),
-            "gemini-3.1-pro-high"
+            "gemini-pro-agent"
         );
         assert_eq!(
             map_claude_model_to_gemini("gemini-3-pro-low"),
@@ -818,20 +824,42 @@ mod tests {
     fn test_mappings_continued() {
         assert_eq!(
             map_claude_model_to_gemini("gemini-3.1-pro-high"),
-            "gemini-3.1-pro-high"
+            "gemini-pro-agent"
         );
         assert_eq!(
             map_claude_model_to_gemini("gemini-3.1-pro-low"),
             "gemini-3.1-pro-low"
         );
-        // Generic aliases map to current active 3.1 Pro High
+        // 裸 Pro / 旧别名默认落到 high 的真实上游 id
         assert_eq!(
             map_claude_model_to_gemini("gemini-3-pro"),
-            "gemini-3.1-pro-high"
+            "gemini-pro-agent"
         );
         assert_eq!(
             map_claude_model_to_gemini("gemini-3.1-pro"),
-            "gemini-3.1-pro-high"
+            "gemini-pro-agent"
+        );
+        // 真实上游 id 不得被系统默认映射映回公开名（Issue #3551）
+        assert_eq!(
+            map_claude_model_to_gemini("gemini-pro-agent"),
+            "gemini-pro-agent"
+        );
+        assert_eq!(
+            map_claude_model_to_gemini("gemini-3-flash-agent"),
+            "gemini-3-flash-agent"
+        );
+        let empty = HashMap::new();
+        assert_eq!(
+            resolve_model_route("gemini-3.1-pro-high", &empty),
+            "gemini-pro-agent"
+        );
+        assert_eq!(
+            resolve_model_route("gemini-pro-agent", &empty),
+            "gemini-pro-agent"
+        );
+        assert_eq!(
+            resolve_model_route("gemini-3-flash-agent", &empty),
+            "gemini-3-flash-agent"
         );
 
         // Test Normalization (Opus 4.6 now merged into "claude" group)

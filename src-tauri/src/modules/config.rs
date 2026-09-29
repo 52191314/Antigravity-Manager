@@ -21,8 +21,27 @@ pub fn load_app_config() -> Result<AppConfig, String> {
     let content = fs::read_to_string(&config_path)
         .map_err(|e| format!("failed_to_read_config_file: {}", e))?;
 
-    let mut v: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| format!("failed_to_parse_config_file: {}", e))?;
+    let (config, modified) = parse_and_migrate_config(&content)?;
+
+    // If migration occurred or empty config was generated, auto-save once to clean up the file
+    if modified {
+        let _ = save_app_config(&config);
+    }
+
+    Ok(config)
+}
+
+/// Parse, migrate and normalize raw configuration JSON string.
+/// Returns (AppConfig, modified_flag).
+pub fn parse_and_migrate_config(content: &str) -> Result<(AppConfig, bool), String> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        tracing::warn!("Configuration content is empty, generating default configuration");
+        return Ok((AppConfig::new(), true));
+    }
+
+    let mut v: serde_json::Value =
+        serde_json::from_str(trimmed).map_err(|e| format!("failed_to_parse_config_file: {}", e))?;
 
     let mut modified = false;
 
@@ -164,12 +183,7 @@ pub fn load_app_config() -> Result<AppConfig, String> {
     let config: AppConfig = serde_json::from_value(v)
         .map_err(|e| format!("failed_to_convert_config_after_migration: {}", e))?;
 
-    // If migration occurred, auto-save once to clean up the file
-    if modified {
-        let _ = save_app_config(&config);
-    }
-
-    Ok(config)
+    Ok((config, modified))
 }
 
 /// Save application configuration (atomic write)
@@ -182,4 +196,35 @@ pub fn save_app_config(config: &AppConfig) -> Result<(), String> {
 
     crate::utils::fs::write_atomic(&config_path, content.as_bytes())
         .map_err(|e| format!("failed_to_save_config: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_and_migrate_empty_or_whitespace_config() {
+        // [FIX #3548] Ensure empty or whitespace-only config file does not trigger EOF error in headless mode
+        let (empty_cfg, modified_empty) =
+            parse_and_migrate_config("").expect("empty config should parse to default");
+        assert!(modified_empty);
+        assert!(!empty_cfg.proxy.api_key.is_empty());
+
+        let (ws_cfg, modified_ws) = parse_and_migrate_config("   \n\t  \r\n  ")
+            .expect("whitespace config should parse to default");
+        assert!(modified_ws);
+        assert!(!ws_cfg.proxy.api_key.is_empty());
+    }
+
+    #[test]
+    fn test_parse_and_migrate_valid_and_invalid_json() {
+        let invalid = parse_and_migrate_config("{ invalid_json: ");
+        assert!(invalid.is_err());
+        assert!(invalid.unwrap_err().contains("failed_to_parse_config_file"));
+
+        let default_json = serde_json::to_string(&AppConfig::new()).unwrap();
+        let (valid_cfg, _) =
+            parse_and_migrate_config(&default_json).expect("valid config should parse");
+        assert!(!valid_cfg.proxy.api_key.is_empty());
+    }
 }

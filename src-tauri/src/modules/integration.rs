@@ -387,11 +387,24 @@ impl SystemIntegration for DesktopIntegration {
             process::close_antigravity(20, effective_target)?;
         }
 
-        process::start_antigravity_with_fallback_path(
+        if let Err(e) = process::start_antigravity_with_fallback_path(
             effective_target,
             active_exe_path.as_deref(),
             active_args.as_deref(),
-        )?;
+        ) {
+            // 若切号前外部客户端原本就没有处于运行状态，且启动失败原因是找不到客户端可执行文件
+            // （例如纯反代服务模式、未安装 GUI 客户端或无头环境）：
+            // 此时凭据和配置已经写入成功，降级处理并记录信息，避免让整个切号操作报错中断。
+            if !running
+                && (e.contains("executable not found") || e.contains("Unable to start Antigravity"))
+            {
+                crate::modules::logger::log_info(
+                    "[Desktop] Client executable not found and was not running before switch; credentials applied successfully.",
+                );
+            } else {
+                return Err(e);
+            }
+        }
 
         // 4. 更新托盘
         let _ = crate::modules::tray::update_tray_menus(&self.app_handle);

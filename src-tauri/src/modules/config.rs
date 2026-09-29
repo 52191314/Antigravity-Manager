@@ -14,7 +14,13 @@ pub fn load_app_config() -> Result<AppConfig, String> {
     if !config_path.exists() {
         let config = AppConfig::new();
         // [FIX #1460] Persist initial config to prevent new API Key on every refresh
-        let _ = save_app_config(&config);
+        if let Err(e) = save_app_config(&config) {
+            tracing::warn!(
+                "Failed to persist initial config to {}: {}. An in-memory config will be used; the next start may generate a new API key if the file is still missing.",
+                config_path.display(),
+                e
+            );
+        }
         return Ok(config);
     }
 
@@ -25,7 +31,13 @@ pub fn load_app_config() -> Result<AppConfig, String> {
 
     // If migration occurred or empty config was generated, auto-save once to clean up the file
     if modified {
-        let _ = save_app_config(&config);
+        if let Err(e) = save_app_config(&config) {
+            tracing::warn!(
+                "Failed to persist healed or migrated config to {}: {}. An in-memory config will be used; the next start may generate a new API key if the file is still empty.",
+                config_path.display(),
+                e
+            );
+        }
     }
 
     Ok(config)

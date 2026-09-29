@@ -395,9 +395,7 @@ impl SystemIntegration for DesktopIntegration {
             // 若切号前外部客户端原本就没有处于运行状态，且启动失败原因是找不到客户端可执行文件
             // （例如纯反代服务模式、未安装 GUI 客户端或无头环境）：
             // 此时凭据和配置已经写入成功，降级处理并记录信息，避免让整个切号操作报错中断。
-            if !running
-                && (e.contains("executable not found") || e.contains("Unable to start Antigravity"))
-            {
+            if !running && process::is_client_executable_missing(&e) {
                 crate::modules::logger::log_info(
                     "[Desktop] Client executable not found and was not running before switch; credentials applied successfully.",
                 );

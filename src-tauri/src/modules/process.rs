@@ -1031,6 +1031,15 @@ pub fn clean_appimage_env(cmd: &mut Command) {
     }
 }
 
+/// True when startup failed because no Antigravity client binary or app bundle is installed.
+pub fn is_client_executable_missing(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("executable not found")
+        || lower.contains("unable to find application")
+        || lower.contains("no application knows how to open")
+        || lower.contains("application not found")
+}
+
 /// Start Antigravity with optional snapshot path & args fallback
 #[allow(unused_mut)]
 pub fn start_antigravity_with_fallback_path(
@@ -1261,7 +1270,11 @@ pub fn start_antigravity_with_fallback_path(
             .map_err(|e| format!("Execute open command failed: {}", e))?;
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Unable to start Antigravity: {}", err_msg.trim()));
+            let err_msg = err_msg.trim();
+            if is_client_executable_missing(err_msg) {
+                return Err("Unable to start Antigravity: executable not found".to_string());
+            }
+            return Err(format!("Unable to start Antigravity: {}", err_msg));
         }
 
         crate::modules::logger::log_info("Antigravity startup command sent (macOS open)");
@@ -1768,6 +1781,22 @@ pub fn get_antigravity_cli_executable_path() -> Option<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_client_executable_missing() {
+        assert!(is_client_executable_missing(
+            "Unable to start Antigravity: executable not found"
+        ));
+        assert!(is_client_executable_missing(
+            "Unable to start Antigravity: Unable to find application named 'Antigravity'"
+        ));
+        assert!(!is_client_executable_missing(
+            "Unable to start Antigravity: Operation not permitted"
+        ));
+        assert!(!is_client_executable_missing(
+            "Startup failed (detected path): Access is denied"
+        ));
+    }
 
     #[test]
     fn test_is_helper_process_detection() {

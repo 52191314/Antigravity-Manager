@@ -4,8 +4,9 @@
 
 *   **版本演进**:
     *   **v4.8.6-beta.3 (2026-09-29)**:
-        -   **[统一会话单一赢家与双键正交隔离] 确立产品会话头顶格优先，拆分账号粘性与思维签名，彻底稳固 Google Prompt Cache 并消除 Agent 串话 (Fixes #3554, Thanks to @relifenoxiao)**:
-            -   **单一赢家会话决策机制 (Fixes #3554)**: 统一全局会话身份解析，将 `x-claude-code-session-id` 提至最高优先级。彻底解决 Claude Code 触发权限审批或子任务时因命令文本微变导致会话哈希漂移换号的痛点，Google 5 分钟 Prompt Cache 命中率稳固在 90% 以上。
+        -   **[统一会话单一赢家与双键正交隔离] 确立产品专属头与通配会话顶格优先，拆分账号粘性与思维签名，彻底防止 Agent 缓存雪崩并消除串话 (Fixes #3554, Thanks to @relifenoxiao)**:
+            -   **单一赢家会话决策机制 (Fixes #3554)**: 统一全局会话身份解析，将 `x-claude-code-session-id` 以及各生态专属头提至最高优先级。彻底解决 Claude Code 等客户端在触发权限审批或子任务执行时，因命令文本微变导致会话哈希漂移脱离主账号的痛点，Google 5 分钟 Prompt Cache 命中率稳固在 90% 以上。
+            -   **全生态通配与未来 Agent 开箱支持 (`x-*-session-id`)**: 不仅覆盖 Claude Code，更内置针对全生态自定义客户端（Cursor、VS Code、Cline、Roo Code、Windsurf、Zed、Aider 等）以及未来任意第三方 Agent 的泛化通配匹配引擎（`x-*-session-id` / `x-*-sessionid`）。自动优先于通用会话头，全面杜绝各大 Agent 生态因前缀扰动造成的缓存击穿与雪崩。
             -   **正交双键解耦 (Orthogonal Dual-Key)**: 账号粘性键（`affinity_key`）只跟租户与稳定会话走，抗前缀与命令抖动；思维库、会话签名、作用域工具签名与上游 `sessionId` 走内容锚点键（`store_key`），主子 Agent 既共享长上下文缓存又绝不串话或穿透思维块。
             -   **Responses 游标隔离与全协议对齐**: 彻底剥离 `previous_response_id` 对会话身份的污染，修复多轮对话每轮漂移账号的问题；Gemini `countTokens` 与图片请求全量接入统一作用域解析。
             -   **原子化粘性状态机与多租户安全**: `TokenManager` 引入 CAS 语义的 `commit_session` 与 `abandon_session`，401/403/429/529 自动安全换绑，并发首次绑定自动收敛；解绑会话不再清理全局 `last_used_account`。

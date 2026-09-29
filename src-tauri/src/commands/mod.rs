@@ -423,6 +423,17 @@ pub async fn save_config(
 
     modules::save_app_config(&config)?;
 
+    crate::modules::logger::set_internal_error_log_budget_bytes(
+        config.proxy.internal_error_log_retention.budget_bytes(),
+    );
+    if let Err(e) =
+        tokio::task::spawn_blocking(crate::modules::logger::apply_internal_error_log_retention)
+            .await
+            .map_err(|e| e.to_string())?
+    {
+        tracing::warn!("Failed to apply internal error log retention: {}", e);
+    }
+
     // 通知托盘配置已更新
     let _ = app.emit("config://updated", ());
 
@@ -874,6 +885,21 @@ pub async fn open_data_folder() -> Result<(), String> {
 pub async fn get_data_dir_path() -> Result<String, String> {
     let path = modules::account::get_data_dir()?;
     Ok(modules::account::format_data_dir_path(&path))
+}
+
+/// 内部失败日志当日文件路径（按天滚动 + 容量滑动窗口）
+#[tauri::command]
+pub async fn get_internal_error_log_path() -> Result<String, String> {
+    let path = modules::logger::internal_error_log_path()?;
+    Ok(modules::account::format_data_dir_path(&path))
+}
+
+/// 内部失败日志当前占用字节数（error.log*）
+#[tauri::command]
+pub async fn get_internal_error_log_disk_size() -> Result<u64, String> {
+    tokio::task::spawn_blocking(modules::logger::internal_error_log_disk_size)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// 选择并迁移数据目录（指针写在家目录，删除旧目录后下次启动仍能找到）

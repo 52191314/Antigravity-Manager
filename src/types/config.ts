@@ -16,6 +16,7 @@ export interface ProxyConfig {
     enable_logging: boolean;
     capture_health_logs?: boolean;
     log_retention?: LogRetentionConfig;
+    internal_error_log_retention?: InternalErrorLogRetentionConfig;
     debug_logging?: DebugLoggingConfig;
     upstream_proxy: UpstreamProxyConfig;
     zai?: ZaiConfig;
@@ -36,6 +37,10 @@ export interface LogRetentionConfig {
     max_disk_mb?: number;
     max_rows: number;
     max_age_days?: number;
+}
+
+export interface InternalErrorLogRetentionConfig {
+    max_storage_mb: number;
 }
 
 

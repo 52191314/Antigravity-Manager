@@ -645,6 +645,8 @@ pub fn run() {
             commands::get_antigravity_cache_paths,
             commands::open_data_folder,
             commands::get_data_dir_path,
+            commands::get_internal_error_log_path,
+            commands::get_internal_error_log_disk_size,
             commands::set_data_dir,
             commands::migrate_data_dir,
             commands::show_main_window,

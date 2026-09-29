@@ -943,6 +943,14 @@ impl AxumServer {
                 "/system/data-dir",
                 get(admin_get_data_dir_path).post(admin_set_data_dir),
             )
+            .route(
+                "/system/error-log-path",
+                get(admin_get_internal_error_log_path),
+            )
+            .route(
+                "/system/error-log-size",
+                get(admin_get_internal_error_log_disk_size),
+            )
             .route("/system/updates/settings", get(admin_get_update_settings))
             .route(
                 "/system/updates/check-status",
@@ -2390,6 +2398,31 @@ async fn admin_get_data_dir_path() -> impl IntoResponse {
     match crate::modules::account::get_data_dir() {
         Ok(p) => Json(crate::modules::account::format_data_dir_path(&p)),
         Err(e) => Json(format!("Error: {}", e)),
+    }
+}
+
+async fn admin_get_internal_error_log_path() -> impl IntoResponse {
+    match crate::modules::logger::internal_error_log_path() {
+        Ok(p) => Json(crate::modules::account::format_data_dir_path(&p)),
+        Err(e) => Json(format!("Error: {}", e)),
+    }
+}
+
+async fn admin_get_internal_error_log_disk_size() -> impl IntoResponse {
+    match tokio::task::spawn_blocking(crate::modules::logger::internal_error_log_disk_size).await {
+        Ok(Ok(bytes)) => Json(bytes).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+            .into_response(),
     }
 }
 

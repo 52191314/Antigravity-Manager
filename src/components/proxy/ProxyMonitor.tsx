@@ -3,7 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import ModalDialog from '../common/ModalDialog';
 import { useTranslation } from 'react-i18next';
 import { request as invoke } from '../../utils/request';
-import { Trash2, Search, X, Copy, CheckCircle, ChevronLeft, ChevronRight, ChevronDown, RefreshCw, User, Sparkles, FileCode2, Eye, EyeOff, Clock, Settings, HardDrive, Database, Check } from 'lucide-react';
+import { Trash2, Search, X, Copy, CheckCircle, ChevronLeft, ChevronRight, ChevronDown, RefreshCw, User, Sparkles, FileCode2, Eye, EyeOff, Clock, Settings, HardDrive, Database, Check, FileWarning } from 'lucide-react';
 
 import { AppConfig, ExperimentalConfig } from '../../types/config';
 import { formatCompactNumber } from '../../utils/format';
@@ -692,6 +692,7 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
     const [selectedLog, setSelectedLog] = useState<ProxyRequestLog | null>(null);
     const [isLoggingEnabled, setIsLoggingEnabled] = useState(false);
     const [captureHealthLogs, setCaptureHealthLogs] = useState(false);
+    const [internalErrorLogPath, setInternalErrorLogPath] = useState('');
     const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
     const [payloadViewMode, setPayloadViewMode] = useState<'concise' | 'full'>('concise');
     const [showMetadata, setShowMetadata] = useState(true);
@@ -705,6 +706,7 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
     const [isClearCacheModalOpen, setIsClearCacheModalOpen] = useState(false);
     const [cacheClearedSuccess, setCacheClearedSuccess] = useState(false);
     const [dbDiskSizeBytes, setDbDiskSizeBytes] = useState<number | null>(null);
+    const [errorLogDiskSizeBytes, setErrorLogDiskSizeBytes] = useState<number | null>(null);
 
     const fetchDbDiskSize = useCallback(async () => {
         try {
@@ -715,11 +717,27 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
         }
     }, []);
 
+    const fetchErrorLogDiskSize = useCallback(async () => {
+        try {
+            const bytes = await invoke<number>('get_internal_error_log_disk_size');
+            setErrorLogDiskSizeBytes(bytes);
+        } catch (e) {
+            console.error('Failed to get internal error log disk size', e);
+        }
+    }, []);
+
     useEffect(() => {
         if (showLogSettings) {
             fetchDbDiskSize();
+            fetchErrorLogDiskSize();
         }
-    }, [showLogSettings, fetchDbDiskSize]);
+    }, [showLogSettings, fetchDbDiskSize, fetchErrorLogDiskSize]);
+
+    useEffect(() => {
+        invoke<string>('get_internal_error_log_path')
+            .then((path) => setInternalErrorLogPath(path))
+            .catch((e) => console.error('Failed to get internal error log path', e));
+    }, []);
 
     const formatBytes = (bytes: number) => {
         if (bytes < 1024) return `${bytes} B`;
@@ -1100,9 +1118,9 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
 
     const updateLogRetentionField = (field: 'max_body_age_hours' | 'max_storage_gb' | 'max_rows', value: number) => {
         if (!appConfig) return;
-        const currentRetention = appConfig.proxy?.log_retention || { max_body_age_hours: 24, max_storage_gb: 0.5, max_rows: 100000 };
+        const currentRetention = appConfig.proxy?.log_retention || { max_body_age_hours: 24, max_storage_gb: 1.0, max_rows: 100000 };
         const safeVal = field === 'max_storage_gb'
-            ? Math.max(0.1, isNaN(value) ? 0.5 : value)
+            ? Math.max(0.1, isNaN(value) ? 1.0 : value)
             : Math.max(1, isNaN(value) ? 1 : value);
         const updated = {
             ...currentRetention,
@@ -1119,6 +1137,21 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
                 experimental: {
                     ...currentExp,
                 }
+            }
+        };
+        setAppConfig(updatedConfig);
+    };
+
+    const updateInternalErrorLogRetention = (value: number) => {
+        if (!appConfig) return;
+        const safeVal = Math.max(1, isNaN(value) ? 500 : value);
+        const updatedConfig: AppConfig = {
+            ...appConfig,
+            proxy: {
+                ...appConfig.proxy,
+                internal_error_log_retention: {
+                    max_storage_mb: safeVal,
+                },
             }
         };
         setAppConfig(updatedConfig);
@@ -1150,6 +1183,7 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
             await invoke('save_config', { config: appConfig });
             setSaveSuccess(true);
             fetchDbDiskSize();
+            fetchErrorLogDiskSize();
             setTimeout(() => setSaveSuccess(false), 2000);
         } catch (e) {
             console.error('Failed to save log settings', e);
@@ -1280,6 +1314,14 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
                             {t('monitor.filters.reset')}
                         </button>
                     )}
+                    {internalErrorLogPath && (
+                        <span
+                            className="ml-auto min-w-0 max-w-full truncate text-[11px] leading-5 text-gray-400 dark:text-gray-500 select-text"
+                            title={t('monitor.filters.internal_error_log', { path: internalErrorLogPath, defaultValue: `内部错误记录在 ${internalErrorLogPath}，滑动窗口` })}
+                        >
+                            {t('monitor.filters.internal_error_log', { path: internalErrorLogPath, defaultValue: `内部错误记录在 ${internalErrorLogPath}，滑动窗口` })}
+                        </span>
+                    )}
                 </div>
             </div>
 
@@ -1294,7 +1336,7 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
                                 {t('monitor.settings.title', { defaultValue: '日志存储周期与维护设置' })}
                             </span>
                             <span className="text-xs text-gray-500 dark:text-gray-400 hidden sm:inline">
-                                {t('monitor.settings.subtitle', { defaultValue: '统一管理请求日志保留天数、思考块滑动窗口与磁盘空间回收' })}
+                                {t('monitor.settings.subtitle', { defaultValue: '统一管理请求日志与内部报错日志的滑动窗口容量' })}
                             </span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1320,21 +1362,21 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
                         </div>
                     </div>
 
-                    {/* 2-Column Balanced Settings Grid */}
+                    {/* 请求日志 / 内部报错日志 / 维护 */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                        {/* 1. 请求日志与报文保留策略 */}
+                        {/* 1. 请求日志 */}
                         <div className="p-3.5 bg-white dark:bg-base-100 rounded-xl border border-gray-200/90 dark:border-base-200 shadow-xs flex flex-col justify-between space-y-3">
                             <div className="space-y-3">
                                 <span className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
                                     <Clock size={13} className="text-indigo-500 dark:text-indigo-400" />
-                                    {t('monitor.settings.retention_title', { defaultValue: '请求日志与报文保留策略 (滑动窗口)' })}
+                                    {t('monitor.settings.retention_title', { defaultValue: '请求日志 (滑动窗口)' })}
                                 </span>
                                 <div className="space-y-2.5">
                                     {/* 空间上限 */}
                                     <div>
                                         <div className="flex items-center justify-between mb-1">
                                             <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                                                {t('proxy.config.log_retention_storage_gb', { defaultValue: '日志保留空间上限 (GB)' })}
+                                                {t('proxy.config.log_retention_storage_gb', { defaultValue: '请求日志上限 (GB)' })}
                                             </label>
                                             <span className="text-[10px] text-gray-500 dark:text-gray-400">
                                                 {t('proxy.config.log_retention_current_usage', { defaultValue: '当前库占用' })}: <strong className="font-mono text-gray-700 dark:text-gray-200">{dbDiskSizeBytes !== null ? formatBytes(dbDiskSizeBytes) : '...'}</strong>
@@ -1350,7 +1392,7 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
                                             className="input input-xs input-bordered bg-gray-50 dark:bg-base-200 border-gray-300 dark:border-base-300 text-gray-800 dark:text-white w-full font-mono text-xs focus:border-blue-500"
                                         />
                                         <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-tight">
-                                            {t('proxy.config.log_retention_storage_gb_desc', { defaultValue: '完全由容量上限滑动窗口托管，保留完整报文不被提前掏空；达到上限自动淘汰最尾部 30% 记录' })}
+                                            {t('proxy.config.log_retention_storage_gb_desc', { defaultValue: '默认 1GB；达到上限后自动淘汰最旧 30% 记录并继续写入' })}
                                         </p>
                                     </div>
 
@@ -1390,8 +1432,40 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
                             </div>
                         </div>
 
-                        {/* 2. 维护与清理操作 */}
+                        {/* 2. 内部报错日志 */}
                         <div className="p-3.5 bg-white dark:bg-base-100 rounded-xl border border-gray-200/90 dark:border-base-200 shadow-xs flex flex-col justify-between space-y-3">
+                            <div className="space-y-3">
+                                <span className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
+                                    <FileWarning size={13} className="text-rose-500 dark:text-rose-400" />
+                                    {t('monitor.settings.internal_error_title', { defaultValue: '内部报错日志 (滑动窗口)' })}
+                                </span>
+                                <div>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                                            {t('proxy.config.internal_error_log_storage_mb', { defaultValue: '内部报错日志上限 (MB)' })}
+                                        </label>
+                                        <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                                            {t('proxy.config.internal_error_log_current_usage', { defaultValue: '当前占用' })}: <strong className="font-mono text-gray-700 dark:text-gray-200">{errorLogDiskSizeBytes !== null ? formatBytes(errorLogDiskSizeBytes) : '...'}</strong>
+                                        </span>
+                                    </div>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={10240}
+                                        step={50}
+                                        value={appConfig.proxy.internal_error_log_retention?.max_storage_mb ?? 500}
+                                        onChange={(e) => updateInternalErrorLogRetention(Number(e.target.value))}
+                                        className="input input-xs input-bordered bg-gray-50 dark:bg-base-200 border-gray-300 dark:border-base-300 text-gray-800 dark:text-white w-full font-mono text-xs focus:border-blue-500"
+                                    />
+                                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-tight">
+                                        {t('proxy.config.internal_error_log_storage_mb_desc', { defaultValue: '默认 500MB；仅记录失败。达到上限后淘汰最旧 30% 并继续追加，不影响账号数据。' })}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 3. 维护与清理操作 */}
+                        <div className="p-3.5 bg-white dark:bg-base-100 rounded-xl border border-gray-200/90 dark:border-base-200 shadow-xs flex flex-col justify-between space-y-3 md:col-span-2">
                             <div>
                                 <span className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5 mb-1.5">
                                     <HardDrive size={13} className="text-amber-500 dark:text-amber-400" />
@@ -1401,7 +1475,7 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
                                     {t('settings.advanced.logs_desc', { defaultValue: '清理应用产生的日志缓存文件或清空全部历史请求记录，释放磁盘空间。' })}
                                 </p>
                             </div>
-                            <div className="space-y-2 pt-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
                                 <button
                                     type="button"
                                     onClick={() => setIsClearCacheModalOpen(true)}
@@ -1419,7 +1493,7 @@ export const ProxyMonitor: React.FC<ProxyMonitorProps> = ({ className }) => {
                                     {t('monitor.actions.clear_all_requests', { defaultValue: '清空全部历史请求' })}
                                 </button>
                                 {cacheClearedSuccess && (
-                                    <p className="text-xs text-emerald-600 dark:text-emerald-400 text-center font-medium">
+                                    <p className="text-xs text-emerald-600 dark:text-emerald-400 text-center font-medium sm:col-span-2">
                                         ✓ {t('settings.advanced.logs_cleared', { defaultValue: '日志缓存已清理' })}
                                     </p>
                                 )}

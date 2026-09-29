@@ -791,6 +791,10 @@ pub struct ProxyConfig {
     #[serde(default)]
     pub log_retention: LogRetentionConfig,
 
+    /// 内部失败日志（error.log*）滑动窗口容量
+    #[serde(default)]
+    pub internal_error_log_retention: InternalErrorLogRetentionConfig,
+
     /// 调试日志配置 (保存完整链路)
     #[serde(default)]
     pub debug_logging: DebugLoggingConfig,
@@ -915,6 +919,43 @@ impl Default for LogRetentionConfig {
     }
 }
 
+/// Internal ERROR log file retention (error.log / error.log.YYYY-MM-DD).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InternalErrorLogRetentionConfig {
+    /// Disk budget in MiB. Over limit, evict oldest 30% and keep appending.
+    #[serde(default = "default_internal_error_max_storage_mb")]
+    pub max_storage_mb: u64,
+}
+
+fn default_internal_error_max_storage_mb() -> u64 {
+    500
+}
+
+impl InternalErrorLogRetentionConfig {
+    /// `ABV_INTERNAL_ERROR_LOG_MB` overrides the config file when set to a positive integer.
+    pub fn budget_bytes(&self) -> u64 {
+        let mb = std::env::var("ABV_INTERNAL_ERROR_LOG_MB")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(self.max_storage_mb);
+        let mb = if mb == 0 {
+            default_internal_error_max_storage_mb()
+        } else {
+            mb
+        };
+        mb.saturating_mul(1024 * 1024)
+    }
+}
+
+impl Default for InternalErrorLogRetentionConfig {
+    fn default() -> Self {
+        Self {
+            max_storage_mb: default_internal_error_max_storage_mb(),
+        }
+    }
+}
+
 /// 上游代理配置
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpstreamProxyConfig {
@@ -948,6 +989,7 @@ impl Default for ProxyConfig {
             enable_logging: true,       // 默认开启，支持 token 统计功能
             capture_health_logs: false, // 默认关闭，过滤 GET /health 探活且不入库
             log_retention: LogRetentionConfig::default(),
+            internal_error_log_retention: InternalErrorLogRetentionConfig::default(),
             debug_logging: DebugLoggingConfig::default(),
             upstream_proxy: UpstreamProxyConfig::default(),
             only_raw_quota_models: false,

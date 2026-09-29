@@ -569,8 +569,30 @@ pub async fn handle_generate(
                             match tokio::time::timeout(std::time::Duration::from_secs(300), response_stream.next()).await {
                                 Ok(next_item) => next_item,
                                 Err(_) => {
-                                    error!("[Gemini-SSE] Idle timeout after 300s, terminating stream");
+                                    let report = crate::proxy::mappers::error_classifier::report_stream_error(
+                                        "gemini",
+                                        "handle_generate",
+                                        &"stream idle timeout",
+                                        format!(
+                                            "model={} session={} buffer_bytes={} idle_secs=300",
+                                            model_name_for_stream,
+                                            s_id_for_stream,
+                                            buffer.len()
+                                        ),
+                                    );
                                     stream_failed = true;
+                                    let error_json = serde_json::json!({
+                                        "error": {
+                                            "code": 504,
+                                            "message": report.client_message(),
+                                            "status": "DEADLINE_EXCEEDED",
+                                            "function": report.function,
+                                            "call_site": report.call_site(),
+                                            "params": report.params
+                                        }
+                                    });
+                                    yield Ok::<Bytes, String>(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&error_json).unwrap_or_default())));
+                                    yield Ok::<Bytes, String>(Bytes::from("data: [DONE]\n\n"));
                                     None
                                 }
                             }
@@ -579,21 +601,27 @@ pub async fn handle_generate(
                         let bytes = match item {
                             Some(Ok(b)) => b,
                             Some(Err(e)) => {
-                                error!("[Gemini-SSE] Stream error: {}", e);
+                                let report = crate::proxy::mappers::error_classifier::report_stream_error(
+                                    "gemini",
+                                    "handle_generate",
+                                    &e,
+                                    format!(
+                                        "model={} session={} buffer_bytes={}",
+                                        model_name_for_stream,
+                                        s_id_for_stream,
+                                        buffer.len()
+                                    ),
+                                );
                                 stream_failed = true;
                                 let error_json = serde_json::json!({
-                                    "id": &s_id_for_stream,
-                                    "object": "chat.completion.chunk",
-                                    "model": &model_name_for_stream,
-                                    "choices": [
-                                        {
-                                            "index": 0,
-                                            "delta": {
-                                                "content": format!("\n[Stream Error] {}", e)
-                                            },
-                                            "finish_reason": "error"
-                                        }
-                                    ]
+                                    "error": {
+                                        "code": 503,
+                                        "message": report.client_message(),
+                                        "status": "UNAVAILABLE",
+                                        "function": report.function,
+                                        "call_site": report.call_site(),
+                                        "params": report.params
+                                    }
                                 });
                                 yield Ok::<Bytes, String>(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&error_json).unwrap_or_default())));
                                 yield Ok::<Bytes, String>(Bytes::from("data: [DONE]\n\n"));
@@ -658,9 +686,31 @@ pub async fn handle_generate(
                                             }
                                         }
                                         Err(e) => {
-                                            debug!("[Gemini-SSE] JSON parse error: {}, passing raw line", e);
+                                            let report = crate::proxy::mappers::error_classifier::report_stream_error(
+                                                "gemini",
+                                                "handle_generate",
+                                                &format!("json parse error: {e}"),
+                                                format!(
+                                                    "model={} session={} buffer_bytes={} line_bytes={} preview={}",
+                                                    model_name_for_stream,
+                                                    s_id_for_stream,
+                                                    buffer.len(),
+                                                    json_part.len(),
+                                                    crate::proxy::mappers::error_classifier::preview_payload(json_part)
+                                                ),
+                                            );
                                             stream_failed = true;
-                                            yield Ok::<Bytes, String>(Bytes::from(format!("{}\n\n", line)));
+                                            let error_json = serde_json::json!({
+                                                "error": {
+                                                    "code": 502,
+                                                    "message": report.client_message(),
+                                                    "status": "INTERNAL",
+                                                    "function": report.function,
+                                                    "call_site": report.call_site(),
+                                                    "params": report.params
+                                                }
+                                            });
+                                            yield Ok::<Bytes, String>(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&error_json).unwrap_or_default())));
                                         }
                                     }
                                 } else {

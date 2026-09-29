@@ -223,25 +223,15 @@ pub async fn handle_generate(
             Some(effective_req), // [NEW] Pass request body for imageConfig parsing
         );
 
-        // 4. 获取 Token (使用准确的 request_type)
-        // 提取 SessionId (粘性指纹，优先以显式会话头对齐跨协议 store_key)
-        let explicit_sid = headers
-            .get("x-session-id")
-            .or_else(|| headers.get("x-jeikcode-session-id"))
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty());
-        let fallback_sid = if let Some(sid) = explicit_sid {
-            sid.to_string()
-        } else {
-            SessionManager::extract_gemini_session_id(&body, &model_name)
-        };
+        // 内容锚点只进思维库。账号粘性与上游 sessionId 用 affinity_key。
+        let anchor = SessionManager::gemini_content_anchor(&body);
         let session_scope = crate::proxy::thinking_store::SessionScope::from_headers_and_body(
             &headers,
             Some(&body),
-            fallback_sid,
+            anchor,
         );
         let session_id = session_scope.store_key.clone();
+        let affinity_key = session_scope.affinity_key.clone();
         let client_session_id = session_scope.client_id.clone();
 
         // 关键：根据 force_rotate 标志决定是否轮换账号（支持 Grace Retry 原地重试）
@@ -253,7 +243,7 @@ pub async fn handle_generate(
                 match token_manager
                     .get_image_token(
                         force_rotate,
-                        Some(&session_id),
+                        Some(&affinity_key),
                         &config.final_model,
                         &image_scheduler,
                         request_timeout,
@@ -275,7 +265,7 @@ pub async fn handle_generate(
                     .get_token(
                         &config.request_type,
                         force_rotate,
-                        Some(&session_id),
+                        Some(&affinity_key),
                         &config.final_model,
                     )
                     .await
@@ -318,6 +308,7 @@ pub async fn handle_generate(
             token_obj.as_ref(),
             Some(&token_manager),
             Some(&state.upstream),
+            Some(&affinity_key),
         );
         let tf_micros = tf_start.elapsed().as_micros() as u64;
         let norm_total_micros = norm_start.elapsed().as_micros() as u64;
@@ -940,8 +931,8 @@ pub async fn handle_generate(
         // 之后该 sessionId 的所有请求都 400 "input token count exceeds ... 1048576"。
         // 给 (账号, 对话) 的 sessionId 升代并立即重试:新 sessionId = 上游全新会话,对话无感恢复。
         if status_code == 400 && error_text.contains("exceeds the maximum number of tokens") {
-            let fingerprint = session_id.as_str();
-            let generation = crate::proxy::common::session::bump_session(&account_id, fingerprint);
+            let generation =
+                crate::proxy::common::session::bump_session(&account_id, &affinity_key);
             tracing::warn!(
                 "[Gemini] Upstream session token accumulation exceeded 1M on account {}. sessionId bumped to generation {}, retrying with a fresh upstream session.",
                 email, generation
@@ -951,11 +942,11 @@ pub async fn handle_generate(
 
         if status_code == 429 || status_code == 529 {
             token_manager
-                .unbind_session_and_clear_last_used(Some(&session_id))
+                .unbind_session_and_clear_last_used(Some(&affinity_key))
                 .await;
             tracing::debug!(
                 "[Gemini] Unbound session {} from account {} due to status {}",
-                session_id,
+                affinity_key,
                 email,
                 status_code
             );

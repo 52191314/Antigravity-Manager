@@ -1775,10 +1775,10 @@ pub fn resolve_official_fingerprint(
 /// ## 与 `session_id` 的关系（重要）
 ///
 /// 本函数**只读 `session_id`，绝不写它**，也**不影响**它的唯一性：
-/// 防主子 agent 并发串话的机制是 `thinking_store::derive_blended_session_id`
-/// 的 SHA256 多维正交哈希（tenant + 会话语义头 + query sid + body sid + anchor），
-/// 它决定的是 thinking store / signature cache / prefix cache 的 key，
-/// 与出站 requestId 是**两条独立通路**（全仓无任何代码从 requestId 反推 session）。
+/// 防主子 agent 并发串话的机制是 `thinking_store::SessionScope`：
+/// 思维库 / 签名缓存走带内容锚点的 `store_key`；
+/// 账号粘性与上游 `sessionId` 走 `affinity_key`（有稳定会话头时不含锚点）。
+/// 出站 requestId 与这两条键是独立通路（全仓无任何代码从 requestId 反推 session）。
 ///
 /// 会话段使用 `session_id` 的**单向哈希派生**而非原文：
 /// - 同一会话稳定（贴近官方 conversationId 语义）；

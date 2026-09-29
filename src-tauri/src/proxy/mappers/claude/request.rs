@@ -384,7 +384,7 @@ pub fn transform_claude_request_in(
     token: Option<&crate::proxy::token_manager::ProxyToken>,
 ) -> Result<Value, String> {
     transform_claude_request_in_timed(
-        claude_req, project_id, is_retry, account_id, session_id, token,
+        claude_req, project_id, is_retry, account_id, session_id, session_id, token,
     )
     .map(|(body, _)| body)
 }
@@ -394,7 +394,8 @@ pub fn transform_claude_request_in_timed(
     project_id: &str,
     is_retry: bool,
     account_id: Option<&str>,
-    _session_id: &str,
+    thinking_session_id: &str,
+    upstream_session_id: &str,
     token: Option<&crate::proxy::token_manager::ProxyToken>, // [NEW] 支持动态规格
 ) -> Result<(Value, TransformTiming), String> {
     let mut timing = TransformTiming::default();
@@ -491,11 +492,16 @@ pub fn transform_claude_request_in_timed(
 
     let claude_req = &cleaned_req; // 后续使用清理后的请求
 
-    // Prefer the handler-resolved session id (tenant + X-Session-Id) when provided.
-    let session_id = if !_session_id.is_empty() {
-        _session_id.to_string()
+    // 思维库用带锚点的 store key。上游 sessionId 用稳定的 affinity key。
+    let session_id = if !thinking_session_id.is_empty() {
+        thinking_session_id.to_string()
     } else {
         SessionManager::extract_session_id(claude_req)
+    };
+    let upstream_fingerprint = if upstream_session_id.is_empty() {
+        session_id.as_str()
+    } else {
+        upstream_session_id
     };
     tracing::debug!("[Claude-Request] Session ID: {}", session_id);
 
@@ -731,10 +737,11 @@ pub fn transform_claude_request_in_timed(
     // [ADDED v4.1.24] 注入稳定 sessionId 对齐官方规范
     // [FIX session-1M] 混入对话指纹与代数,不同对话隔离服务端会话,1M 累计报错后 bump 自愈
     if let Some(account_id) = account_id {
-        let generation = crate::proxy::common::session::current_bump(account_id, &session_id);
+        let generation =
+            crate::proxy::common::session::current_bump(account_id, upstream_fingerprint);
         inner_request["sessionId"] = json!(crate::proxy::common::session::derive_session_scoped(
             account_id,
-            &session_id,
+            upstream_fingerprint,
             generation
         ));
     }
@@ -742,8 +749,10 @@ pub fn transform_claude_request_in_timed(
     // 生成 requestId —— 官方 5 段形态，三适配器共用。
     // 必须含 unixMs：历史实现为 `agent/antigravity/{session[:8]}/{count}`，**不含时间戳**，
     // 同一会话同一轮次重试会拿到完全相同的 ID，从而 pin 到上一次的 429 / 旧缓存。
-    let request_id =
-        super::super::common_utils::build_official_request_id(&session_id, message_count as u64);
+    let request_id = super::super::common_utils::build_official_request_id(
+        upstream_fingerprint,
+        message_count as u64,
+    );
 
     // 官方客户端指纹（企业 / GCP 账号为 jetski）—— 三适配器共用，避免指纹漂移
     let (official_user_agent, _official_ide_type) =

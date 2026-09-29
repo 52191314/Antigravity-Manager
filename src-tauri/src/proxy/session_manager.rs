@@ -156,6 +156,11 @@ impl SessionManager {
                 return crate::proxy::thinking_store::sanitize_session_id(trimmed);
             }
         }
+        Self::openai_content_anchor(request)
+    }
+
+    /// 对话内容锚点。不采纳客户端显式 `session_id`，避免主子 agent 被收成同一个思维库。
+    pub fn openai_content_anchor(request: &OpenAIRequest) -> String {
         let mut hasher = Sha256::new();
 
         let mut content_found = false;
@@ -264,6 +269,11 @@ impl SessionManager {
                 return crate::proxy::thinking_store::sanitize_session_id(trimmed);
             }
         }
+        Self::gemini_content_anchor(request)
+    }
+
+    /// 对话内容锚点。不采纳 body 里的显式 `session_id`。
+    pub fn gemini_content_anchor(request: &Value) -> String {
         let mut hasher = Sha256::new();
 
         let mut content_found = false;

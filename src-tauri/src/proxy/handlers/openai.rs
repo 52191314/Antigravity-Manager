@@ -2073,23 +2073,16 @@ pub async fn handle_chat_completions(
         &*state.custom_mapping.read().await,
         effort_hint.as_deref(),
     );
-    let explicit_sid = headers
-        .get("x-session-id")
-        .or_else(|| headers.get("x-jeikcode-session-id"))
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty());
-    let fallback_sid = if let Some(sid) = explicit_sid {
-        sid.to_string()
-    } else {
-        SessionManager::extract_openai_session_id(&openai_req)
-    };
+    let anchor = SessionManager::openai_content_anchor(&openai_req);
+    let session_hint = json!({ "session_id": openai_req.session_id });
     let session_scope = crate::proxy::thinking_store::SessionScope::from_headers_and_body(
         &headers,
-        original_body.as_ref(),
-        fallback_sid,
+        Some(&session_hint),
+        anchor,
     );
-    openai_req.session_id = Some(session_scope.store_key.clone());
+    let store_key = session_scope.store_key.clone();
+    let affinity_key = session_scope.affinity_key.clone();
+    openai_req.session_id = Some(store_key.clone());
     let client_session_id = session_scope.client_id.clone();
 
     while let Some(attempt) = next_rotation_attempt(
@@ -2113,9 +2106,6 @@ pub async fn handle_chat_completions(
             None, // body
         );
 
-        // 3. 提取 SessionId (粘性指纹)
-        let session_id = session_scope.store_key.clone();
-
         // 4. 获取 Token (使用准确的 request_type)
         // 关键：在重试尝试时根据 force_rotate 决定是否轮换账号
         let (access_token, project_id, email, account_id, _wait_ms) =
@@ -2126,7 +2116,7 @@ pub async fn handle_chat_completions(
                 match token_manager
                     .get_image_token(
                         force_rotate,
-                        Some(&session_id),
+                        Some(&affinity_key),
                         &mapped_model,
                         &image_scheduler,
                         request_timeout,
@@ -2148,7 +2138,7 @@ pub async fn handle_chat_completions(
                     .get_token(
                         &config.request_type,
                         force_rotate,
-                        Some(&session_id),
+                        Some(&affinity_key),
                         &mapped_model,
                     )
                     .await
@@ -2184,12 +2174,17 @@ pub async fn handle_chat_completions(
 
         // 4. 转换请求 (返回内容包含 session_id, message_count, prefix_hash)
         let tf_start = std::time::Instant::now();
-        let (mut gemini_body, session_id, message_count, _prefix_hash) = transform_openai_request(
-            &openai_req,
-            &project_id,
-            &mapped_model,
-            proxy_token.as_ref(),
-        );
+        let (mut gemini_body, _routed_session, message_count, _prefix_hash) =
+            transform_openai_request_with_session(
+                &openai_req,
+                &project_id,
+                &mapped_model,
+                proxy_token.as_ref(),
+                &affinity_key,
+                None,
+                false,
+            );
+        let session_id = store_key.clone();
         let tf_micros = tf_start.elapsed().as_micros() as u64;
         let norm_total_micros = norm_start.elapsed().as_micros() as u64;
         norm_ms = norm_total_micros.saturating_sub(tf_micros) as f64 / 1000.0;
@@ -2862,7 +2857,7 @@ pub async fn handle_chat_completions(
 
         if status_code == 429 || status_code == 529 {
             token_manager
-                .unbind_session_and_clear_last_used(Some(&session_id))
+                .unbind_session_and_clear_last_used(Some(&affinity_key))
                 .await;
         }
 
@@ -2951,8 +2946,8 @@ pub async fn handle_chat_completions(
         // 之后该 sessionId 的所有请求都 400 "input token count exceeds ... 1048576"。
         // 给 (账号, 对话) 的 sessionId 升代并立即重试:新 sessionId = 上游全新会话,对话无感恢复。
         if status_code == 400 && error_text.contains("exceeds the maximum number of tokens") {
-            let fingerprint = SessionManager::extract_openai_session_id(&openai_req);
-            let generation = crate::proxy::common::session::bump_session(&account_id, &fingerprint);
+            let generation =
+                crate::proxy::common::session::bump_session(&account_id, &affinity_key);
             tracing::warn!(
                 "[OpenAI] Upstream session token accumulation exceeded 1M on account {}. sessionId bumped to generation {}, retrying with a fresh upstream session.",
                 email, generation
@@ -3716,30 +3711,20 @@ pub async fn handle_completions(
     }
 
     // [NEW v4.2.0] Context Management & Reasoning Replay
-    let explicit_sid = headers
-        .get("x-session-id")
-        .or_else(|| headers.get("x-jeikcode-session-id"))
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty());
-    let fallback_sid = if let Some(sid) = explicit_sid {
-        sid.to_string()
-    } else if is_responses_api {
-        if explicit_session_id.is_some() || previous_response_id.is_some() {
-            routing_session_id.clone()
-        } else {
-            SessionManager::extract_openai_session_id(&openai_req)
-        }
-    } else {
-        SessionManager::extract_openai_session_id(&openai_req)
-    };
+    let anchor = SessionManager::openai_content_anchor(&openai_req);
+    let session_hint = json!({
+        "session_id": openai_req.session_id,
+        "previous_response_id": previous_response_id,
+    });
     let session_scope = crate::proxy::thinking_store::SessionScope::from_headers_and_body(
         &headers,
-        original_body.as_ref(),
-        fallback_sid,
+        Some(&session_hint),
+        anchor,
     );
-    openai_req.session_id = Some(session_scope.store_key.clone());
-    let session_id_str = session_scope.store_key.clone();
+    let store_key = session_scope.store_key.clone();
+    let affinity_key = session_scope.affinity_key.clone();
+    openai_req.session_id = Some(store_key.clone());
+    let session_id_str = store_key.clone();
     let client_session_id = session_scope.client_id.clone();
     let signature_session_id_str = if is_responses_api {
         previous_response_id
@@ -3863,10 +3848,7 @@ pub async fn handle_completions(
             None, // body
         );
 
-        // 3. 提取 SessionId (复用)
-        // [New] 使用 TokenManager 内部逻辑提取 session_id，支持粘性调度
-        let session_id_str = session_id_str.clone();
-        let session_id = Some(session_id_str.as_str());
+        let session_id = Some(affinity_key.as_str());
 
         let (access_token, project_id, email, account_id, _wait_ms) =
             if let Some(credentials) = retry_credentials.take() {
@@ -3908,24 +3890,28 @@ pub async fn handle_completions(
 
         let proxy_token = token_manager.get_token_by_id(&account_id);
         let tf_start = std::time::Instant::now();
-        let (mut gemini_body, session_id, message_count, _prefix_hash) = if is_responses_api {
+        let (mut gemini_body, _routed_session, message_count, _prefix_hash) = if is_responses_api {
             transform_openai_request_with_session(
                 &openai_req,
                 &project_id,
                 &mapped_model,
                 proxy_token.as_ref(),
-                &session_id_str,
+                &affinity_key,
                 signature_read_key.as_deref(),
                 true, // is_responses_api
             )
         } else {
-            transform_openai_request(
+            transform_openai_request_with_session(
                 &openai_req,
                 &project_id,
                 &mapped_model,
                 proxy_token.as_ref(),
+                &affinity_key,
+                None,
+                false,
             )
         };
+        let session_id = session_id_str.clone();
         let tf_micros = tf_start.elapsed().as_micros() as u64;
         let norm_total_micros = norm_start.elapsed().as_micros() as u64;
         norm_ms = norm_total_micros.saturating_sub(tf_micros) as f64 / 1000.0;
@@ -4678,7 +4664,7 @@ pub async fn handle_completions(
 
         if status_code == 429 || status_code == 529 {
             token_manager
-                .unbind_session_and_clear_last_used(Some(&session_id_str))
+                .unbind_session_and_clear_last_used(Some(&affinity_key))
                 .await;
         }
 

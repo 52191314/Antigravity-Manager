@@ -903,27 +903,18 @@ pub async fn handle_messages(
             None,                       // body
         );
 
-        // 0. 尝试提取 session_id 用于粘性调度 (Phase 2/3)
-        // 使用 SessionManager 生成稳定的会话指纹，优先以显式会话头对齐跨协议 store_key
-        let explicit_sid = headers
-            .get("x-session-id")
-            .or_else(|| headers.get("x-jeikcode-session-id"))
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty());
-        let fallback_sid = if let Some(sid) = explicit_sid {
-            sid.to_string()
-        } else {
-            crate::proxy::session_manager::SessionManager::extract_session_id(&request_for_body)
-        };
+        // 内容锚点只进思维库。账号粘性与上游 sessionId 用 affinity_key。
+        let anchor =
+            crate::proxy::session_manager::SessionManager::extract_session_id(&request_for_body);
         let session_scope = crate::proxy::thinking_store::SessionScope::from_headers_and_body(
             &headers,
             Some(&original_body),
-            fallback_sid,
+            anchor,
         );
-        let session_id_str = session_scope.store_key.clone();
+        let store_key = session_scope.store_key.clone();
+        let affinity_key = session_scope.affinity_key.clone();
         let client_session_id = session_scope.client_id.clone();
-        let session_id = Some(session_id_str.as_str());
+        let session_id = Some(affinity_key.as_str());
 
         let (access_token, project_id, email, account_id, _wait_ms) = match token_manager
             .get_token(
@@ -977,7 +968,8 @@ pub async fn handle_messages(
                 &project_id,
                 retried_without_thinking,
                 Some(account_id.as_str()),
-                &session_id_str,
+                &store_key,
+                &affinity_key,
                 token_obj.as_ref(),
             ) {
                 Ok((b, timing)) => {
@@ -1205,7 +1197,7 @@ pub async fn handle_messages(
                     gemini_stream,
                     trace_id.clone(),
                     email.clone(),
-                    Some(session_id_str.clone()),
+                    Some(store_key.clone()),
                     scaling_enabled,
                     context_limit,
                     Some(raw_estimated), // [FIX] Pass estimated tokens for calibrator learning
@@ -1432,7 +1424,7 @@ pub async fn handle_messages(
 
                 // 转换
                 // [FIX #765] Pass session_id and model_name for signature caching
-                let s_id_owned = session_id.map(|s| s.to_string());
+                let s_id_owned = Some(store_key.clone());
                 // [FIX #3379] Extract registered tool names for non-streaming leakage recovery
                 let ns_registered_tool_names: Vec<String> = request_with_mapped
                     .tools
@@ -1646,7 +1638,7 @@ pub async fn handle_messages(
             // 精准定向净化 ThinkingStore 中当前 session 的异构污染签名，保留思考文本与健康历史签名，
             // 彻底防止重试阶段再次把坏签名还原回 contents
             crate::proxy::thinking_store::ThinkingStore::global()
-                .purge_corrupted_signatures(&session_id_str, &mapped_model);
+                .purge_corrupted_signatures(&store_key, &mapped_model);
             crate::proxy::SignatureCache::global().delete_session_signature(&client_session_id);
 
             // [FIX Prompt-Cache] 严禁在重试路径中注入合成消息 (close_tool_loop_for_thinking)！
@@ -1720,8 +1712,8 @@ pub async fn handle_messages(
         // 之后该 sessionId 的所有请求都 400 "input token count exceeds ... 1048576"。
         // 给 (账号, 对话) 的 sessionId 升代并立即重试:新 sessionId = 上游全新会话,对话无感恢复。
         if status_code == 400 && error_text.contains("exceeds the maximum number of tokens") {
-            let fingerprint = session_id_str.as_str();
-            let generation = crate::proxy::common::session::bump_session(&account_id, fingerprint);
+            let generation =
+                crate::proxy::common::session::bump_session(&account_id, &affinity_key);
             tracing::warn!(
                 "[Claude] Upstream session token accumulation exceeded 1M on account {}. sessionId bumped to generation {}, retrying with a fresh upstream session.",
                 email, generation

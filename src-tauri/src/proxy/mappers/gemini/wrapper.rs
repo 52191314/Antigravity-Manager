@@ -13,6 +13,7 @@ pub fn wrap_request_v2(
     _token_manager: Option<&std::sync::Arc<crate::proxy::TokenManager>>,
     // 内容压缩已不再在网关执行。参数保留，避免改动各协议调用点。
     _upstream: Option<&std::sync::Arc<crate::proxy::upstream::client::UpstreamClient>>,
+    upstream_session_id: Option<&str>,
 ) -> Value {
     // 优先使用传入的 mapped_model，其次尝试从 body 获取
     let original_model = body
@@ -788,7 +789,7 @@ pub fn wrap_request_v2(
     // [ADDED v4.1.24] 注入基于账号的稳定 sessionId
     // [FIX session-1M] 混入对话指纹与代数,不同对话隔离服务端会话,1M 累计报错后 bump 自愈
     if let Some(account_id_str) = account_id {
-        let fingerprint = session_id.unwrap_or("default");
+        let fingerprint = upstream_session_id.or(session_id).unwrap_or("default");
         let generation = crate::proxy::common::session::current_bump(account_id_str, fingerprint);
         inner_request["sessionId"] = json!(crate::proxy::common::session::derive_session_scoped(
             account_id_str,
@@ -797,7 +798,7 @@ pub fn wrap_request_v2(
         ));
     }
 
-    let sid = session_id.unwrap_or("default");
+    let sid = upstream_session_id.or(session_id).unwrap_or("default");
 
     // [NEW] 1. requestId：官方 5 段形态，三适配器共用。
     // 含 unixMs 保证幂等隔离（避免重试命中上一次的 429 / 旧缓存），形态也与其他入口一致。
@@ -1228,6 +1229,7 @@ pub fn wrap_request(
         token,
         None, // token_manager：不带 → Layer-3 本就不会触发
         None, // upstream：同上，无需客户端
+        None,
     )
 }
 static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());

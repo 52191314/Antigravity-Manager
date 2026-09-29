@@ -1144,8 +1144,14 @@ pub struct EndSessionResult {
 
 #[derive(Debug, Clone)]
 pub struct SessionScope {
+    /// 带内容锚点的会话号。思维库与签名缓存用它，主子 agent 因此不串。
     pub client_id: String,
+    /// `{tenant}:{client_id}`。思维库、签名缓存的存储键。
     pub store_key: String,
+    /// 不含内容锚点的稳定会话号。只在存在显式会话头、query 或 body 会话号时与 `client_id` 分开。
+    pub affinity_id: String,
+    /// `{tenant}:{affinity_id}`。账号粘性与上游 `sessionId` 用它，审批前缀变化不再换账号。
+    pub affinity_key: String,
 }
 
 impl SessionScope {
@@ -1173,6 +1179,22 @@ impl SessionScope {
         let query_sid = extract_query_session_id(headers, query);
         let body_sid = extract_body_session_id(body);
 
+        // 显式会话身份存在时，账号粘性不再混入会漂移的内容锚点。
+        // 思维库始终混入锚点，主子 agent / 审批请求的签名不会并到一起。
+        let has_stable_identity =
+            !session_headers.is_empty() || query_sid.is_some() || body_sid.is_some();
+        let affinity_anchor = if has_stable_identity {
+            ""
+        } else {
+            fallback.as_str()
+        };
+        let affinity_id = derive_blended_session_id(
+            &tenant,
+            &session_headers,
+            query_sid.as_deref(),
+            body_sid.as_deref(),
+            affinity_anchor,
+        );
         let client_id = derive_blended_session_id(
             &tenant,
             &session_headers,
@@ -1181,9 +1203,12 @@ impl SessionScope {
             &fallback,
         );
         let store_key = format!("{}:{}", tenant, client_id);
+        let affinity_key = format!("{}:{}", tenant, affinity_id);
         Self {
             client_id,
             store_key,
+            affinity_id,
+            affinity_key,
         }
     }
 }
@@ -2173,10 +2198,10 @@ pub fn extract_body_session_id(body: Option<&Value>) -> Option<String> {
     None
 }
 
-/// 3D 正交确定性会话混淆哈希生成：
-/// 1. 租户隔离 (Tenant Key)
-/// 2. 客户端显式会话语义头集合 (Sorted Session Headers + Query + Body)
-/// 3. 会话根锚点指纹 (Fallback Root User Prompt + Full System Prompt + Tools)
+/// 正交确定性会话哈希：
+/// 1. 租户（API Key / Authorization）
+/// 2. 稳定会话身份（排序后的会话语义头 + query + body 会话号）
+/// 3. 内容锚点（首条用户消息 + system + tools）。账号粘性在第 2 维存在时省略第 3 维。
 pub fn derive_blended_session_id(
     tenant: &str,
     session_headers: &std::collections::BTreeMap<String, String>,
@@ -3420,10 +3445,20 @@ mod tests {
         assert_eq!(scope_turn1.client_id, scope_turn2.client_id);
         assert_eq!(scope_turn1.store_key, scope_turn2.store_key);
 
-        // 2. 主 Agent 与 Subagent 在同一 CLI 进程下（相同 x-claude-code-session-id 但不同 Anchor） -> 绝对隔离！
+        // 2. 主 Agent 与 Subagent 共用 x-claude-code-session-id，锚点不同：
+        //    思维库隔离，账号粘性仍绑定同一会话。
         let scope_subagent = SessionScope::from_headers(&headers, "sid-subagent-distinct-prompt");
         assert_ne!(scope_turn1.client_id, scope_subagent.client_id);
         assert_ne!(scope_turn1.store_key, scope_subagent.store_key);
+        assert_eq!(scope_turn1.affinity_key, scope_subagent.affinity_key);
+        assert_eq!(scope_turn1.affinity_id, scope_subagent.affinity_id);
+
+        // 2b. 没有稳定会话身份时，锚点同时分开账号粘性，避免匿名并发对话并到同一账号。
+        let bare_a = SessionScope::from_headers(&HeaderMap::new(), "anchor-a");
+        let bare_b = SessionScope::from_headers(&HeaderMap::new(), "anchor-b");
+        assert_ne!(bare_a.affinity_key, bare_b.affinity_key);
+        assert_eq!(bare_a.affinity_key, bare_a.store_key);
+        assert_ne!(scope_turn1.affinity_key, bare_a.affinity_key);
 
         // 3. 不同租户多用户并发（不同 Authorization / API Key） -> 绝对隔离！
         let mut headers_user_a = headers.clone();
@@ -3435,6 +3470,7 @@ mod tests {
         let scope_user_b =
             SessionScope::from_headers(&headers_user_b, "sid-main-conversation-root");
         assert_ne!(scope_user_a.store_key, scope_user_b.store_key);
+        assert_ne!(scope_user_a.affinity_key, scope_user_b.affinity_key);
 
         // 4. Header 乱序注入时哈希绝对一致（BTreeMap 保证确定性排序）
         let mut headers_order1 = HeaderMap::new();
@@ -3448,6 +3484,7 @@ mod tests {
         let scope_ord1 = SessionScope::from_headers(&headers_order1, "anchor-1");
         let scope_ord2 = SessionScope::from_headers(&headers_order2, "anchor-1");
         assert_eq!(scope_ord1.client_id, scope_ord2.client_id);
+        assert_eq!(scope_ord1.affinity_key, scope_ord2.affinity_key);
 
         // 5. 跨协议相同显式会话头（如 Claude 切到 OpenAI）：相同会话锚点下 store_key 绝对一致共享，不同锚点下强隔离
         let mut claude_headers = HeaderMap::new();
@@ -3465,6 +3502,7 @@ mod tests {
             scope_claude.store_key, scope_openai.store_key,
             "Cross-protocol requests in the same session must share the identical store_key"
         );
+        assert_eq!(scope_claude.affinity_key, scope_openai.affinity_key);
     }
 
     #[test]

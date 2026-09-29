@@ -125,24 +125,16 @@ fn estimate_inline_data_tokens(mime_type: &str, data_len: usize) -> u32 {
 
 /// [FIX #3325] Estimate raw input tokens directly from an incoming JSON payload string (OpenAI, Claude, or Gemini format)
 /// Used as a fallback when upstream returns an error status (>=400) without token usage metadata.
+/// 接入 Pipeline 协议无关通用估算引擎与全局高并发内容哈希缓存。
 pub fn estimate_raw_tokens_from_payload(payload: &str) -> u32 {
     if payload.is_empty() {
         return 0;
     }
     if let Ok(json) = serde_json::from_str::<Value>(payload) {
-        // Try parsing as OpenAIRequest
-        if let Ok(openai_req) = serde_json::from_value::<OpenAIRequest>(json.clone()) {
-            return ContextManager::estimate_openai_token_usage(&openai_req);
-        }
-        // Try parsing as ClaudeRequest
-        if let Ok(claude_req) = serde_json::from_value::<ClaudeRequest>(json.clone()) {
-            return ContextManager::estimate_token_usage(&claude_req);
-        }
-        // Try estimating directly from Gemini contents/parts
-        return ContextManager::estimate_gemini_token_usage(&json);
+        return crate::proxy::pipeline::estimate_tokens(&json);
     }
     // Fallback: estimate from raw string
-    estimate_tokens_from_str(payload)
+    crate::proxy::pipeline::estimator::estimate_tokens_from_str(payload)
 }
 
 /// Strategy for context purification

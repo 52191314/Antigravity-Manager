@@ -9,6 +9,12 @@
             -   **根治 Claude 上游转译截断与 400 报错 (Fixes #3560, #3094)**: 彻底消除了单轮并发读取多图时随行图片插队阻断工具匹配状态机的问题。上游逆向转译器在面对 Claude 目标模型时，可连续无阻碍地完成上一轮所有 `tool_use` 与 `tool_result` 的 1:1 状态机闭环，彻底根除 `tool_use ids were found without tool_result blocks immediately after` 单侧缺失报错。
             -   **全模型拓扑同构衔接**: Gemini 原生目标模型（`role: "model"`）在双阶段分区后自然衔接随行媒体拆分逻辑（`zwx-patch`），产出纯净连续的 `model [fs1, fs2]` 与紧随其后的 `user [img1, img2]`，状态机零断层。
             -   **适配器瘦身与公共化收拢**: 清理 Claude 适配器（`claude/request.rs`）在循环内即时穿插 push 图片的局部缺陷，彻底废除历史残留的 `"result"` 方言统一对齐官方标准 `"output"`；工具回执空文本统一在流水线层注入 `"Command executed successfully."` 防幻觉兜底。
+        -   **[流水线协议无关 Token 估算引擎、Serde 缺省容错与终态安全规整] 彻底消除 Agent 算力致盲与 400 校验死锁，全协议共享高并发估算缓存 (Fixes #3561, #3562, Thanks to @cubelikeplayDaniel)**:
+            -   **协议无关通用 Token 估算引擎与全局高并发缓存 (`PipelineTokenEstimator`, Fixes #3562)**: 在流水线核心层引入跨协议通用的 `PipelineTokenEstimator` 与基于请求特征 SHA256 摘要的全局高并发内存缓存（`TokenEstimationCache`）。统一支持 Canonical Gemini IR、Claude、OpenAI 原生报文及多模态媒体计算；缓存命中 `< 0.05ms` 极速返回，彻底免除重复遍历长上下文的 CPU 负载与网络往返开销。
+            -   **Claude `/v1/messages/count_tokens` 官方 Schema 严格合规 (Fixes #3562)**: 彻底替换历史全零 Stub 占位，全面接入通用估算引擎；严格对齐 Anthropic 官方规范仅返回 `{"input_tokens": <int>}`，彻底移除非标冗余 `output_tokens` 字段，杜绝下游 SDK 类型校验报错与 Agent 上下文修剪“致盲”引发的窗口超限。
+            -   **Gemini 端点与离线降级极速感知**: Gemini `:countTokens` 全面接入通用估算作为离线/上游限流兜底；内部流量监控未携带上游 usage 时统一步调估算，全链路逻辑归一。
+            -   **Serde 反序列化缺省字段容错 (Fixes #3561)**: 为 `ContentBlock::ToolUse.input` 增加缺省空对象 `{}`，为 `ToolResult.content` 增加 `#[serde(default)]` 容错，并同步防御 `ServerToolUse` 与 `WebSearchToolResult`，彻底根治 Claude Code CLI 发起无参工具或空回执时触发的 `HTTP 400 untagged enum MessageContent` 报错。
+            -   **终态轮次安全规整斩断 Gemini 400 死锁 (Fixes #3561)**: 修正 `ensure_gemini_payload_ends_with_user` 防御逻辑。针对进站流水线把 Gemini 工具回执对齐为 `role: "model"` 的规范形态，只要末尾为 `model` 轮次（无论包含文本、`functionCall` 还是 `functionResponse`），一律注入中性合规 `user` 引导轮次，杜绝 Google Gemini 上游严格校验抛出 `400 Requests ending with a model turn are not supported`。
 
     *   **v4.8.6-beta.5 (2026-09-30)**:
         -   **[双向木桶约束与三维配额透镜] 仪表盘与迷你面板全面支持综合加权、5H滚动与7天周配额独立透镜切换，并受相互短板效应严密约束 (Fixes #3556)**:

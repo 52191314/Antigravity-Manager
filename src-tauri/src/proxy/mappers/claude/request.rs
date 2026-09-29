@@ -1357,6 +1357,7 @@ fn build_contents(
                                 }
                                 texts.join("\n")
                             }
+                            serde_json::Value::Null => String::new(),
                             _ => content.to_string(),
                         };
 

@@ -1302,11 +1302,18 @@ pub async fn execute_count_tokens(
     {
         Ok(t) => t,
         Err(e) => {
-            let headers = build_token_error_headers(Some(mapped_model.as_str()), None, &e);
+            tracing::warn!(
+                "[Gemini] Token acquisition failed for countTokens (error: {}), falling back to PipelineTokenEstimator",
+                e
+            );
+            let local_tokens = crate::proxy::pipeline::estimate_tokens(&body);
             return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                headers,
-                Json(json!({ "error": format!("Token error: {}", e) })),
+                StatusCode::OK,
+                [
+                    ("X-Account-Email", "offline-estimate"),
+                    ("X-Mapped-Model", mapped_model.as_str()),
+                ],
+                Json(json!({ "totalTokens": local_tokens })),
             )
                 .into_response();
         }
@@ -1316,7 +1323,7 @@ pub async fn execute_count_tokens(
     // [已验证] countTokens 与 generateContent 不同: 顶层只允许 "request" 键,
     // 携带 model/project 会被上游 400 拒绝 (Unknown name "model"/"project");
     // request 内的 safetySettings 同样不被接受 (对齐 CLIProxyAPI 的处理)
-    let mut inner_body = body;
+    let mut inner_body = body.clone();
     if let Some(obj) = inner_body.as_object_mut() {
         obj.remove("safetySettings");
     }
@@ -1339,9 +1346,18 @@ pub async fn execute_count_tokens(
     {
         Ok(r) => r,
         Err(e) => {
+            tracing::warn!(
+                "[Gemini] Upstream call error for countTokens ({}), falling back to PipelineTokenEstimator",
+                e
+            );
+            let local_tokens = crate::proxy::pipeline::estimate_tokens(&body);
             return (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({ "error": format!("Upstream call error: {}", e) })),
+                StatusCode::OK,
+                [
+                    ("X-Account-Email", email.as_str()),
+                    ("X-Mapped-Model", mapped_model.as_str()),
+                ],
+                Json(json!({ "totalTokens": local_tokens })),
             )
                 .into_response();
         }
@@ -1352,9 +1368,19 @@ pub async fn execute_count_tokens(
 
     if !status.is_success() {
         let err_text = response.text().await.unwrap_or_default();
-        return (
+        tracing::warn!(
+            "[Gemini] Upstream countTokens error (status: {}, body: {}), falling back to PipelineTokenEstimator",
             status,
-            Json(json!({ "error": format!("Upstream countTokens error: {}", err_text) })),
+            err_text
+        );
+        let local_tokens = crate::proxy::pipeline::estimate_tokens(&body);
+        return (
+            StatusCode::OK,
+            [
+                ("X-Account-Email", email.as_str()),
+                ("X-Mapped-Model", mapped_model.as_str()),
+            ],
+            Json(json!({ "totalTokens": local_tokens })),
         )
             .into_response();
     }

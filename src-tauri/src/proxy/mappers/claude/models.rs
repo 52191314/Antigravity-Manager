@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Claude API 请求
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ClaudeRequest {
     pub model: String,
     pub messages: Vec<Message>,
@@ -39,6 +39,9 @@ pub struct ClaudeRequest {
     pub size: Option<String>,
     #[serde(default)]
     pub quality: Option<String>,
+    /// Tool choice for forced or selective tool calling
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<serde_json::Value>,
 }
 
 /// Thinking 配置

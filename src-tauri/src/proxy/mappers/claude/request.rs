@@ -679,8 +679,16 @@ pub fn transform_claude_request_in_timed(
 
     if let Some(tools_val) = tools {
         inner_request["tools"] = tools_val;
-        // [REMOVED v4.8.2] toolConfig / tool_config 双写已移除：官方 Antigravity 报文不带该字段，
-        // 且 camelCase 与 snake_case 双份会写出一对矛盾配置 (VALIDATED)。已在协议无关节点统一移除。
+    }
+
+    // [tool_choice] 客户端有就传，没有就不传：
+    // 若客户端显式指定了 tool_choice，将其规范化映射为标准的 Gemini toolConfig
+    if let Some(tool_choice) = &claude_req.tool_choice {
+        if let Some(gemini_tc) =
+            crate::proxy::mappers::common_utils::map_claude_tool_choice_to_gemini(tool_choice)
+        {
+            inner_request["toolConfig"] = gemini_tc;
+        }
     }
 
     // [PIPELINE] 统一清洗提示词与风控伪 Header（含 [undefined] 深度清理，见 PromptSanitizer）
@@ -2042,6 +2050,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -2140,6 +2149,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -2211,6 +2221,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -2284,6 +2295,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -2344,6 +2356,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result = transform_claude_request_in(
@@ -2407,6 +2420,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -2459,6 +2473,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -2660,6 +2675,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -2698,6 +2714,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -2727,6 +2744,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         // Should cap
@@ -2767,6 +2785,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         // Transform
@@ -2811,6 +2830,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         // Transform
@@ -2859,6 +2879,7 @@ mod tests {
             output_config: None,
             size: Some("1024x1024".to_string()),
             quality: Some("hd".to_string()),
+            tool_choice: None,
         };
 
         // 3. Transform request
@@ -2918,6 +2939,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         // Transform
@@ -2971,6 +2993,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         // 模拟映射到 Gemini 2.0
@@ -3029,6 +3052,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         // 模拟映射到 Gemini 1.5
@@ -3193,6 +3217,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -3289,6 +3314,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -3380,6 +3406,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result = transform_claude_request_in(
@@ -3461,6 +3488,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -3505,6 +3533,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =
@@ -3543,6 +3572,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let result =

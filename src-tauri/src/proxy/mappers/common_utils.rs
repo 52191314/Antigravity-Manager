@@ -622,6 +622,88 @@ pub fn contains_non_networking_tool(tools: &Option<Vec<Value>>) -> bool {
     false
 }
 
+/// 将 Claude 的 tool_choice 规范化映射为 Google Gemini 标准的 toolConfig
+/// 遵循“客户端有就传，没有就不传”原则：支持 auto, any, tool, none 及字符串简写
+pub fn map_claude_tool_choice_to_gemini(tool_choice: &Value) -> Option<Value> {
+    if let Some(s) = tool_choice.as_str() {
+        match s.to_lowercase().as_str() {
+            "auto" => Some(json!({
+                "functionCallingConfig": { "mode": "AUTO" }
+            })),
+            "any" | "required" => Some(json!({
+                "functionCallingConfig": { "mode": "ANY" }
+            })),
+            "none" => Some(json!({
+                "functionCallingConfig": { "mode": "NONE" }
+            })),
+            _ => None,
+        }
+    } else if let Some(obj) = tool_choice.as_object() {
+        let choice_type = obj.get("type").and_then(Value::as_str)?;
+        match choice_type.to_lowercase().as_str() {
+            "auto" => Some(json!({
+                "functionCallingConfig": { "mode": "AUTO" }
+            })),
+            "any" => Some(json!({
+                "functionCallingConfig": { "mode": "ANY" }
+            })),
+            "tool" => {
+                let name = obj.get("name").and_then(Value::as_str)?;
+                Some(json!({
+                    "functionCallingConfig": {
+                        "mode": "ANY",
+                        "allowedFunctionNames": [name]
+                    }
+                }))
+            }
+            "none" => Some(json!({
+                "functionCallingConfig": { "mode": "NONE" }
+            })),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
+/// 将 OpenAI 的 tool_choice 规范化映射为 Google Gemini 标准的 toolConfig
+/// 遵循“客户端有就传，没有就不传”原则：支持 "auto", "required", "none" 及 {"type": "function", "function": {"name": "..."}}
+pub fn map_openai_tool_choice_to_gemini(tool_choice: &Value) -> Option<Value> {
+    if let Some(s) = tool_choice.as_str() {
+        match s.to_lowercase().as_str() {
+            "auto" => Some(json!({
+                "functionCallingConfig": { "mode": "AUTO" }
+            })),
+            "required" => Some(json!({
+                "functionCallingConfig": { "mode": "ANY" }
+            })),
+            "none" => Some(json!({
+                "functionCallingConfig": { "mode": "NONE" }
+            })),
+            _ => None,
+        }
+    } else if let Some(obj) = tool_choice.as_object() {
+        let choice_type = obj.get("type").and_then(Value::as_str);
+        if choice_type == Some("function") {
+            let func_name = obj
+                .get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(Value::as_str)
+                .or_else(|| obj.get("name").and_then(Value::as_str))?;
+            Some(json!({
+                "functionCallingConfig": {
+                    "mode": "ANY",
+                    "allowedFunctionNames": [func_name]
+                }
+            }))
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
 /// 检测是否携带任何工具定义 (无论是本地函数还是联网工具)
 pub fn has_any_tools(tools: &Option<Vec<Value>>) -> bool {
     if let Some(list) = tools {
@@ -2257,5 +2339,66 @@ mod defense_tests {
         let valid_res = validate_and_sanitize_inline_data(Some("image/png"), valid_png_b64);
         assert!(valid_res.is_some(), "完整有效的 PNG 图片必须正常通过校验");
         assert_eq!(valid_res.unwrap().0, "image/png");
+    }
+
+    #[test]
+    fn test_map_claude_tool_choice_to_gemini() {
+        // 1. auto
+        let auto_choice = json!({"type": "auto"});
+        let mapped = map_claude_tool_choice_to_gemini(&auto_choice).unwrap();
+        assert_eq!(mapped["functionCallingConfig"]["mode"], "AUTO");
+
+        // 2. any
+        let any_choice = json!({"type": "any"});
+        let mapped = map_claude_tool_choice_to_gemini(&any_choice).unwrap();
+        assert_eq!(mapped["functionCallingConfig"]["mode"], "ANY");
+
+        // 3. tool by name
+        let tool_choice = json!({"type": "tool", "name": "lookup_user"});
+        let mapped = map_claude_tool_choice_to_gemini(&tool_choice).unwrap();
+        assert_eq!(mapped["functionCallingConfig"]["mode"], "ANY");
+        assert_eq!(
+            mapped["functionCallingConfig"]["allowedFunctionNames"][0],
+            "lookup_user"
+        );
+
+        // 4. none
+        let none_choice = json!({"type": "none"});
+        let mapped = map_claude_tool_choice_to_gemini(&none_choice).unwrap();
+        assert_eq!(mapped["functionCallingConfig"]["mode"], "NONE");
+
+        // 5. invalid / absent
+        let invalid = json!({"type": "unknown_mode"});
+        assert!(map_claude_tool_choice_to_gemini(&invalid).is_none());
+    }
+
+    #[test]
+    fn test_map_openai_tool_choice_to_gemini() {
+        // 1. "auto"
+        let auto_choice = json!("auto");
+        let mapped = map_openai_tool_choice_to_gemini(&auto_choice).unwrap();
+        assert_eq!(mapped["functionCallingConfig"]["mode"], "AUTO");
+
+        // 2. "required"
+        let req_choice = json!("required");
+        let mapped = map_openai_tool_choice_to_gemini(&req_choice).unwrap();
+        assert_eq!(mapped["functionCallingConfig"]["mode"], "ANY");
+
+        // 3. "none"
+        let none_choice = json!("none");
+        let mapped = map_openai_tool_choice_to_gemini(&none_choice).unwrap();
+        assert_eq!(mapped["functionCallingConfig"]["mode"], "NONE");
+
+        // 4. {"type": "function", "function": {"name": "query_db"}}
+        let func_choice = json!({
+            "type": "function",
+            "function": { "name": "query_db" }
+        });
+        let mapped = map_openai_tool_choice_to_gemini(&func_choice).unwrap();
+        assert_eq!(mapped["functionCallingConfig"]["mode"], "ANY");
+        assert_eq!(
+            mapped["functionCallingConfig"]["allowedFunctionNames"][0],
+            "query_db"
+        );
     }
 }

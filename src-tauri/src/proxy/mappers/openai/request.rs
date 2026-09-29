@@ -1211,11 +1211,16 @@ pub fn transform_openai_request_with_session(
 
     if !function_declarations.is_empty() {
         inner_request["tools"] = json!([{ "functionDeclarations": function_declarations }]);
+    }
 
-        // [REMOVED v4.8.2] toolConfig / tool_config 双写已移除：官方 Antigravity 报文不带该字段，
-        // 且 camelCase 与 snake_case 双份会写出一对矛盾配置 (AUTO vs VALIDATED)。
-        // 工具调用行为在协议无关节点 (align_google_request_prefix_topology) 统一处理。
-        let _mode = None as Option<&str>;
+    // [tool_choice] 客户端有就传，没有就不传：
+    // 若客户端显式指定了 tool_choice，将其规范化映射为标准的 Gemini toolConfig
+    if let Some(tool_choice) = &request.tool_choice {
+        if let Some(gemini_tc) =
+            crate::proxy::mappers::common_utils::map_openai_tool_choice_to_gemini(tool_choice)
+        {
+            inner_request["toolConfig"] = gemini_tc;
+        }
     }
 
     let global_prompt_config = crate::proxy::config::get_global_system_prompt();

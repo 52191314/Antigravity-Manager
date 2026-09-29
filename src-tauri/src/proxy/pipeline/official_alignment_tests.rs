@@ -91,6 +91,57 @@ mod tests {
     }
 
     #[test]
+    fn test_tool_config_preserved_when_explicitly_provided() {
+        let mut inner_req = json!({
+            "contents": [
+                { "role": "user", "parts": [{ "text": "Call lookup" }] }
+            ],
+            "tools": [
+                {
+                    "functionDeclarations": [
+                        { "name": "lookup", "parameters": { "type": "object" } }
+                    ]
+                }
+            ],
+            "toolConfig": {
+                "functionCallingConfig": {
+                    "mode": "ANY",
+                    "allowedFunctionNames": ["lookup"]
+                }
+            }
+        });
+
+        InboundThinkingPipeline::align_google_request_prefix_topology_with_model(
+            &mut inner_req,
+            "gemini-2.5-flash",
+            None,
+        );
+
+        // 验证客户端显式指定的 toolConfig 得到完整保留，且键序严格位于 tools 之后、labels 之前
+        let tc = inner_req
+            .get("toolConfig")
+            .expect("toolConfig must be preserved");
+        assert_eq!(tc["functionCallingConfig"]["mode"], "ANY");
+        assert_eq!(
+            tc["functionCallingConfig"]["allowedFunctionNames"][0],
+            "lookup"
+        );
+
+        // 检查键序: tools -> toolConfig -> labels
+        let keys: Vec<&str> = inner_req
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|s| s.as_str())
+            .collect();
+        let tools_idx = keys.iter().position(|&k| k == "tools").unwrap();
+        let tc_idx = keys.iter().position(|&k| k == "toolConfig").unwrap();
+        let labels_idx = keys.iter().position(|&k| k == "labels").unwrap();
+        assert!(tools_idx < tc_idx);
+        assert!(tc_idx < labels_idx);
+    }
+
+    #[test]
     fn test_official_gemini_alignment() {
         let mut body = json!({
             "requestId": "agent/43461060-f160-43b5-829a-935ed4f20115/1790527686221/fc1f7a63-4efd-47dc-b800-1edad55edb1d/1",

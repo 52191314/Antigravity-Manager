@@ -15,6 +15,9 @@
             -   **Gemini 端点与离线降级极速感知**: Gemini `:countTokens` 全面接入通用估算作为离线/上游限流兜底；内部流量监控未携带上游 usage 时统一步调估算，全链路逻辑归一。
             -   **Serde 反序列化缺省字段容错 (Fixes #3561)**: 为 `ContentBlock::ToolUse.input` 增加缺省空对象 `{}`，为 `ToolResult.content` 增加 `#[serde(default)]` 容错，并同步防御 `ServerToolUse` 与 `WebSearchToolResult`，彻底根治 Claude Code CLI 发起无参工具或空回执时触发的 `HTTP 400 untagged enum MessageContent` 报错。
             -   **终态轮次安全规整斩断 Gemini 400 死锁 (Fixes #3561)**: 修正 `ensure_gemini_payload_ends_with_user` 防御逻辑。针对进站流水线把 Gemini 工具回执对齐为 `role: "model"` 的规范形态，只要末尾为 `model` 轮次（无论包含文本、`functionCall` 还是 `functionResponse`），一律注入中性合规 `user` 引导轮次，杜绝 Google Gemini 上游严格校验抛出 `400 Requests ending with a model turn are not supported`。
+        -   **[强制工具调用全协议治理与流水线透传保护] 贯彻客户端有就传没有就不传原则，彻底根治 tool_choice / functionCallingConfig 瘫痪 (Fixes #3562, Thanks to @cubelikeplayDaniel)**:
+            -   **适配器特性归一化 (`map_claude_tool_choice_to_gemini`, `map_openai_tool_choice_to_gemini`)**: 在 Claude 模型定义补齐 `tool_choice` 声明，并在 Claude 与 OpenAI 协议适配器中将客户端传入的 `tool_choice`（`auto`, `any`, `required`, `none`, 指定函数名等）精确翻译为 Google Gemini 标准的 `toolConfig.functionCallingConfig`，消除协议方言鸿沟。
+            -   **流水线拓扑治理原则落地（有就传，没有就不传）**: 彻底废除进站流水线一刀切强行剥除 `toolConfig` 的历史激进逻辑。客户端未指定时不主动伪造注入任何配置，100% 保持官方 IDE 干净拓扑同构；客户端显式指定时完整保留并置于 `tools` 之后有序发送至上游，彻底解禁各类 Coding Agent（LangChain、LlamaIndex 等）强制调用指定工具的核心能力。
 
     *   **v4.8.6-beta.5 (2026-09-30)**:
         -   **[双向木桶约束与三维配额透镜] 仪表盘与迷你面板全面支持综合加权、5H滚动与7天周配额独立透镜切换，并受相互短板效应严密约束 (Fixes #3556)**:

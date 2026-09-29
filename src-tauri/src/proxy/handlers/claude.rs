@@ -2423,6 +2423,7 @@ async fn try_compress_with_summary(
         output_config: None,
         size: None,
         quality: None,
+        tool_choice: None,
     };
 
     debug!(
@@ -2502,6 +2503,7 @@ async fn try_compress_with_summary(
         output_config: original_request.output_config.clone(),
         size: original_request.size.clone(),
         quality: original_request.quality.clone(),
+        tool_choice: original_request.tool_choice.clone(),
     })
 }
 
@@ -2562,6 +2564,7 @@ mod warmup_tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
         assert!(is_warmup_request(&exact_req));
 
@@ -2584,6 +2587,7 @@ mod warmup_tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
         assert!(!is_warmup_request(&real_question_req));
 
@@ -2610,6 +2614,7 @@ mod warmup_tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
         assert!(!is_warmup_request(&tool_error_req));
     }

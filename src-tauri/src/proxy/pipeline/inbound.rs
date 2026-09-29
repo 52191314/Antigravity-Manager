@@ -1416,10 +1416,20 @@ impl InboundThinkingPipeline {
             None
         };
 
-        // Windows 原生客户端（Gemini 与 Claude）带 tools 时都不发 toolConfig。
-        // 不注入 VALIDATED，已有的 toolConfig / tool_config 也去掉。
-        req_obj.remove("toolConfig");
-        req_obj.remove("tool_config");
+        // [Pipeline First] 客户端有就传，没有就不传：
+        // 提取客户端显式指定的 toolConfig（如由 Claude / OpenAI 适配器根据 tool_choice 翻译而来，或 Gemini 客户端显式指定）。
+        // 若客户端未传，绝不主动伪造或注入任何默认配置（与官方 IDE 原生报文保持 100% 干净拓扑同构）；
+        // 若客户端显式指定了有效配置（如 mode == ANY 或包含 allowedFunctionNames），必须予以完整保留并发送给上游！
+        let canonical_tool_config = req_obj
+            .remove("toolConfig")
+            .or_else(|| req_obj.remove("tool_config"))
+            .filter(|v| {
+                if let Some(obj) = v.as_object() {
+                    !obj.is_empty()
+                } else {
+                    false
+                }
+            });
 
         // 4. labels 提取保留与官方模型家族严密对齐:
         let mut canonical_labels = req_obj.remove("labels");
@@ -1605,6 +1615,9 @@ impl InboundThinkingPipeline {
         }
         if let Some(tools) = canonical_tools {
             reordered.insert("tools".to_string(), tools);
+        }
+        if let Some(tc) = canonical_tool_config {
+            reordered.insert("toolConfig".to_string(), tc);
         }
         if let Some(labels) = canonical_labels {
             reordered.insert("labels".to_string(), labels);

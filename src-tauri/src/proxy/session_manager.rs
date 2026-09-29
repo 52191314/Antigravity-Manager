@@ -388,6 +388,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let req_project_b = ClaudeRequest {
@@ -410,6 +411,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let sid_a = SessionManager::extract_session_id(&req_project_a);
@@ -444,6 +446,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let req_pure_chat = ClaudeRequest {
@@ -464,6 +467,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let sid_tools = SessionManager::extract_session_id(&req_with_tools);
@@ -492,6 +496,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
 
         let mut req_turn2 = req_turn1.clone();
@@ -540,6 +545,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
         let sid_claude = SessionManager::extract_session_id(&claude_req);
         assert!(sid_claude.starts_with("sid-"));
@@ -590,6 +596,7 @@ mod tests {
             output_config: None,
             size: None,
             quality: None,
+            tool_choice: None,
         };
         let sid_real = SessionManager::extract_session_id(&claude_user_req);
         assert!(sid_real.starts_with("sid-"));

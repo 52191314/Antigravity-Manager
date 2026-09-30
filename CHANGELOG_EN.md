@@ -3,6 +3,14 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.6-beta.8 (2026-09-30)**:
+        -   **[Gateway Architecture Purification & Third-Party Decoupling] Completely Remove z.ai Provider and Local MCP Toolchain, Fully Converge on Native Pipeline and Token Estimation**:
+            -   **Backend Adapters & Routes Slimming**: Thoroughly deleted `zai_anthropic.rs`, `zai_vision_tools.rs`, `zai_vision_mcp.rs`, along with legacy Axum server endpoints `/mcp/web_search_prime/mcp`, `/mcp/web_reader/mcp`, `/mcp/zai-mcp-server/mcp`, and `/zai/models/fetch`.
+            -   **Purify Claude Dispatching Pipeline**: Completely eradicated `use_zai` dispatching branches and exclusive/pooled/fallback routing logic from the Claude handler. `/v1/messages/count_tokens` now uniformly converges on the high-performance local token estimator, eliminating latency and dependencies on external services.
+            -   **Frontend UI & State Streamlining**: Removed the "z.ai (GLM) Dispatcher" and "MCP System" cards from the Service Configuration tab, cleaning up redundant model mapping states and IPC commands to reduce bundle size and runtime complexity.
+        -   **[Settings Usability Improvement] Add Visibility Switch for Relay Station**:
+            -   **Controllable Relay Station Visibility**: Added a dedicated visibility toggle for the Relay Station under "General Settings" -> "Menu Settings", allowing users to hide or display the sidebar entry on demand, persisted in `gui_config.json`.
+
     *   **v4.8.6-beta.7 (2026-09-30)**:
         -   **[Dashboard 5h Rolling Authentic Quota Display & Weekly Quota Clamping Decoupling] Fix 5h View Being Force-Overwritten by Weekly Quota, Faithfully Present 5h Rolling Quota with Clear Weekly Ceiling Constraint Badges (Fixes #3564)**:
             -   **Authentic 5h Bucket Data Source Alignment (`get5hQuota`)**: Fixed a data source flaw where the dashboard extracted 5h rolling metrics from the backend-fused `models` list instead of the native `quota_groups` 5h bucket, which caused 5h rolling pool averages to falsely mirror weekly numbers at 39%; prioritized parsing native 5h rolling bucket fractions from `quota_groups`.

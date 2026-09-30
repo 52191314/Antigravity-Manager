@@ -1861,7 +1861,6 @@ async fn admin_save_config(
         *security = crate::proxy::ProxySecurityConfig::from_proxy_config(&new_config.proxy);
     }
 
-
     // 更新实验性配置
     {
         let mut exp = state.experimental.write().await;
@@ -2132,7 +2131,6 @@ async fn admin_set_preferred_account(
         .await;
     StatusCode::OK
 }
-
 
 async fn admin_set_proxy_monitor_enabled(
     State(state): State<AppState>,

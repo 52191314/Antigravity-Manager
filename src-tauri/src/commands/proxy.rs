@@ -672,7 +672,6 @@ fn extract_model_ids(value: &serde_json::Value) -> Vec<String> {
     out
 }
 
-
 /// 获取当前调度配置
 #[tauri::command]
 pub async fn get_proxy_scheduling_config(

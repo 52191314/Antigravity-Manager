@@ -1961,10 +1961,7 @@ pub async fn handle_retrieve_model(
 /// 计算 tokens (Anthropic 官方 Messages Count Tokens API)
 /// 接入 Pipeline 协议无关通用估算引擎与全局高并发内容哈希缓存，
 /// 严格遵循官方 Schema 仅返回 input_tokens，彻底移除非标冗余 output_tokens 字段。
-pub async fn handle_count_tokens(
-    _headers: HeaderMap,
-    Json(body): Json<Value>,
-) -> Response {
+pub async fn handle_count_tokens(_headers: HeaderMap, Json(body): Json<Value>) -> Response {
     let input_tokens = crate::proxy::pipeline::estimate_tokens(&body);
 
     Json(json!({

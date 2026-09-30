@@ -3,6 +3,16 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.6-beta.9 (2026-09-30)**:
+        -   **[Claude Cowork 自愈状态机闭环与末尾指令确权] 引入纯单次消费型自愈状态机，并限定末尾指令与专属 Header 杜绝误判 (Fixes #3563, Thanks to @cubelikeplayDaniel)**:
+            -   **纯单次状态机歼灭终身免死**: 彻底攻克 Claude Desktop 压缩后首条消息固化 `<summary>` 导致后续数百轮会话被错误静态豁免、膨胀至 357k 仍不自愈的漏洞。重构为纯单次消费型状态机（`DashSet`），首条业务续写原子核销放行，绝不人为设限超时定时器（0 TTL），跨设备合盖休眠唤醒零误杀；后续轮次再次超限坚决返回 400 假报警，驱动客户端顺利进入第 2、第 3 轮深度自愈。
+            -   **末尾消息与专属 Header 确权加固**: 将 `is_compaction_request` 的 Prompt 文本扫描从全局收窄为仅检测当前末尾消息（`messages.last()`）和专属头 `x-stainless-helper: compaction`，彻底切断历史第 0 消息旧 `<summary>` 造成的请求属性混淆。
+        -   **[纯思考空回复流式自愈门禁] 进站流水线实现纯思考回复智能兜底，统一正文为 task ready (Pipeline First)**:
+            -   **空正文自动保全门禁**: 针对特定模型在开启深度思考时仅输出思考块却缺失正文文本的边缘情况，流水线统一在流式收尾处注入中性合规兜底文本 `"task ready"`，彻底解决部分客户端由于正文为空产生的界面渲染中断或解析异常。
+        -   **[Antigravity CLI (agy) 原生凭证双向同步与毫秒级过期防御] 补齐原生凭证文件同步并复用 Keyring 解析器 (Fixes #3567, Thanks to @brushax)**:
+            -   **CLI 原生凭证文件全链路打通**: 跨平台实时双向同步原生凭证文件 `~/.gemini/antigravity-cli/antigravity-oauth-token`，使官方 CLI 工具（agy）与网关账号切换完全同频。
+            -   **毫秒级时间戳防溢出防御**: 修复凭证过期时间解析逻辑，严密防范毫秒级时间戳（Unix timestamp in ms）被当作秒级处理导致的凭证提前过期或整数溢出。
+
     *   **v4.8.6-beta.8 (2026-09-30)**:
         -   **[Claude Cowork 响应式自愈状态机加固] 引入纯单次消费型接续免死标志 (One-Shot Post-Compaction Immunity)，彻底消灭静态消息扫描引发的「一次压缩终身免死」漏洞 (Fixes #3563, Thanks to @cubelikeplayDaniel)**:
             -   **纯单次消费型状态机 (Pure One-Shot State Machine)**: 针对 Claude Desktop 压缩后首条消息永久固化 `<summary>` 导致后续数百轮会话被错误静态豁免、膨胀至 357k 仍不自愈的漏洞，重构为动态单次消费型状态机。仅在分流 A（压缩总结请求）通过后向内存集合记录免死标识；首条接续重试请求到来时原子核销并放行，且绝不人为设定超时定时器，无论是即时接续还是跨设备休眠唤醒均安全承接；后续交互轮次若再次堆叠超限，坚决就地返回 400 假报警，顺利驱动客户端进入第 2、第 3 轮深度自愈。

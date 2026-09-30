@@ -26,7 +26,15 @@ use crate::proxy::model_specs;
 use crate::proxy::server::AppState;
 use crate::proxy::upstream::client::mask_email;
 use axum::http::HeaderMap;
-use std::sync::{atomic::Ordering, Arc}; // [NEW]
+use dashmap::DashMap;
+use std::sync::{atomic::Ordering, Arc, LazyLock};
+use std::time::Instant;
+
+/// 记录刚完成压缩总结的会话及时间戳，提供单次续写接续免死令牌 (One-Shot Post-Compaction Immunity Token)
+/// 彻底攻克“静态扫描消息导致一次压缩后终身免死无法再次压缩”的死穴 (Fixes #3563)
+static COMPACTION_ONE_SHOT_TOKENS: LazyLock<DashMap<String, Instant>> = LazyLock::new(DashMap::new);
+
+const COMPACTION_ONE_SHOT_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
 // ===== Task #6: OpenCode variants thinking config mapping =====
 // Helper structs for parsing thinking hints from raw JSON
@@ -646,6 +654,20 @@ pub async fn handle_messages(
     let scaling_enabled = experimental.enable_usage_scaling;
 
     // [全链路会话生命周期与自愈分流体系 (Pipeline First)]
+    // 提取会话唯一标识（优先提取产品专属会话头或内容锚点）
+    let session_key =
+        crate::proxy::thinking_store::stable_session_winner(&headers, Some(&original_body), None)
+            .unwrap_or_else(|| {
+                let anchor =
+                    crate::proxy::session_manager::SessionManager::extract_session_id(&request);
+                crate::proxy::thinking_store::derive_winner_session_id("anon", None, &anchor)
+            });
+
+    // 维持状态机容量
+    if COMPACTION_ONE_SHOT_TOKENS.len() > 1000 {
+        COMPACTION_ONE_SHOT_TOKENS.retain(|_, ts| ts.elapsed() <= COMPACTION_ONE_SHOT_TTL);
+    }
+
     // 分流 A: 客户端原生发起的压缩总结请求 (Compaction Summary Request) -> 生命线直通放行，绝对不误杀
     let is_compaction_header = headers
         .get("x-stainless-helper")
@@ -678,22 +700,32 @@ pub async fn handle_messages(
             crate::proxy::mappers::common_utils::is_compaction_request_text(sys_text)
         });
 
-    // 分流 B: 已完成压缩提纯的会话接续 (Post-Compaction Continuation) -> 赋予长上下文永久豁免保护，由 Gemini 1M 承接
-    let is_post_compaction = request.messages.iter().any(|m| {
-        let text = match &m.content {
-            crate::proxy::mappers::claude::models::MessageContent::String(s) => s.as_str(),
-            crate::proxy::mappers::claude::models::MessageContent::Array(blocks) => blocks
-                .iter()
-                .find_map(|b| match b {
-                    crate::proxy::mappers::claude::models::ContentBlock::Text { text } => {
-                        Some(text.as_str())
-                    }
-                    _ => None,
-                })
-                .unwrap_or(""),
-        };
-        crate::proxy::mappers::common_utils::is_post_compaction_continuation_text(text)
-    });
+    if is_compaction_request {
+        // [One-Shot Immunity Token] 为该会话发放单次免死令牌，有效期 300 秒
+        COMPACTION_ONE_SHOT_TOKENS.insert(session_key.clone(), Instant::now());
+        tracing::info!(
+            "[{}] [Lifecycle] Compaction summary request detected for session {}, issued one-shot immunity token",
+            trace_id, session_key
+        );
+    }
+
+    // 分流 B: 已完成压缩提纯的会话接续 (Post-Compaction Continuation)
+    // 采用“单次消费型状态机 (One-Shot Immunity Token)”:
+    // 仅豁免紧随压缩完成后的第 1 次续写请求（防止同一次交互内连续收到 400 触发客户端熔断）。
+    // 一旦消费核销，后续轮次若再次膨胀超限，将正常进入第 2、第 3 轮自愈，彻底根除“一次压缩终身免死”！
+    let is_post_compaction = if let Some((_, ts)) = COMPACTION_ONE_SHOT_TOKENS.remove(&session_key)
+    {
+        let valid = ts.elapsed() <= COMPACTION_ONE_SHOT_TTL;
+        if valid {
+            tracing::info!(
+                "[{}] [Lifecycle] Consumed one-shot post-compaction immunity token for session {}, granted 1M passthrough",
+                trace_id, session_key
+            );
+        }
+        valid
+    } else {
+        false
+    };
 
     // 分流 C: 超限自愈假报警触发门禁 (必须自定义开启 + 双重确权)
     // 铁律：普通 Agent 与未开启配置时，绝对不拦截，100% 享受 Gemini 百万超长上下文！

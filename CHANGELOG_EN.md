@@ -10,6 +10,9 @@
             -   **Frontend UI & State Streamlining**: Removed the "z.ai (GLM) Dispatcher" and "MCP System" cards from the Service Configuration tab, cleaning up redundant model mapping states and IPC commands to reduce bundle size and runtime complexity.
         -   **[Settings Usability Improvement] Add Visibility Switch for Relay Station**:
             -   **Controllable Relay Station Visibility**: Added a dedicated visibility toggle for the Relay Station under "General Settings" -> "Menu Settings", allowing users to hide or display the sidebar entry on demand, persisted in `gui_config.json`.
+        -   **[Documentation & CI Enhancement] Switch Default Homepage to English and Enable Bilingual Aggregated Release Notes**:
+            -   **Default English Homepage & Seamless Switching**: Set `README.md` as the default English homepage, moved the Chinese homepage to `README_ZH.md`, and synchronized bidirectional jump links in navigation headers across all docs.
+            -   **Bilingual Release Notes Aggregation**: Enhanced `.github/workflows/release.yml` to automatically aggregate English and Chinese changelogs into unified release notes for GitHub Releases, while maintaining full compatibility in `scripts/bump-version.mjs`.
 
     *   **v4.8.6-beta.7 (2026-09-30)**:
         -   **[Dashboard 5h Rolling Authentic Quota Display & Weekly Quota Clamping Decoupling] Fix 5h View Being Force-Overwritten by Weekly Quota, Faithfully Present 5h Rolling Quota with Clear Weekly Ceiling Constraint Badges (Fixes #3564)**:

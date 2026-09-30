@@ -428,6 +428,8 @@ fn write_to_system_keyring(account: &crate::models::Account) -> Result<(), Strin
     struct KeyringPayload {
         token: KeyringTokenDetails,
         auth_method: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id_token: Option<String>,
     }
 
     let payload_json = serde_json::to_string(&KeyringPayload {
@@ -438,6 +440,7 @@ fn write_to_system_keyring(account: &crate::models::Account) -> Result<(), Strin
             expiry: expiry_str,
         },
         auth_method: "consumer".to_string(),
+        id_token: account.token.id_token.clone(),
     })
     .map_err(|e| format!("Failed to serialize keyring JSON: {}", e))?;
 
@@ -681,7 +684,7 @@ fn write_to_system_keyring(account: &crate::models::Account) -> Result<(), Strin
     Ok(())
 }
 
-/// 辅助方法：同步写入本地文件凭据 (~/.gemini/oauth_creds.json 以及 ~/.gemini/google_accounts.json)
+/// 辅助方法：同步写入本地文件凭据 (~/.gemini/antigravity-cli/antigravity-oauth-token 以及 ~/.gemini/oauth_creds.json)
 /// 用于在 SSH 会话、容器环境或无系统 Keyring / D-Bus 的场景下保障 CLI/工具的凭据兼容性
 fn write_to_file_credentials(account: &crate::models::Account) -> Result<(), String> {
     let home = match dirs::home_dir() {
@@ -700,6 +703,73 @@ fn write_to_file_credentials(account: &crate::models::Account) -> Result<(), Str
         }
     }
 
+    // 1. 同步写入 Antigravity CLI (agy) 原生文件凭据: ~/.gemini/antigravity-cli/antigravity-oauth-token
+    // 兼容 SSH 会话、tmux、Docker 容器以及无 D-Bus 桌面环境
+    let agy_cli_dir = gemini_dir.join("antigravity-cli");
+    if !agy_cli_dir.exists() {
+        if let Err(e) = std::fs::create_dir_all(&agy_cli_dir) {
+            crate::modules::logger::log_warn(&format!(
+                "[Desktop] Failed to create antigravity-cli directory: {}",
+                e
+            ));
+        }
+    }
+
+    let expiry_datetime = chrono::DateTime::from_timestamp(account.token.expiry_timestamp, 0)
+        .unwrap_or_else(|| chrono::Utc::now());
+    let expiry_str = expiry_datetime.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+
+    #[derive(serde::Serialize)]
+    struct AgyTokenDetails {
+        access_token: String,
+        token_type: String,
+        refresh_token: String,
+        expiry: String,
+    }
+
+    #[derive(serde::Serialize)]
+    struct AgyOAuthTokenFile {
+        token: AgyTokenDetails,
+        auth_method: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id_token: Option<String>,
+    }
+
+    let agy_token = AgyOAuthTokenFile {
+        token: AgyTokenDetails {
+            access_token: account.token.access_token.clone(),
+            token_type: "Bearer".to_string(),
+            refresh_token: account.token.refresh_token.clone(),
+            expiry: expiry_str,
+        },
+        auth_method: "consumer".to_string(),
+        id_token: account.token.id_token.clone(),
+    };
+
+    let agy_token_path = agy_cli_dir.join("antigravity-oauth-token");
+    if let Ok(agy_json_str) = serde_json::to_string_pretty(&agy_token) {
+        if let Err(e) = std::fs::write(&agy_token_path, agy_json_str) {
+            crate::modules::logger::log_warn(&format!(
+                "[Desktop] Failed to write antigravity-oauth-token: {}",
+                e
+            ));
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(
+                    &agy_token_path,
+                    std::fs::Permissions::from_mode(0o600),
+                );
+            }
+            crate::modules::logger::log_info(&format!(
+                "[Desktop] Successfully synced file-based credentials to ~/.gemini/antigravity-cli/antigravity-oauth-token for: {}",
+                account.email
+            ));
+        }
+    }
+
+    // 2. 同步写入 Gemini CLI 凭据 (~/.gemini/oauth_creds.json 以及 ~/.gemini/google_accounts.json)
     let expiry_ms = if account.token.expiry_timestamp > 10_000_000_000 {
         account.token.expiry_timestamp
     } else {
@@ -774,13 +844,41 @@ fn write_to_file_credentials(account: &crate::models::Account) -> Result<(), Str
     Ok(())
 }
 
-/// 辅助方法：从本地文件凭据 (~/.gemini/oauth_creds.json) 读取 Token 作为跨平台回退
+/// 辅助方法：从本地文件凭据读取 Token 作为跨平台回退
 fn read_from_file_credentials() -> Result<crate::modules::migration::ImportedOAuthState, String> {
     let home =
         dirs::home_dir().ok_or_else(|| "Failed to resolve user home directory".to_string())?;
+
+    // 1. 优先尝试从 Antigravity CLI (agy) 原生文件凭据读取
+    let agy_token_path = home
+        .join(".gemini")
+        .join("antigravity-cli")
+        .join("antigravity-oauth-token");
+    if agy_token_path.exists() {
+        if let Ok(content) = fs::read_to_string(&agy_token_path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(refresh_token) = json
+                    .get("token")
+                    .and_then(|t| t.get("refresh_token"))
+                    .and_then(|v| v.as_str())
+                {
+                    return Ok(crate::modules::migration::ImportedOAuthState {
+                        refresh_token: refresh_token.to_string(),
+                        is_gcp_tos: true,
+                        project_id: None,
+                    });
+                }
+            }
+        }
+    }
+
+    // 2. 回退到 ~/.gemini/oauth_creds.json
     let creds_path = home.join(".gemini").join("oauth_creds.json");
     if !creds_path.exists() {
-        return Err("No ~/.gemini/oauth_creds.json found".to_string());
+        return Err(
+            "No file-based credentials found (~/.gemini/antigravity-cli/antigravity-oauth-token or ~/.gemini/oauth_creds.json)"
+                .to_string(),
+        );
     }
     let content = fs::read_to_string(&creds_path)
         .map_err(|e| format!("Failed to read oauth_creds.json: {}", e))?;

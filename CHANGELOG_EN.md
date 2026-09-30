@@ -3,6 +3,12 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.8.8 (2026-10-01)**:
+        -   **[Account Pool Scheduling Total Order Hardening & Panic Root-Cause Fix] Fix Rust Slice Sort Panic and Empty Reply Caused by Non-Transitive Reset Time Comparison (Fixes #3570, Thanks to @Xyloz3n)**:
+            -   **Strict Total Order Construction & Elimination of Flawed Threshold**: Removed the non-transitive 600-second threshold in `tokens_snapshot.sort_by`. When accounts had reset times straddling the 600s boundary, the comparator produced non-transitive equivalence cycles (A == B, B == C, but A < C), triggering internal Rust std `smallsort / driftsort` panics (`user-provided comparison function does not correctly implement a total order`) and sudden client disconnects (`Empty reply from server`). Refactored to direct scalar comparison `reset_a.cmp(&reset_b)`, mathematically guaranteeing total order under all account distributions.
+            -   **Deterministic Account ID Tie-Breaker**: Added `a.account_id.cmp(&b.account_id)` as a final tie-breaker when tier, quota, health score, and reset time are identical (e.g. during warmup clustering), ensuring stable, reproducible ordering even in highly homogeneous account pools.
+            -   **Unit Tests & Dense Account Pool Mock Regression**: Updated `compare_tokens` test harness; added `test_sorting_transitivity_no_panic_issue_3570` testing mathematical transitivity and `test_sorting_large_account_pool_dense_reset_times_issue_3570` stress-testing 200+ accounts with dense reset times without panic.
+
     *   **v4.8.7 (2026-09-30)**:
         -   **[Gemini Thought-Signature Hardening & Pipeline Defense] Enforce Priority for functionCall Thought Signatures, Full-History Outbound Auto-Heal Gatekeeper, and Streaming Thinking Auto-Heal (Fixes #3529, Fixes #3531, Ref #3535, Thanks to @EricZhou05, @Mortalit)**:
             -   **Prioritized Extraction for Mixed Tool Turns**: Fixed a traversal ordering vulnerability in `finalize_gemini_contents_thinking_with_session` and `place_turn_signature_scoped`. When an assistant turn contains both commentary `text` and `functionCall`, signature extraction strictly prioritizes `functionCall` parts under Gemini targets, preventing commentary text from stealing signatures and bypassing SQLite/L1 cache penetration recovery.

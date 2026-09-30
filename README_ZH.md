@@ -1,5 +1,5 @@
 # Antigravity Tools 🚀
-> 专业级 AI 账号管理与协议代理系统 (v4.8.7)
+> 专业级 AI 账号管理与协议代理系统 (v4.8.8)
 
 <div align="center">
   <img src="public/icon.png" width="100" height="100" alt="Antigravity Tools Logo">
@@ -11,7 +11,7 @@
       <img src="https://img.shields.io/github/v/release/lbjlaq/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
     </a>
     <a href="https://github.com/lbjlaq/Antigravity-Manager">
-      <img src="https://img.shields.io/badge/Version-4.8.7-blue?style=flat-square" alt="Version">
+      <img src="https://img.shields.io/badge/Version-4.8.8-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Frontend-React-61DAFB?style=flat-square" alt="React">
     <img src="https://img.shields.io/badge/License-CC--BY--NC--SA--4.0-lightgrey?style=flat-square" alt="License">
@@ -493,7 +493,7 @@ response = client.chat.completions.create(
 
 ## 📝 更新日志
 
-> 最新版本 **v4.8.7**（2026-09-30）：确立 Gemini 思维链与工具调用签名（thoughtSignature）最终防御铁律，出站门禁全历史扫描覆盖，实现纯思考空回复流式自愈门禁（Fixes #3529, #3531，感谢 @EricZhou05、@Mortalit）；首创 Claude Desktop Cowork 纯单次消费型自愈免死状态机，彻底消除「一次压缩终身免死」与 357k 穿透死锁（Fixes #3563, Ref #3566，感谢 @cubelikeplayDaniel）；引入协议无关通用 Token 估算引擎、Serde 缺省容错与空回合保护，彻底消除 Agent 算力致盲与 400 校验死锁（Fixes #3561, #3562，感谢 @cubelikeplayDaniel）；全面恢复全协议强制工具调用（tool_choice / toolConfig）与并发多图连续性（Fixes #3560, #3562, Ref #3094，感谢 @Xueshen6）；上线多模态滑动窗口历史脱水保鲜与顶级「模型配置」面板，支持 Antigravity CLI 原生凭证双向同步（PR #3567，感谢 @brushax）。
+> 最新版本 **v4.8.8**（2026-10-01）：彻底重构账号池优选排序算法，废除破坏数学全序传递性的 10 分钟模糊容差带并补全账号 ID 确定性决胜条件，根治高密度同质化账号池在调度阶段触发的 Rust sort panic 与请求空回复（Empty reply from server，Fixes #3570，感谢 @Xyloz3n）。
 
 👉 **[查看完整更新日志 CHANGELOG.md →](CHANGELOG.md)**
 

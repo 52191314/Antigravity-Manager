@@ -3,6 +3,12 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.8 (2026-10-01)**:
+        -   **[账号池调度算法严格全序治理与 Panic 根治] 修复重置时间比较函数破坏全序传递性导致的 Rust sort panic 与请求空回复 (Fixes #3570, Thanks to @Xyloz3n)**:
+            -   **严格全序关系构建与容差带彻底废除**: 彻底移除 `tokens_snapshot.sort_by` 中将相差小于 10 分钟（600 秒）视为等价的非传递性模糊容差逻辑。该逻辑在多账号候选池且 `reset_time` 分散跨越 600 秒边界时，必然构成 A == B, B == C 但 A < C 的非传递三元环，触发 Rust 1.81+ 标准库 `smallsort / driftsort` 内部断言 panic 并导致 HTTP 连接异常断开（Empty reply from server）。重构为严格的标量时间比较 `reset_a.cmp(&reset_b)`，从数学原理上彻底根除崩溃隐患。
+            -   **确定性 Tie-breaker 保底决胜机制**: 在订阅等级、目标模型配额、健康度以及重置时间均相同（如批量账号 warmup 对齐到同一秒）的极端同质化池场景下，引入 `a.account_id.cmp(&b.account_id)` 作为终极保底决胜条件，确保排序结果具备严格自反性、反对称性与传递性，排序结果稳定可预期。
+            -   **单元测试与高密度账号池 Mock 回归覆盖**: 同步重构 `compare_tokens` 测试比较函数；新增 `test_sorting_transitivity_no_panic_issue_3570` 验证三元反例传递性，以及 `test_sorting_large_account_pool_dense_reset_times_issue_3570` 针对 200+ 高密度账号池的真实场景无 panic 压力回归测试。
+
     *   **v4.8.7 (2026-09-30)**:
         -   **[Gemini 思维链与签名体系终极加固] 确立混合轮次优先从 functionCall 提取签名的铁律，出站门禁全历史扫描覆盖，并实现流式纯思考空回复自愈门禁 (Fixes #3529, Fixes #3531, Ref #3535, Thanks to @EricZhou05, @Mortalit)**:
             -   **混合轮次工具调用签名优先提取**: 彻底修复当 assistant 轮次同时包含说明正文（`text`）与工具调用（`functionCall`）时线性遍历导致的签名争抢漏洞。确立 Gemini 目标下强制优先从 `functionCall` 提取合法凭据的铁律，杜绝说明正文抢先霸占签名并反向绕过 SQLite/L1 工具签名缓存穿透找回机制。

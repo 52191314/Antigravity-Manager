@@ -674,11 +674,12 @@ pub async fn handle_messages(
         .map_or(false, |v| v.contains("compaction"));
 
     let is_compaction_request = is_compaction_header
-        || request.messages.iter().any(|m| {
+        || request.messages.last().map_or(false, |m| {
             let text = match &m.content {
                 crate::proxy::mappers::claude::models::MessageContent::String(s) => s.as_str(),
                 crate::proxy::mappers::claude::models::MessageContent::Array(blocks) => blocks
                     .iter()
+                    .rev()
                     .find_map(|b| match b {
                         crate::proxy::mappers::claude::models::ContentBlock::Text { text } => {
                             Some(text.as_str())

@@ -92,6 +92,27 @@ function Dashboard() {
 
         // 2. 单账号配额提取辅助函数
         const get5hQuota = (a: Account, modelKey: 'gemini-pro' | 'gemini-image' | 'claude'): number | null => {
+            const isClaude = modelKey === 'claude';
+            // 优先从 quota_groups 提取原生 5H 滚动配额桶
+            if (a.quota?.quota_groups) {
+                for (const group of a.quota.quota_groups) {
+                    const gname = group.display_name.toLowerCase();
+                    const matches = isClaude
+                        ? (gname.includes('claude') || gname.includes('gpt') || gname.includes('3p'))
+                        : (gname.includes('gemini') || (!gname.includes('claude') && !gname.includes('gpt') && !gname.includes('3p')));
+                    if (matches) {
+                        const bucket5h = group.buckets?.find(b =>
+                            b.window?.toLowerCase().includes('5h') ||
+                            b.bucket_id?.toLowerCase().includes('5h') ||
+                            b.window?.toLowerCase().includes('hour') ||
+                            b.bucket_id?.toLowerCase().includes('hour')
+                        );
+                        if (bucket5h && typeof bucket5h.remaining_fraction === 'number') {
+                            return Math.round(bucket5h.remaining_fraction * 100);
+                        }
+                    }
+                }
+            }
             if (modelKey === 'gemini-image') {
                 return findImageQuotaModel(a.quota?.models)?.percentage ?? null;
             }
@@ -528,11 +549,9 @@ function Dashboard() {
                     const getCardQuota = (stat: typeof stats.gemini) => {
                         if (quotaView === '5h') {
                             return {
-                                val: stat.constrainedAvg5h,
-                                label: stat.cappedCount > 0 || stat.zeroWeeklyCount > 0
-                                    ? t('dashboard.constrained_by_weekly', '5H可用 (周受限)')
-                                    : t('dashboard.view_mode_5h', '5H 滚动可用'),
-                                isTight: stat.constrainedAvg5h < 50,
+                                val: stat.avg5h,
+                                label: t('dashboard.view_mode_5h', '5H 滚动可用'),
+                                isTight: stat.avg5h < 50,
                             };
                         }
                         if (quotaView === 'weekly') {

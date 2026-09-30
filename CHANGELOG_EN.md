@@ -3,6 +3,12 @@
 > Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
 
 *   **Version History**:
+    *   **v4.8.6-beta.7 (2026-09-30)**:
+        -   **[Dashboard 5h Rolling Authentic Quota Display & Weekly Quota Clamping Decoupling] Fix 5h View Being Force-Overwritten by Weekly Quota, Faithfully Present 5h Rolling Quota with Clear Weekly Ceiling Constraint Badges (Fixes #3564)**:
+            -   **Authentic 5h Bucket Data Source Alignment (`get5hQuota`)**: Fixed a data source flaw where the dashboard extracted 5h rolling metrics from the backend-fused `models` list instead of the native `quota_groups` 5h bucket, which caused 5h rolling pool averages to falsely mirror weekly numbers at 39%; prioritized parsing native 5h rolling bucket fractions from `quota_groups`.
+            -   **Decoupled 5h Value Overwriting (`getModelConstrainedQuota`)**: Fixed the over-clamping logic that forcefully rewrote the primary display percentage to the weekly quota in `5h` mode. When switched to `5h Rolling`, the dashboard cards, current account cards, and MiniView faithfully display the authentic 5h percentage (e.g. 98%). Only when weekly quota is completely depleted (`<=0%`) is the 5h quota circuit-broken to 0%; when weekly quota is tight, a clear `[Capped: xx%]` badge and tooltip are displayed, completely eliminating user confusion regarding 5h view still rendering weekly limits.
+            -   **Current Account & MiniView Badge Synchronization (`CurrentAccount.tsx`, `MiniView.tsx`)**: Standardized the weekly limit constraint badge format to `[Capped: xx%]`, empowering users to see both their active 5-hour burst runway and their weekly macro ceiling at a glance.
+
     *   **v4.8.6-beta.6 (2026-09-30)**:
         -   **[Pipeline Stable Partitioning & Concurrent Multimodal Tool Result Normalization] Protocol-Agnostic Stable Partitioning in Inbound Pipeline Completely Eliminates Claude Upstream 400 Truncation Caused by Interleaved Tool Images (Fixes #3560, #3094, Thanks to @Xueshen6)**:
             -   **Protocol-Agnostic Stable Partitioning**: Enforced a stable two-phase partition across all tool response turns inside `InboundThinkingPipeline::normalize_function_response_roles`. Regardless of client protocol dialects or interleaved payload structures, the pipeline guarantees all `functionResponse` blocks are tightly consolidated at the front, while accompanying multimodal media (`inlineData`, images) and auxiliary content are stably deferred to the tail (`[fs1, fs2, ..., img1, img2, ...]`).

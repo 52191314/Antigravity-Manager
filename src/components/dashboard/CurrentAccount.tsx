@@ -75,11 +75,11 @@ function CurrentAccount({ account, quotaView = 'weighted', onSwitch }: CurrentAc
                         raw5h: q.raw5h,
                         rawWeekly: q.rawWeekly,
                         effective: q.effectivePercentage,
-                        defaultValue: `原始 5H 虽有 ${q.raw5h}%，但受周总配额 ${q.rawWeekly}% 封顶压制`,
+                        defaultValue: `5H 滚动剩余 ${q.raw5h}%，但受周总配额 ${q.rawWeekly}% 约束`,
                     })}
                 >
                     <AlertTriangle className="w-2.5 h-2.5" />
-                    {t('dashboard.mini_tag_constrained', '周限')}
+                    {t('dashboard.mini_tag_constrained', '周限')}: {q.rawWeekly}%
                 </span>
             );
         } else if (quotaView === 'weekly' && q.is5hCooling) {

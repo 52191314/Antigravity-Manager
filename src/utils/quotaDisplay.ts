@@ -111,13 +111,10 @@ export function getModelConstrainedQuota(
     let resetTime = fiveHourResetTime || weeklyResetTime;
 
     if (view === '5h') {
-        // 5H 模式：严格受周配额硬顶约束
+        // 5H 模式：展示真实 5H 滚动配额；若周配额耗尽 (<=0) 则触发熔断归零，若周配额偏紧则通过 isWeeklyConstrained 标识提示
         if (isWeeklyExhausted) {
             effectivePercentage = 0;
             resetTime = weeklyResetTime || fiveHourResetTime;
-        } else if (rawWeekly !== null && raw5h !== null && rawWeekly < raw5h) {
-            effectivePercentage = rawWeekly; // 被周额度强行封顶
-            resetTime = fiveHourResetTime || weeklyResetTime;
         } else {
             effectivePercentage = raw5h ?? rawWeekly ?? 0;
             resetTime = fiveHourResetTime || weeklyResetTime;

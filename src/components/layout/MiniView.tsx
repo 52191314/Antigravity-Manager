@@ -81,7 +81,7 @@ export default function MiniView() {
                 }
             } else {
                 // Fallback for web mode if needed, or import from package.json
-                setAppVersion('4.8.6-beta.6');
+                setAppVersion('4.8.6-beta.7');
             }
         };
         fetchVersion();
@@ -195,7 +195,7 @@ export default function MiniView() {
                             </span>
                         ) : quotaView === '5h' && q.isWeeklyConstrained && q.raw5h !== null && q.rawWeekly !== null ? (
                             <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400" title={t('dashboard.constrained_by_weekly_desc', { raw5h: q.raw5h, rawWeekly: q.rawWeekly, effective: p })}>
-                                [{t('dashboard.mini_tag_constrained', '周限')}]
+                                [{t('dashboard.mini_tag_constrained', '周限')}: {q.rawWeekly}%]
                             </span>
                         ) : quotaView === 'weekly' && q.is5hCooling ? (
                             <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400" title={t('dashboard.cooling_5h_desc', { rawWeekly: q.rawWeekly })}>

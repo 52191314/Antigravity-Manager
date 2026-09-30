@@ -1596,31 +1596,50 @@ pub fn finalize_gemini_contents_thinking_with_session(
             // [DECOUPLE 2026-09-26] 不再假设「签名只在 functionCall 上」——官方新规：
             // 任何轮的第一个非思考 part（正文 text 或 functionCall）都可能携带签名。
             // 凡非思考 part 自带合法签名即为 turn_real_sig。
-            let turn_real_sig: Option<String> = other_parts.iter().find_map(|p| {
-                if p.get("functionCall").is_some() || p.get("text").is_some() {
-                    let sig = p
-                        .get("thoughtSignature")
-                        .or_else(|| p.get("thought_signature"))
-                        .and_then(|s| s.as_str())
-                        .filter(|s| {
-                            if !is_claude_turn && *s == SENTINEL_SIGNATURE {
-                                true
+            // [2026-09-30] 针对 Gemini 目标：若存在 functionCall，强制优先提取 functionCall 自带签名，
+            // 避免前面紧随的 text 占位正文抢先占有签名导致工具调用校验失败。
+            let turn_real_sig: Option<String> = if !is_claude_turn
+                && other_parts.iter().any(|p| p.get("functionCall").is_some())
+            {
+                other_parts
+                    .iter()
+                    .filter(|p| p.get("functionCall").is_some())
+                    .find_map(|p| {
+                        let sig = p
+                            .get("thoughtSignature")
+                            .or_else(|| p.get("thought_signature"))
+                            .and_then(|s| s.as_str())
+                            .filter(|s| *s == SENTINEL_SIGNATURE || is_real_signature(s))
+                            .map(str::to_string);
+                        sig.filter(|s| s == SENTINEL_SIGNATURE || is_likely_gemini_signature(s))
+                    })
+            } else {
+                other_parts.iter().find_map(|p| {
+                    if p.get("functionCall").is_some() || p.get("text").is_some() {
+                        let sig = p
+                            .get("thoughtSignature")
+                            .or_else(|| p.get("thought_signature"))
+                            .and_then(|s| s.as_str())
+                            .filter(|s| {
+                                if !is_claude_turn && *s == SENTINEL_SIGNATURE {
+                                    true
+                                } else {
+                                    is_real_signature(s)
+                                }
+                            })
+                            .map(str::to_string);
+                        sig.filter(|s| {
+                            if is_claude_turn {
+                                is_claude_signature(s)
                             } else {
-                                is_real_signature(s)
+                                s == SENTINEL_SIGNATURE || is_likely_gemini_signature(s)
                             }
                         })
-                        .map(str::to_string);
-                    sig.filter(|s| {
-                        if is_claude_turn {
-                            is_claude_signature(s)
-                        } else {
-                            s == SENTINEL_SIGNATURE || is_likely_gemini_signature(s)
-                        }
-                    })
-                } else {
-                    None
-                }
-            });
+                    } else {
+                        None
+                    }
+                })
+            };
 
             // 1.1 Gemini 目标下工具调用签名多级检索与穿透回填：
             // ① 原生/传入 tool_id -> 内存 L1 + SQLite L2 (tool_signatures)
@@ -2365,20 +2384,50 @@ pub fn place_turn_signature_scoped(
     // 1. 签名抢救与提取（必须在任何清空或过滤之前执行）：
     // 必须经过严格校验（is_real_signature && is_likely_gemini_signature），只有合法才接受！
     // 客户端自带的脏签名/假签名直接视为 None 废弃，交由后序缓存、SQLite 及链式继承算法回填。
-    let own_sig = parts.iter().find_map(|p| {
-        p.get("thoughtSignature")
-            .or_else(|| p.get("thought_signature"))
-            .and_then(|s| s.as_str())
-            .filter(|s| {
-                *s == SENTINEL_SIGNATURE
-                    || (is_real_signature(s)
-                        && (is_likely_gemini_signature(s) || is_claude_signature(s)))
+    let has_fc = parts.iter().any(|p| p.get("functionCall").is_some());
+    let own_sig = if prefer_function_call && has_fc {
+        parts
+            .iter()
+            .filter(|p| p.get("functionCall").is_some())
+            .find_map(|p| {
+                p.get("thoughtSignature")
+                    .or_else(|| p.get("thought_signature"))
+                    .and_then(|s| s.as_str())
+                    .filter(|s| {
+                        *s == SENTINEL_SIGNATURE
+                            || (is_real_signature(s)
+                                && (is_likely_gemini_signature(s) || is_claude_signature(s)))
+                    })
+                    .map(str::to_string)
             })
-            .map(str::to_string)
-    });
+            .or_else(|| {
+                parts.iter().find_map(|p| {
+                    p.get("thoughtSignature")
+                        .or_else(|| p.get("thought_signature"))
+                        .and_then(|s| s.as_str())
+                        .filter(|s| {
+                            *s == SENTINEL_SIGNATURE
+                                || (is_real_signature(s)
+                                    && (is_likely_gemini_signature(s) || is_claude_signature(s)))
+                        })
+                        .map(str::to_string)
+                })
+            })
+    } else {
+        parts.iter().find_map(|p| {
+            p.get("thoughtSignature")
+                .or_else(|| p.get("thought_signature"))
+                .and_then(|s| s.as_str())
+                .filter(|s| {
+                    *s == SENTINEL_SIGNATURE
+                        || (is_real_signature(s)
+                            && (is_likely_gemini_signature(s) || is_claude_signature(s)))
+                })
+                .map(str::to_string)
+        })
+    };
 
     // 2. 占位文本清理：若本轮包含 functionCall，清理混入的无意义占位正文（如 "..."、"·" 等客户端/中间件遗留脏数据）
-    let has_fc = parts.iter().any(|p| p.get("functionCall").is_some());
     if has_fc {
         parts.retain(|p| {
             if p.get("functionCall").is_none() && !is_thought_part(p) {

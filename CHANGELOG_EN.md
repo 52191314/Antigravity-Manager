@@ -1,6 +1,6 @@
 # 📝 Changelog
 
-> Complete version history for Antigravity Tools. Return to project home at [README_EN.md](README_EN.md).
+> Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
     *   **v4.8.6-beta.8 (2026-09-30)**:

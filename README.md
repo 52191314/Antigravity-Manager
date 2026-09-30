@@ -1,5 +1,5 @@
 # Antigravity Tools 🚀
-> Professional Account Management & Protocol Proxy System for AI Services (v4.8.4)
+> Professional Account Management & Protocol Proxy System for AI Services (v4.8.7)
 
 <div align="center">
   <img src="public/icon.png" width="100" height="100" alt="Antigravity Tools Logo">
@@ -11,7 +11,7 @@
       <img src="https://img.shields.io/github/v/release/lbjlaq/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
     </a>
     <a href="https://github.com/lbjlaq/Antigravity-Manager">
-      <img src="https://img.shields.io/badge/Version-4.8.4-blue?style=flat-square" alt="Version">
+      <img src="https://img.shields.io/badge/Version-4.8.7-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square" alt="Tauri">
     <img src="https://img.shields.io/badge/Backend-Rust-red?style=flat-square" alt="Rust">
@@ -483,7 +483,7 @@ In clients that support OpenAI protocol (e.g., Cherry Studio), you can configure
 
 ## 📝 Changelog
 
-> Latest version **v4.8.4** (2026-09-27): Universal Tool Call ID canonicalization across pipeline, cache, and DB to eliminate multi-turn tool call 400 'missing thought_signature' errors (Fixes #3529, #3531, thanks to @Mortalit, @ddmixi); completely eliminated destructive Base64 decoding in Claude adapter, added native Protobuf signature support and full-pipeline in-place database write-back self-healing; dropped synthesized placeholder thinking blocks and ensured the first non-thought part in every turn carries the authoritative signature; added `check_native_update` native updater command with dynamic updater endpoints and browser download fallback; added Beta Docker pull instructions and JeikCode integration guide.
+> Latest version **v4.8.7** (2026-09-30): Enforced the final defense golden rule for Gemini thoughtSignature & tool calling with full-history outbound gatekeeper coverage and streaming empty-response auto-healing (Fixes #3529, #3531, thanks to @EricZhou05, @Mortalit); implemented the pure One-Shot Reactive Compaction State Machine for Claude Desktop Cowork, eliminating 357k context leaks and lifetime immunity deadlocks (Fixes #3563, Ref #3566, thanks to @cubelikeplayDaniel); added in-pipeline universal token estimation engine, Serde default tolerances, and terminal turn safety to eliminate context-trimming blindness and Gemini 400 errors (Fixes #3561, #3562, thanks to @cubelikeplayDaniel); completely restored forced tool choices (tool_choice / toolConfig) and concurrent multimodal tool_result continuity (Fixes #3560, #3562, Ref #3094, thanks to @Xueshen6); introduced multimodal sliding window historical eviction, top-level "Model Configuration" panel, and Antigravity CLI native token sync (PR #3567, thanks to @brushax).
 
 👉 **[View Full Changelog → CHANGELOG_EN.md](CHANGELOG_EN.md)**
 

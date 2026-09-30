@@ -1,5 +1,5 @@
 # Antigravity Tools 🚀
-> 专业级 AI 账号管理与协议代理系统 (v4.8.4)
+> 专业级 AI 账号管理与协议代理系统 (v4.8.7)
 
 <div align="center">
   <img src="public/icon.png" width="100" height="100" alt="Antigravity Tools Logo">
@@ -11,7 +11,7 @@
       <img src="https://img.shields.io/github/v/release/lbjlaq/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
     </a>
     <a href="https://github.com/lbjlaq/Antigravity-Manager">
-      <img src="https://img.shields.io/badge/Version-4.8.4-blue?style=flat-square" alt="Version">
+      <img src="https://img.shields.io/badge/Version-4.8.7-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Frontend-React-61DAFB?style=flat-square" alt="React">
     <img src="https://img.shields.io/badge/License-CC--BY--NC--SA--4.0-lightgrey?style=flat-square" alt="License">
@@ -493,7 +493,7 @@ response = client.chat.completions.create(
 
 ## 📝 更新日志
 
-> 最新版本 **v4.8.4**（2026-09-27）：全链路规范化 Tool Call ID（入站清洗、缓存索引与持久化双向兼容），彻底根治多轮思考工具调用 400 签名缺失报错（Fixes #3529, #3531，感谢 @Mortalit、@ddmixi）；彻底铲除 Claude 适配层破坏性 Base64 解码，支持原生 Protobuf 签名与全链路数据库在位反向自愈写回（In-Place Self-Healing Write-Back）；全面剔除合成的占位思考块，确保每轮首个非思考 Part（正文或工具）作为权威锚点稳定承载签名；新增原生更新检查指令 `check_native_update`、支持动态更新源与外链下载兜底；完善独立 Beta Docker 镜像拉取与 JeikCode 快速接入指南。
+> 最新版本 **v4.8.7**（2026-09-30）：确立 Gemini 思维链与工具调用签名（thoughtSignature）最终防御铁律，出站门禁全历史扫描覆盖，实现纯思考空回复流式自愈门禁（Fixes #3529, #3531，感谢 @EricZhou05、@Mortalit）；首创 Claude Desktop Cowork 纯单次消费型自愈免死状态机，彻底消除「一次压缩终身免死」与 357k 穿透死锁（Fixes #3563, Ref #3566，感谢 @cubelikeplayDaniel）；引入协议无关通用 Token 估算引擎、Serde 缺省容错与空回合保护，彻底消除 Agent 算力致盲与 400 校验死锁（Fixes #3561, #3562，感谢 @cubelikeplayDaniel）；全面恢复全协议强制工具调用（tool_choice / toolConfig）与并发多图连续性（Fixes #3560, #3562, Ref #3094，感谢 @Xueshen6）；上线多模态滑动窗口历史脱水保鲜与顶级「模型配置」面板，支持 Antigravity CLI 原生凭证双向同步（PR #3567，感谢 @brushax）。
 
 👉 **[查看完整更新日志 CHANGELOG.md →](CHANGELOG.md)**
 

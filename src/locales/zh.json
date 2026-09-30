@@ -167,7 +167,7 @@
     "view_mode_title_5h": "5H 滚动：近 5 小时冲刺可用度 (受周配额硬顶约束)",
     "view_mode_title_weekly": "7天周配额：本周宏观总预算 (受 5H 瞬时冷却阀门约束)",
     "constrained_by_weekly": "受周额度压制",
-    "constrained_by_weekly_desc": "原始 5H 虽有 {{raw5h}}%，但周总配额仅剩 {{rawWeekly}}%，当前有效上限被压制为 {{effective}}%",
+    "constrained_by_weekly_desc": "5H 滚动剩余 {{raw5h}}%，但受周总配额 {{rawWeekly}}% 限制",
     "cooling_5h": "5H 冷却中",
     "cooling_5h_desc": "本周总配额为 {{rawWeekly}}%，但当前 5H 滑动窗口已打满耗尽，处于即时冷却重置期",
     "weekly_exhausted_badge": "周额度熔断",

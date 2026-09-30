@@ -2391,6 +2391,23 @@ pub async fn handle_chat_completions(
                     meta,
                 );
 
+                // [Auto-Heal] 纯思考空回复流式自愈门禁 (Pipeline First)
+                let auto_heal_ctx = crate::proxy::pipeline::auto_heal::ThinkingAutoHealContext {
+                    upstream: upstream.clone(),
+                    method,
+                    access_token: access_token.clone(),
+                    original_body: gemini_body.clone(),
+                    query_string,
+                    extra_headers: extra_headers.clone(),
+                    account_id: Some(account_id.clone()),
+                    trace_id: trace_id.clone(),
+                };
+                let gemini_stream =
+                    crate::proxy::pipeline::auto_heal::wrap_stream_with_empty_thinking_auto_heal(
+                        Box::pin(gemini_stream),
+                        auto_heal_ctx,
+                    );
+
                 // [P1 FIX] Enhanced Peek logic to handle heartbeats and slow start
                 // Pre-read until we find meaningful content, skip heartbeats
                 use crate::proxy::mappers::openai::streaming::create_openai_sse_stream_with_anchor;
@@ -4039,7 +4056,7 @@ pub async fn handle_completions(
                 &access_token,
                 gemini_body.clone(),
                 query_string,
-                extra_headers,
+                extra_headers.clone(),
                 Some(account_id.as_str()),
             )
             .await
@@ -4089,6 +4106,23 @@ pub async fn handle_completions(
                     "upstream_response",
                     upstream_meta,
                 );
+
+                // [Auto-Heal] 纯思考空回复流式自愈门禁 (Pipeline First)
+                let auto_heal_ctx = crate::proxy::pipeline::auto_heal::ThinkingAutoHealContext {
+                    upstream: upstream.clone(),
+                    method: "streamGenerateContent",
+                    access_token: access_token.clone(),
+                    original_body: gemini_body.clone(),
+                    query_string: Some("alt=sse"),
+                    extra_headers: extra_headers.clone(),
+                    account_id: Some(account_id.clone()),
+                    trace_id: trace_id.clone(),
+                };
+                let gemini_stream =
+                    crate::proxy::pipeline::auto_heal::wrap_stream_with_empty_thinking_auto_heal(
+                        Box::pin(gemini_stream),
+                        auto_heal_ctx,
+                    );
 
                 // DECISION: Which stream to create?
                 // If client wants stream: give them what they asked (Legacy/Codex SSE).

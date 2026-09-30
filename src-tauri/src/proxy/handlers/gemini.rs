@@ -401,7 +401,7 @@ pub async fn handle_generate(
             .call_v1_internal_with_headers(
                 upstream_method,
                 &access_token,
-                wrapped_body,
+                wrapped_body.clone(),
                 query_string,
                 extra_headers.clone(),
                 Some(account_id.as_str()),
@@ -486,13 +486,30 @@ pub async fn handle_generate(
                     "status": status.as_u16(),
                     "upstream_url": upstream_url,
                 });
-                let mut response_stream = debug_logger::wrap_stream_with_debug(
+                let response_stream = debug_logger::wrap_stream_with_debug(
                     Box::pin(response.bytes_stream()),
                     debug_cfg.clone(),
                     trace_id.clone(),
                     "upstream_response",
                     meta,
                 );
+
+                // [Auto-Heal] 纯思考空回复流式自愈门禁 (Pipeline First)
+                let auto_heal_ctx = crate::proxy::pipeline::auto_heal::ThinkingAutoHealContext {
+                    upstream: upstream.clone(),
+                    method: upstream_method,
+                    access_token: access_token.clone(),
+                    original_body: wrapped_body.clone(),
+                    query_string,
+                    extra_headers: extra_headers.clone(),
+                    account_id: Some(account_id.clone()),
+                    trace_id: trace_id.clone(),
+                };
+                let mut response_stream =
+                    crate::proxy::pipeline::auto_heal::wrap_stream_with_empty_thinking_auto_heal(
+                        Box::pin(response_stream),
+                        auto_heal_ctx,
+                    );
                 let mut buffer = BytesMut::new();
                 let s_id = session_id.clone(); // Clone for stream closure
 

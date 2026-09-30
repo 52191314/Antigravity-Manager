@@ -1286,28 +1286,13 @@ impl InboundThinkingPipeline {
         // 1. contents (官方报文中 contents 置于首位)
         let mut canonical_contents = req_obj.remove("contents").unwrap_or(json!([]));
 
-        // [Gatekeeper 2026-09-29] Gemini 目标出站终审安全自愈门禁：
-        // Google Gemini 3+ 规则：活跃 Turn (从最后一个非 functionResponse 的真实 user 消息开始) 内
-        // 的所有多步工具调用 (Sequential Function Calling) 均强制校验 thoughtSignature。
-        // 若某个 functionCall 缺少签名，出站前统一自动注入官方合法哨兵 SENTINEL_SIGNATURE，彻底杜绝上游 400！
+        // [Gatekeeper 2026-09-29 / 2026-09-30 Pipeline First] Gemini 目标出站终审安全自愈门禁：
+        // Google Gemini 3+ 规则：全会话历史与活跃轮次中的所有工具调用 (Function Calling)
+        // 均被 Google AST 校验器严格强制检查 thoughtSignature。
+        // 若任意历史或活跃轮次的某个 functionCall 缺少签名，出站前统一自动注入官方合法哨兵 SENTINEL_SIGNATURE，彻底杜绝上游 400！
         if target_model.to_lowercase().contains("gemini") {
             if let Some(contents_arr) = canonical_contents.as_array_mut() {
-                let last_user_turn = contents_arr
-                    .iter()
-                    .rposition(|c| {
-                        c.get("role").and_then(|r| r.as_str()) == Some("user")
-                            && c.get("parts")
-                                .and_then(|p| p.as_array())
-                                .map_or(false, |parts| {
-                                    parts.iter().any(|p| {
-                                        p.get("functionResponse").is_none()
-                                            && p.get("text").is_some()
-                                    })
-                                })
-                    })
-                    .unwrap_or(0);
-
-                for content in &mut contents_arr[last_user_turn..] {
+                for content in contents_arr.iter_mut() {
                     if let Some(parts) = content.get_mut("parts").and_then(|p| p.as_array_mut()) {
                         for part in parts.iter_mut() {
                             if part.get("functionCall").is_some() {
@@ -1318,7 +1303,7 @@ impl InboundThinkingPipeline {
                                     .map_or(false, |s| !s.trim().is_empty());
                                 if !has_sig {
                                     tracing::warn!(
-                                        "[Gatekeeper] Found functionCall missing thoughtSignature in active turn, auto-injecting sentinel!"
+                                        "[Gatekeeper] Found functionCall missing thoughtSignature in turn, auto-injecting sentinel!"
                                     );
                                     part["thoughtSignature"] =
                                         json!(crate::proxy::thinking_store::SENTINEL_SIGNATURE);
@@ -3168,6 +3153,80 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some(crate::proxy::thinking_store::SENTINEL_SIGNATURE),
             "活跃 Turn 内缺失签名的工具调用出站时必须被安全门禁自动补齐哨兵签名"
+        );
+    }
+
+    #[test]
+    fn test_gatekeeper_auto_heals_missing_signature_in_deep_history() {
+        // [Pipeline First Gatekeeper] 验证远古历史轮次（处于最后真实 user 轮次之前）中的工具调用，
+        // 若因客户端协议转换或缓存丢失而缺少 thoughtSignature，出站门禁必须全量自愈并补齐哨兵，杜绝 Google 400 校验拦截！
+        let mut inner_request = json!({
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": "first question"}]
+                },
+                {
+                    "role": "model",
+                    "parts": [{
+                        "functionCall": {
+                            "name": "read_file",
+                            "id": "call_1104323",
+                            "args": {"path": "app.py"}
+                        }
+                    }]
+                },
+                {
+                    "role": "user",
+                    "parts": [{
+                        "functionResponse": {
+                            "name": "read_file",
+                            "id": "call_1104323",
+                            "response": {"output": "print('hello')"}
+                        }
+                    }]
+                },
+                {
+                    "role": "user",
+                    "parts": [{"text": "second question (latest user turn)"}]
+                },
+                {
+                    "role": "model",
+                    "parts": [{
+                        "functionCall": {
+                            "name": "edit",
+                            "id": "call_684458",
+                            "args": {"path": "app.py"}
+                        }
+                    }]
+                }
+            ]
+        });
+
+        InboundThinkingPipeline::align_google_request_prefix_topology_with_model(
+            &mut inner_request,
+            "gemini-3.8-flash-high",
+            Some("agent/test/456/deep/1"),
+        );
+
+        let contents = inner_request["contents"]
+            .as_array()
+            .expect("contents array");
+        // 远古历史中的 tool call (contents[1]) 必须补上哨兵
+        let historical_fc = &contents[1]["parts"][0];
+        assert_eq!(
+            historical_fc
+                .get("thoughtSignature")
+                .and_then(|v| v.as_str()),
+            Some(crate::proxy::thinking_store::SENTINEL_SIGNATURE),
+            "历史深处的工具调用若缺少签名，安全门禁必须全量补齐哨兵签名"
+        );
+        // 当前活跃的 tool call (contents[4]) 同样必须补上哨兵
+        let active_fc = &contents[4]["parts"][0];
+        assert_eq!(
+            active_fc.get("thoughtSignature").and_then(|v| v.as_str()),
+            Some(crate::proxy::thinking_store::SENTINEL_SIGNATURE),
+            "活跃轮次的工具调用若缺少签名，安全门禁必须补齐哨兵签名"
         );
     }
 

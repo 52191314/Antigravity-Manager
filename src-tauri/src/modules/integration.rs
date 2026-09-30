@@ -423,8 +423,13 @@ impl SystemIntegration for DesktopIntegration {
 /// 辅助方法：向宿主操作系统的 Keychain/Credentials Manager 写入 Token
 fn write_to_system_keyring(account: &crate::models::Account) -> Result<(), String> {
     // 1. 构建 Token 的 JSON Payload，并将过期时间戳格式化为符合 RFC3339 的带微秒格式
-    let expiry_datetime = chrono::DateTime::from_timestamp(account.token.expiry_timestamp, 0)
-        .unwrap_or_else(|| chrono::Utc::now());
+    let expiry_secs = if account.token.expiry_timestamp > 10_000_000_000 {
+        account.token.expiry_timestamp / 1000
+    } else {
+        account.token.expiry_timestamp
+    };
+    let expiry_datetime =
+        chrono::DateTime::from_timestamp(expiry_secs, 0).unwrap_or_else(|| chrono::Utc::now());
     let expiry_str = expiry_datetime.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
 
     #[derive(serde::Serialize)]
@@ -726,8 +731,13 @@ fn write_to_file_credentials(account: &crate::models::Account) -> Result<(), Str
         }
     }
 
-    let expiry_datetime = chrono::DateTime::from_timestamp(account.token.expiry_timestamp, 0)
-        .unwrap_or_else(|| chrono::Utc::now());
+    let expiry_secs = if account.token.expiry_timestamp > 10_000_000_000 {
+        account.token.expiry_timestamp / 1000
+    } else {
+        account.token.expiry_timestamp
+    };
+    let expiry_datetime =
+        chrono::DateTime::from_timestamp(expiry_secs, 0).unwrap_or_else(|| chrono::Utc::now());
     let expiry_str = expiry_datetime.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
 
     #[derive(serde::Serialize)]
@@ -867,18 +877,8 @@ fn read_from_file_credentials() -> Result<crate::modules::migration::ImportedOAu
         .join("antigravity-oauth-token");
     if agy_token_path.exists() {
         if let Ok(content) = fs::read_to_string(&agy_token_path) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(refresh_token) = json
-                    .get("token")
-                    .and_then(|t| t.get("refresh_token"))
-                    .and_then(|v| v.as_str())
-                {
-                    return Ok(crate::modules::migration::ImportedOAuthState {
-                        refresh_token: refresh_token.to_string(),
-                        is_gcp_tos: true,
-                        project_id: None,
-                    });
-                }
+            if let Ok(state) = parse_keyring_payload(&content) {
+                return Ok(state);
             }
         }
     }

@@ -1593,34 +1593,10 @@ pub fn finalize_gemini_contents_thinking_with_session(
                 .unwrap_or(false);
 
             // 1. 提取当前轮次已有合法的真实签名 (纯检查当前轮部件自带签名，必须严格校验合法性！)
-            // [DECOUPLE 2026-09-26] 不再假设「签名只在 functionCall 上」——官方新规：
-            // 任何轮的第一个非思考 part（正文 text 或 functionCall）都可能携带签名。
-            // 凡非思考 part 自带合法签名即为 turn_real_sig。
-            let turn_real_sig: Option<String> = other_parts.iter().find_map(|p| {
-                if p.get("functionCall").is_some() || p.get("text").is_some() {
-                    let sig = p
-                        .get("thoughtSignature")
-                        .or_else(|| p.get("thought_signature"))
-                        .and_then(|s| s.as_str())
-                        .filter(|s| {
-                            if !is_claude_turn && *s == SENTINEL_SIGNATURE {
-                                true
-                            } else {
-                                is_real_signature(s)
-                            }
-                        })
-                        .map(str::to_string);
-                    sig.filter(|s| {
-                        if is_claude_turn {
-                            is_claude_signature(s)
-                        } else {
-                            s == SENTINEL_SIGNATURE || is_likely_gemini_signature(s)
-                        }
-                    })
-                } else {
-                    None
-                }
-            });
+            // [Pipeline First] 若存在 functionCall 强制优先从 functionCall 提取合法签名，
+            // 避免前面紧随的 text 说明正文误抢签名导致真实工具调用凭据丢失或绕过 tool_signatures 穿透查库。
+            let turn_real_sig =
+                extract_turn_signature(&other_parts, !is_claude_turn, is_claude_turn);
 
             // 1.1 Gemini 目标下工具调用签名多级检索与穿透回填：
             // ① 原生/传入 tool_id -> 内存 L1 + SQLite L2 (tool_signatures)
@@ -2334,6 +2310,59 @@ pub fn find_turn_anchor_with(parts: &[Value], prefer_function_call: bool) -> Opt
     parts.iter().position(|p| !is_thought_part(p))
 }
 
+/// 从单个部件中提取合法签名（若有）。
+/// `is_claude`: 若为 true 则校验 Claude 签名形态，若为 false 则允许官方哨兵或 Gemini 签名形态。
+pub fn extract_part_signature(part: &Value, is_claude: bool) -> Option<String> {
+    let raw = part
+        .get("thoughtSignature")
+        .or_else(|| part.get("thought_signature"))
+        .and_then(|s| s.as_str())?;
+
+    if is_claude {
+        if is_real_signature(raw) && is_claude_signature(raw) {
+            Some(raw.to_string())
+        } else {
+            None
+        }
+    } else {
+        if raw == SENTINEL_SIGNATURE || (is_real_signature(raw) && is_likely_gemini_signature(raw))
+        {
+            Some(raw.to_string())
+        } else {
+            None
+        }
+    }
+}
+
+/// 从一轮部件切片中提取本轮合法签名：
+/// 若 `prefer_function_call` 为 true 且当前切片中存在 `functionCall`，
+/// 强制优先从 `functionCall` 部件中提取签名，确保工具调用的合法凭据不被前面的说明文本抢先占有；
+/// 若 `functionCall` 未携带签名或为纯正文轮次，则回退查找非思考普通部件自带的签名。
+pub fn extract_turn_signature(
+    parts: &[Value],
+    prefer_function_call: bool,
+    is_claude: bool,
+) -> Option<String> {
+    let has_fc = parts.iter().any(|p| p.get("functionCall").is_some());
+    if prefer_function_call && has_fc {
+        parts
+            .iter()
+            .filter(|p| p.get("functionCall").is_some())
+            .find_map(|p| extract_part_signature(p, is_claude))
+            .or_else(|| {
+                parts
+                    .iter()
+                    .filter(|p| !is_thought_part(p))
+                    .find_map(|p| extract_part_signature(p, is_claude))
+            })
+    } else {
+        parts
+            .iter()
+            .filter(|p| !is_thought_part(p))
+            .find_map(|p| extract_part_signature(p, is_claude))
+    }
+}
+
 /// 官方报文对齐规范：为 model 轮次将签名归位到正确的锚点。
 ///
 /// 由官方报文归纳出的硬约束：
@@ -2364,21 +2393,11 @@ pub fn place_turn_signature_scoped(
 ) -> Option<String> {
     // 1. 签名抢救与提取（必须在任何清空或过滤之前执行）：
     // 必须经过严格校验（is_real_signature && is_likely_gemini_signature），只有合法才接受！
-    // 客户端自带的脏签名/假签名直接视为 None 废弃，交由后序缓存、SQLite 及链式继承算法回填。
-    let own_sig = parts.iter().find_map(|p| {
-        p.get("thoughtSignature")
-            .or_else(|| p.get("thought_signature"))
-            .and_then(|s| s.as_str())
-            .filter(|s| {
-                *s == SENTINEL_SIGNATURE
-                    || (is_real_signature(s)
-                        && (is_likely_gemini_signature(s) || is_claude_signature(s)))
-            })
-            .map(str::to_string)
-    });
+    // 优先抢救 functionCall 自带的真实签名，无工具调用时抢救首个非思考正文部件签名。
+    let has_fc = parts.iter().any(|p| p.get("functionCall").is_some());
+    let own_sig = extract_turn_signature(parts, prefer_function_call, !prefer_function_call);
 
     // 2. 占位文本清理：若本轮包含 functionCall，清理混入的无意义占位正文（如 "..."、"·" 等客户端/中间件遗留脏数据）
-    let has_fc = parts.iter().any(|p| p.get("functionCall").is_some());
     if has_fc {
         parts.retain(|p| {
             if p.get("functionCall").is_none() && !is_thought_part(p) {
@@ -2395,11 +2414,26 @@ pub fn place_turn_signature_scoped(
     // 3. 锚点确定：有工具调用则必须锚定首个 functionCall；无工具调用则锚定首个非思考正文
     let anchor = find_turn_anchor_with(parts, prefer_function_call)?;
 
-    // 4. 全量清空，保证非锚点 part 的签名字段确实"缺席"
-    for part in parts.iter_mut() {
+    // 4. 全量清空非目标部件签名，保证非目标 part 的签名字段确实"缺席"
+    for (idx, part) in parts.iter_mut().enumerate() {
+        if idx == anchor {
+            continue;
+        }
         if let Some(obj) = part.as_object_mut() {
-            obj.remove("thoughtSignature");
-            obj.remove("thought_signature");
+            // [Pipeline First] 非锚点部件全量清空误挂的签名（如 text / thought / functionResponse）
+            // 但如果当前部件本身也是一个携带了有效签名的 functionCall，予以保留，杜绝抹除并发工具的独立签名
+            let is_signed_fc = prefer_function_call
+                && obj.contains_key("functionCall")
+                && obj
+                    .get("thoughtSignature")
+                    .or_else(|| obj.get("thought_signature"))
+                    .and_then(|s| s.as_str())
+                    .map_or(false, |s| s == SENTINEL_SIGNATURE || is_real_signature(s));
+
+            if !is_signed_fc {
+                obj.remove("thoughtSignature");
+                obj.remove("thought_signature");
+            }
         }
     }
 
@@ -4974,6 +5008,57 @@ mod signature_placement_tests {
         assert_eq!(
             parts[1]["thoughtSignature"], sig,
             "签名必须落在 functionCall 上"
+        );
+    }
+
+    #[test]
+    fn test_extract_turn_signature_prioritizes_function_call_for_gemini() {
+        // [Pipeline First] 测试混合轮次中签名提取优先级：
+        // Gemini 目标下，若 functionCall 带有签名，必须强制优先提取 functionCall 上的签名，
+        // 杜绝前面紧随的说明正文（text）抢走签名导致工具调用凭据失效。
+        let text_sig = gemini_sig(101);
+        let fc_sig = gemini_sig(102);
+
+        let parts = vec![
+            json!({ "text": "Analyzing the request...", "thoughtSignature": text_sig }),
+            json!({ "functionCall": { "id": "call_test", "name": "read" }, "thoughtSignature": fc_sig }),
+        ];
+
+        // 1. Gemini (prefer_function_call = true) -> 优先提取 functionCall 的签名 fc_sig
+        let gemini_extracted = extract_turn_signature(&parts, true, false);
+        assert_eq!(gemini_extracted.as_deref(), Some(fc_sig.as_str()));
+
+        // 2. Claude (prefer_function_call = false) -> 提取首个非思考部件的签名 text_sig
+        let claude_sig_str = "AQ".to_string() + &"A".repeat(50);
+        let claude_parts = vec![
+            json!({ "text": "Analyzing...", "thoughtSignature": claude_sig_str }),
+            json!({ "functionCall": { "id": "call_test", "name": "read" } }),
+        ];
+        let claude_extracted = extract_turn_signature(&claude_parts, false, true);
+        assert_eq!(claude_extracted.as_deref(), Some(claude_sig_str.as_str()));
+    }
+
+    #[test]
+    fn test_place_turn_signature_preserves_valid_signatures_on_parallel_tools() {
+        // [Pipeline First] 并发工具调用场景：
+        // 若第二个 functionCall 自带有效签名，Gemini 目标下绝不能将其粗暴剥离为缺席！
+        let sig1 = gemini_sig(201);
+        let sig2 = gemini_sig(202);
+
+        let mut parts = vec![
+            json!({ "functionCall": { "id": "call_1", "name": "read_file" }, "thoughtSignature": sig1 }),
+            json!({ "functionCall": { "id": "call_2", "name": "edit_file" }, "thoughtSignature": sig2 }),
+        ];
+
+        place_turn_signature(&mut parts, None);
+
+        assert_eq!(
+            parts[0]["thoughtSignature"], sig1,
+            "首个工具调用保持自身签名"
+        );
+        assert_eq!(
+            parts[1]["thoughtSignature"], sig2,
+            "并发的第二个工具调用有效签名绝不被误删"
         );
     }
 

@@ -3,6 +3,12 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.8.6-beta.10 (2026-09-30)**:
+        -   **[Gemini Thought-Signature Priority & Full-History Auto-Heal Gatekeeper] Enforce thoughtSignature extraction priority for tool calls and expand outbound gatekeeper across entire history to eliminate Google HTTP 400 (Fixes #3529, Fixes #3531, Ref #3535, Thanks to @EricZhou05)**:
+            -   **Prioritized Extraction for Mixed Tool Turns**: Fixed a traversal ordering vulnerability in `finalize_gemini_contents_thinking_with_session` and `place_turn_signature_scoped`. When an assistant turn contains both commentary `text` and `functionCall`, signature extraction strictly prioritizes `functionCall` parts, preventing commentary text from stealing `turn_real_sig` and bypassing the SQLite/L1 cache penetration recovery flow.
+            -   **Parallel Tool Call Signature Preservation**: Refined non-anchor part sanitation. While ensuring signatures on `text` and `thought` parts are cleaned, valid signatures already present on subsequent `functionCall` parts in parallel tool calling turns are strictly preserved.
+            -   **Full-History Outbound Auto-Heal Gatekeeper (Pipeline First)**: Expanded the `InboundThinkingPipeline` outbound safety gatekeeper to scan the entire conversation history instead of only `[last_user_turn..]`. Any historical or active `functionCall` missing a signature is automatically backfilled with Google's official `SENTINEL_SIGNATURE` (`skip_thought_signature_validator`), guaranteeing zero HTTP 400 errors from Google's strict validator.
+
     *   **v4.8.6-beta.9 (2026-09-30)**:
         -   **[Claude Cowork Reactive Compact State Machine & Tail Directive Verification] Introduce Pure One-Shot Consumption State Machine and Restrict Prompt Verification to Tail Directive (Fixes #3563, Thanks to @cubelikeplayDaniel)**:
             -   **Pure One-Shot State Machine Eradicates Lifetime Immunity**: Thoroughly resolved the vulnerability where Claude Desktop permanently embeds `<summary>` into message 0 after initial compaction, falsely granting permanent immunity to subsequent turns up to 357k tokens / 718 messages. Refactored into an in-memory single-use flag state machine (`DashSet`) with zero artificial TTL, perfectly handling laptop sleep/wake scenarios while reliably triggering round 2 and round 3 compactions when context inflates again.

@@ -3,6 +3,12 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.8.6-beta.10 (2026-09-30)**:
+        -   **[Gemini 思维链工具调用签名优先级与全历史自愈门禁] 强化混合轮次与并发工具调用 thoughtSignature 提取优先级，终审出站门禁升级为全历史扫描彻底杜绝 Google HTTP 400 (Fixes #3529, Fixes #3531, Ref #3535, Thanks to @EricZhou05)**:
+            -   **混合轮次工具调用签名优先提取**: 在 `finalize_gemini_contents_thinking_with_session` 与 `place_turn_signature_scoped` 中彻底修复线性遍历导致的签名争抢漏洞。当 assistant 轮次同时包含说明正文（`text`）与工具调用（`functionCall`）时，强制优先从 `functionCall` 提取合法凭据，杜绝说明正文抢先霸占 `turn_real_sig` 并反向 bypass 绕过 SQLite/L1 工具签名缓存穿透找回机制。
+            -   **并发工具调用（Parallel Tool Calls）签名保护**: 优化非锚点部件清洗逻辑，在清除误挂在正文或思考块上签名的同时，严格保留并发工具调用中后续 `functionCall` 已有的合法签名，避免并发工具因签名被清空触发上游校验拦截。
+            -   **出站终审安全自愈门禁全历史覆盖 (Pipeline First)**: 将 `InboundThinkingPipeline` 的出站门禁扩展至全会话历史轮次。无论是当前活跃轮次还是处于深层历史（如多轮对话第 259 轮）的远古工具调用，出站前一律自动补齐 Google 官方合法哨兵 `SENTINEL_SIGNATURE`（`skip_thought_signature_validator`），构建 100% 免疫 `Function call is missing a thought_signature`（HTTP 400）的铁壁防线。
+
     *   **v4.8.6-beta.9 (2026-09-30)**:
         -   **[Claude Cowork 自愈状态机闭环与末尾指令确权] 引入纯单次消费型自愈状态机，并限定末尾指令与专属 Header 杜绝误判 (Fixes #3563, Thanks to @cubelikeplayDaniel)**:
             -   **纯单次状态机歼灭终身免死**: 彻底攻克 Claude Desktop 压缩后首条消息固化 `<summary>` 导致后续数百轮会话被错误静态豁免、膨胀至 357k 仍不自愈的漏洞。重构为纯单次消费型状态机（`DashSet`），首条业务续写原子核销放行，绝不人为设限超时定时器（0 TTL），跨设备合盖休眠唤醒零误杀；后续轮次再次超限坚决返回 400 假报警，驱动客户端顺利进入第 2、第 3 轮深度自愈。

@@ -26,15 +26,14 @@ use crate::proxy::model_specs;
 use crate::proxy::server::AppState;
 use crate::proxy::upstream::client::mask_email;
 use axum::http::HeaderMap;
-use dashmap::DashMap;
+use dashmap::DashSet;
 use std::sync::{atomic::Ordering, Arc, LazyLock};
-use std::time::Instant;
 
-/// 记录刚完成压缩总结的会话及时间戳，提供单次续写接续免死令牌 (One-Shot Post-Compaction Immunity Token)
+/// 记录刚完成压缩总结的会话集合，提供单次续写接续免死标志 (One-Shot Post-Compaction Immunity)
 /// 彻底攻克“静态扫描消息导致一次压缩后终身免死无法再次压缩”的死穴 (Fixes #3563)
-static COMPACTION_ONE_SHOT_TOKENS: LazyLock<DashMap<String, Instant>> = LazyLock::new(DashMap::new);
-
-const COMPACTION_ONE_SHOT_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+/// 遵循纯粹的状态机单次消费逻辑：无论中间隔了多久（如电脑合盖休眠唤醒），只要第一条业务接续请求到来即刻核销清空，
+/// 绝不人为设置定时器，杜绝超时误杀！
+static COMPACTION_ONE_SHOT_SESSIONS: LazyLock<DashSet<String>> = LazyLock::new(DashSet::new);
 
 // ===== Task #6: OpenCode variants thinking config mapping =====
 // Helper structs for parsing thinking hints from raw JSON
@@ -664,8 +663,8 @@ pub async fn handle_messages(
             });
 
     // 维持状态机容量
-    if COMPACTION_ONE_SHOT_TOKENS.len() > 1000 {
-        COMPACTION_ONE_SHOT_TOKENS.retain(|_, ts| ts.elapsed() <= COMPACTION_ONE_SHOT_TTL);
+    if COMPACTION_ONE_SHOT_SESSIONS.len() > 2000 {
+        COMPACTION_ONE_SHOT_SESSIONS.clear();
     }
 
     // 分流 A: 客户端原生发起的压缩总结请求 (Compaction Summary Request) -> 生命线直通放行，绝对不误杀
@@ -701,28 +700,24 @@ pub async fn handle_messages(
         });
 
     if is_compaction_request {
-        // [One-Shot Immunity Token] 为该会话发放单次免死令牌，有效期 300 秒
-        COMPACTION_ONE_SHOT_TOKENS.insert(session_key.clone(), Instant::now());
+        // [One-Shot Immunity] 为该会话发放单次免死标识，纯状态流转，用完即焚
+        COMPACTION_ONE_SHOT_SESSIONS.insert(session_key.clone());
         tracing::info!(
-            "[{}] [Lifecycle] Compaction summary request detected for session {}, issued one-shot immunity token",
+            "[{}] [Lifecycle] Compaction summary request detected for session {}, issued one-shot immunity flag",
             trace_id, session_key
         );
     }
 
     // 分流 B: 已完成压缩提纯的会话接续 (Post-Compaction Continuation)
-    // 采用“单次消费型状态机 (One-Shot Immunity Token)”:
+    // 采用纯单次消费型状态机 (One-Shot Immunity):
     // 仅豁免紧随压缩完成后的第 1 次续写请求（防止同一次交互内连续收到 400 触发客户端熔断）。
-    // 一旦消费核销，后续轮次若再次膨胀超限，将正常进入第 2、第 3 轮自愈，彻底根除“一次压缩终身免死”！
-    let is_post_compaction = if let Some((_, ts)) = COMPACTION_ONE_SHOT_TOKENS.remove(&session_key)
-    {
-        let valid = ts.elapsed() <= COMPACTION_ONE_SHOT_TTL;
-        if valid {
-            tracing::info!(
-                "[{}] [Lifecycle] Consumed one-shot post-compaction immunity token for session {}, granted 1M passthrough",
-                trace_id, session_key
-            );
-        }
-        valid
+    // 一旦消费即刻从集合中彻底移除清空！后续轮次若再次膨胀超限，将正常进入第 2、第 3 轮自愈，彻底根除“一次压缩终身免死”！
+    let is_post_compaction = if COMPACTION_ONE_SHOT_SESSIONS.remove(&session_key).is_some() {
+        tracing::info!(
+            "[{}] [Lifecycle] Consumed one-shot post-compaction immunity for session {}, granted 1M passthrough",
+            trace_id, session_key
+        );
+        true
     } else {
         false
     };

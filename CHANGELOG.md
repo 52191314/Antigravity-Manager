@@ -4,8 +4,8 @@
 
 *   **版本演进**:
     *   **v4.8.6-beta.8 (2026-09-30)**:
-        -   **[Claude Cowork 响应式自愈状态机加固] 引入单次消费型接续免死令牌 (One-Shot Post-Compaction Immunity Token)，彻底消灭静态消息扫描引发的「一次压缩终身免死」漏洞 (Fixes #3563, Thanks to @cubelikeplayDaniel)**:
-            -   **单次消费型状态机 (One-Shot Token Lifecycle)**: 针对 Claude Desktop 压缩后首条消息永久固化 `<summary>` 导致后续数百轮会话被错误豁免、膨胀至 357k 仍不自愈的漏洞，重构为动态单次消费型令牌机制。仅在分流 A（压缩总结请求）通过后向内存状态机发放一张有效期 300 秒的免死令牌；紧随其后到达的首条接续重试请求原子核销（CAS/Pop）该令牌并放行，后续交互轮次若再次堆叠超限，坚决就地返回 400 假报警，顺利驱动客户端进入第 2、第 3 轮深度自愈。
+        -   **[Claude Cowork 响应式自愈状态机加固] 引入纯单次消费型接续免死标志 (One-Shot Post-Compaction Immunity)，彻底消灭静态消息扫描引发的「一次压缩终身免死」漏洞 (Fixes #3563, Thanks to @cubelikeplayDaniel)**:
+            -   **纯单次消费型状态机 (Pure One-Shot State Machine)**: 针对 Claude Desktop 压缩后首条消息永久固化 `<summary>` 导致后续数百轮会话被错误静态豁免、膨胀至 357k 仍不自愈的漏洞，重构为动态单次消费型状态机。仅在分流 A（压缩总结请求）通过后向内存集合记录免死标识；首条接续重试请求到来时原子核销并放行，且绝不人为设定超时定时器，无论是即时接续还是跨设备休眠唤醒均安全承接；后续交互轮次若再次堆叠超限，坚决就地返回 400 假报警，顺利驱动客户端进入第 2、第 3 轮深度自愈。
             -   **多模态保鲜协同与超限口径明确**: 明确网关基于 Token 水位（而非 HTTP 载荷字节）执行 400 假报警门禁，杜绝因大图体积误判诱发客户端 `hasAttempted` 熔断崩溃；全屏截图精准折算为 ~1600 tokens/张，并与模型配置中原生的多模态滑动窗口（张数/内存脱水）形成双层互补。
         -   **[网关架构净化与第三方提供商解耦] 彻底移除 z.ai 提供商与本地 MCP 服务工具链，全面收拢至原生 Pipeline 并优化 Token 估算**:
             -   **后端适配器与路由彻底瘦身**: 完整移除 `zai_anthropic.rs`、`zai_vision_tools.rs`、`zai_vision_mcp.rs` 以及 Axum 服务器中遗留的 `/mcp/web_search_prime/mcp`、`/mcp/web_reader/mcp`、`/mcp/zai-mcp-server/mcp` 与 `/zai/models/fetch` 接口。

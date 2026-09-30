@@ -356,11 +356,7 @@ where
                             "[{}] [Stream-AutoHeal] Continuation stream also returned 0 output. Injecting fallback message to prevent client disconnect.",
                             ctx.trace_id
                         );
-                        let fallback_text = if prompt == "继续" {
-                            "（任务准备就绪，请继续推进）"
-                        } else {
-                            "(Task is ready, please continue.)"
-                        };
+                        let fallback_text = "task ready";
                         let fallback_chunk = format!(
                             "data: {}\n\n",
                             serde_json::to_string(&json!({
@@ -382,11 +378,7 @@ where
                         "[{}] [Stream-AutoHeal] Continuation request returned HTTP {}. Injecting fallback message.",
                         ctx.trace_id, status
                     );
-                    let fallback_text = if prompt == "继续" {
-                        "（任务准备就绪，请继续推进）"
-                    } else {
-                        "(Task is ready, please continue.)"
-                    };
+                    let fallback_text = "task ready";
                     let fallback_chunk = format!(
                         "data: {}\n\n",
                         serde_json::to_string(&json!({
@@ -406,11 +398,7 @@ where
                         "[{}] [Stream-AutoHeal] Continuation request failed: {}. Injecting fallback message.",
                         ctx.trace_id, e
                     );
-                    let fallback_text = if prompt == "继续" {
-                        "（任务准备就绪，请继续推进）"
-                    } else {
-                        "(Task is ready, please continue.)"
-                    };
+                    let fallback_text = "task ready";
                     let fallback_chunk = format!(
                         "data: {}\n\n",
                         serde_json::to_string(&json!({

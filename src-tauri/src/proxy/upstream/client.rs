@@ -179,10 +179,10 @@ impl UpstreamClient {
             .connect_timeout(Duration::from_secs(20))
             .pool_max_idle_per_host(20) // 每主机最多 20 个空闲连接 (对齐官方指纹)
             .pool_idle_timeout(Duration::from_secs(90)) // 空闲连接保持 90 秒
-            .tcp_keepalive(Duration::from_secs(2)) // TCP L4 保活探测 2 秒
+            .tcp_keepalive(Duration::from_secs(3)) // TCP 保活探测 (3秒)
+            // 穿透配置 HTTP/2 PING：部分代理环境在长思考静默期（>10s）会触发 L7 空闲截断，造成流式腰斩和 Token 浪费
             .http2(|mut h2| {
-                // 穿透底层 hyper 配置 HTTP/2 PING，直接绕过常见网络代理的严格应用层空闲超时
-                h2.keep_alive_interval(Duration::from_secs(2))
+                h2.keep_alive_interval(Duration::from_secs(3))
                   .keep_alive_timeout(Duration::from_secs(10))
                   .keep_alive_while_idle(true);
             })
@@ -214,10 +214,10 @@ impl UpstreamClient {
             .connect_timeout(Duration::from_secs(20))
             .pool_max_idle_per_host(20)
             .pool_idle_timeout(Duration::from_secs(90))
-            .tcp_keepalive(Duration::from_secs(2)) // TCP L4 保活探测 2 秒
+            .tcp_keepalive(Duration::from_secs(3)) // TCP 保活探测 (3秒)
+            // 穿透配置 HTTP/2 PING：部分代理环境在长思考静默期（>10s）会触发 L7 空闲截断，造成流式腰斩和 Token 浪费
             .http2(|mut h2| {
-                // 穿透底层 hyper 配置 HTTP/2 PING，直接绕过 Clash/NAS 代理的严格应用层空闲超时
-                h2.keep_alive_interval(Duration::from_secs(2))
+                h2.keep_alive_interval(Duration::from_secs(3))
                   .keep_alive_timeout(Duration::from_secs(10))
                   .keep_alive_while_idle(true);
             })

@@ -183,8 +183,8 @@ impl UpstreamClient {
             // 穿透配置 HTTP/2 PING：部分代理环境在长思考静默期（>10s）会触发 L7 空闲截断，造成流式腰斩和 Token 浪费
             .http2(|mut h2| {
                 h2.keep_alive_interval(Duration::from_secs(3))
-                  .keep_alive_timeout(Duration::from_secs(10))
-                  .keep_alive_while_idle(true);
+                    .keep_alive_timeout(Duration::from_secs(10))
+                    .keep_alive_while_idle(true);
             })
             .timeout(Duration::from_secs(600));
 
@@ -218,8 +218,8 @@ impl UpstreamClient {
             // 穿透配置 HTTP/2 PING：部分代理环境在长思考静默期（>10s）会触发 L7 空闲截断，造成流式腰斩和 Token 浪费
             .http2(|mut h2| {
                 h2.keep_alive_interval(Duration::from_secs(3))
-                  .keep_alive_timeout(Duration::from_secs(10))
-                  .keep_alive_while_idle(true);
+                    .keep_alive_timeout(Duration::from_secs(10))
+                    .keep_alive_while_idle(true);
             })
             .timeout(Duration::from_secs(600))
             .proxy(proxy_config.proxy); // Apply the specific proxy

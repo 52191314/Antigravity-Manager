@@ -1,5 +1,5 @@
 # Antigravity Tools 🚀
-> Professional Account Management & Protocol Proxy System for AI Services (v4.9.0)
+> Professional Account Management & Protocol Proxy System for AI Services (v4.9.1)
 
 <div align="center">
   <img src="public/icon.png" width="100" height="100" alt="Antigravity Tools Logo">
@@ -11,7 +11,7 @@
       <img src="https://img.shields.io/github/v/release/lbjlaq/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
     </a>
     <a href="https://github.com/lbjlaq/Antigravity-Manager">
-      <img src="https://img.shields.io/badge/Version-4.9.0-blue?style=flat-square" alt="Version">
+      <img src="https://img.shields.io/badge/Version-4.9.1-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square" alt="Tauri">
     <img src="https://img.shields.io/badge/Backend-Rust-red?style=flat-square" alt="Rust">
@@ -487,7 +487,7 @@ In clients that support OpenAI protocol (e.g., Cherry Studio), you can configure
 
 ## 📝 Changelog
 
-> Latest version **v4.9.0** (2026-10-01): Fixed standard library `char boundary panic` during thought snippet truncation in `monitor.rs` by adopting `safe_truncate_str` to automatically align UTF-8 character boundaries, eradicating worker crashes, downstream connection hangs (`socket hang up` / `Empty reply from server`), and silent log drops (Fixes #3573, thanks to @a3339530357).
+> Latest version **v4.9.1** (2026-10-02): Fixed `gemini-3.1-flash-lite` misrouting to the retired 2.5 family to restore healthy 200 OK passthrough, revived Layer-3 background compression, purged dead 2.5 models from advertised catalogs while routing legacy requests to `gemini-3.6-flash-medium` (Fixes #3577, thanks to @Xyloz3n); tightened downstream SSE thinking heartbeats to 3s to prevent client disconnects during deep reasoning (PR #3578, thanks to @EricZhou05).
 
 👉 **[View Full Changelog → CHANGELOG_EN.md](CHANGELOG_EN.md)**
 

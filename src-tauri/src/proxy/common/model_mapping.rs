@@ -42,7 +42,7 @@ static CLAUDE_TO_GEMINI: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m.insert("gpt-4o-mini", "gemini-3.8-flash-high");
     m.insert("gpt-4-turbo", "gemini-3.8-flash-high");
     m.insert("gpt-4", "gemini-3.8-flash-high");
-    m.insert("gpt-3.5-turbo", "gemini-3.6-flash-high");
+    m.insert("gpt-3.5-turbo", "gemini-3.6-flash-medium");
 
     // ── Gemini 核心标准映射 ──
     m.insert("gemini-3.8-flash-tiered", "gemini-3.8-flash-tiered");
@@ -85,8 +85,8 @@ static CLAUDE_TO_GEMINI: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m.insert("gemini-2.5-pro", "gemini-pro-agent");
     m.insert("gemini-1.5-flash", "gemini-3.8-flash-high");
     m.insert("gemini-2.0-flash", "gemini-3.8-flash-high");
-    m.insert("gemini-2.5-flash", "gemini-3.6-flash-high");
-    m.insert("gemini-2.5-flash-thinking", "gemini-3.6-flash-high");
+    m.insert("gemini-2.5-flash", "gemini-3.6-flash-medium");
+    m.insert("gemini-2.5-flash-thinking", "gemini-3.6-flash-medium");
     m.insert("gemini-2.5-flash-lite", "gemini-3.1-flash-lite");
     m.insert("gemini-3.5-flash-lite", "gemini-3.1-flash-lite");
 
@@ -211,7 +211,7 @@ pub fn map_claude_model_to_gemini(input: &str) -> String {
             return "gemini-3.8-flash-high".to_string()
         }
         "gemini-2.5-flash" | "gemini-2.5-flash-thinking" => {
-            return "gemini-3.6-flash-high".to_string()
+            return "gemini-3.6-flash-medium".to_string()
         }
         "gemini-2.5-flash-lite" | "gemini-3.5-flash-lite" => {
             return "gemini-3.1-flash-lite".to_string()
@@ -886,11 +886,11 @@ mod tests {
         // 淘汰旧模型平滑重定向至健康新模型
         assert_eq!(
             map_claude_model_to_gemini("gemini-2.5-flash"),
-            "gemini-3.6-flash-high"
+            "gemini-3.6-flash-medium"
         );
         assert_eq!(
             map_claude_model_to_gemini("gemini-2.5-flash-thinking"),
-            "gemini-3.6-flash-high"
+            "gemini-3.6-flash-medium"
         );
         assert_eq!(
             map_claude_model_to_gemini("gemini-2.5-flash-lite"),
@@ -914,7 +914,7 @@ mod tests {
         );
         assert_eq!(
             resolve_model_route("gemini-2.5-flash", &empty),
-            "gemini-3.6-flash-high"
+            "gemini-3.6-flash-medium"
         );
         assert_eq!(
             resolve_model_route("gemini-2.5-flash-lite", &empty),

@@ -373,7 +373,7 @@ fn parse_semver(ver: &str) -> (u32, u32, u32) {
 
 /// 扫描系统中所有已安装的 Claude 运行时或客户端二进制
 fn scan_all_claude_installations() -> Vec<ClaudeInstallationInfo> {
-    let mut results = Vec::new();
+    let mut results: Vec<(bool, (u32, u32, u32), ClaudeInstallationInfo)> = Vec::new();
 
     #[cfg(target_os = "macos")]
     {

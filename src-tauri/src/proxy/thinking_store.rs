@@ -827,7 +827,7 @@ impl ThinkingStore {
                 .unwrap_or_else(|| store_key.to_lowercase().contains("claude"));
 
             if has_meaningful_thought {
-                let mut thought_part = json!({
+                let thought_part = json!({
                     "text": rec.thought.as_str(),
                     "thought": true,
                 });

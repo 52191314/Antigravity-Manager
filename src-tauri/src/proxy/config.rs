@@ -361,6 +361,10 @@ pub struct ExperimentalConfig {
     /// Cowork 自动响应式压缩触发阈值 (默认 200,000 Tokens)
     #[serde(default = "default_cowork_compact_threshold")]
     pub cowork_compact_threshold: u32,
+
+    /// 启用 Claude Cowork 手动深度归档协议支持 (高危选项，默认 false)
+    #[serde(default = "default_false")]
+    pub enable_cowork_manual_compact: bool,
 }
 
 impl Default for ExperimentalConfig {
@@ -377,6 +381,7 @@ impl Default for ExperimentalConfig {
             thinking_max_memory_turns: default_thinking_max_memory_turns(),
             enable_cowork_auto_compact: false,
             cowork_compact_threshold: default_cowork_compact_threshold(),
+            enable_cowork_manual_compact: false,
         }
     }
 }

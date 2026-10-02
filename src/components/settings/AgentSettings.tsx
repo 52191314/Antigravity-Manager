@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Save, Check, Bot, Laptop, ShieldCheck, Zap } from "lucide-react";
+import { Save, Check, Bot, Laptop, ShieldCheck, Zap, AlertTriangle, Wrench, RotateCcw, RefreshCw } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { ExperimentalConfig } from "../../types/config";
 import { showToast } from "../common/ToastContainer";
 
@@ -21,6 +22,58 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
 
     const isEnabled = experimentalConfig?.enable_cowork_auto_compact ?? false;
     const threshold = experimentalConfig?.cowork_compact_threshold ?? 200000;
+    const isManualCompactEnabled = experimentalConfig?.enable_cowork_manual_compact ?? false;
+
+    const [patchStatus, setPatchStatus] = useState<{ is_patched: boolean; is_patchable: boolean; message: string; file_path: string; available_installations?: Array<{ version: string; path: string; is_patched: boolean; size_mb: number }> } | null>(null);
+    const [selectedPath, setSelectedPath] = useState<string>("");
+    const [customPath, setCustomPath] = useState<string>("");
+    const [isCheckingPatch, setIsCheckingPatch] = useState(false);
+    const [isPatching, setIsPatching] = useState(false);
+
+    const activeTargetPath = customPath.trim() || selectedPath.trim() || undefined;
+
+    const handleCheckPatch = async (pathOverride?: string) => {
+        setIsCheckingPatch(true);
+        try {
+            const p = pathOverride !== undefined ? pathOverride : activeTargetPath;
+            const res = await invoke<any>("check_claude_cowork_patch", { filePath: p || null });
+            setPatchStatus(res);
+            if (!selectedPath && res.file_path) {
+                setSelectedPath(res.file_path);
+            }
+            showToast(res.message, res.is_patched ? "success" : "info");
+        } catch (err: any) {
+            showToast(String(err), "error");
+        } finally {
+            setIsCheckingPatch(false);
+        }
+    };
+
+    const handleApplyPatch = async () => {
+        setIsPatching(true);
+        try {
+            const res = await invoke<string>("apply_claude_cowork_patch", { filePath: activeTargetPath || null });
+            showToast(res, "success");
+            await handleCheckPatch();
+        } catch (err: any) {
+            showToast(String(err), "error");
+        } finally {
+            setIsPatching(false);
+        }
+    };
+
+    const handleRevertPatch = async () => {
+        setIsPatching(true);
+        try {
+            const res = await invoke<string>("revert_claude_cowork_patch", { filePath: activeTargetPath || null });
+            showToast(res, "success");
+            await handleCheckPatch();
+        } catch (err: any) {
+            showToast(String(err), "error");
+        } finally {
+            setIsPatching(false);
+        }
+    };
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -161,6 +214,125 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
                                 defaultValue: "后台双重安全校验：① 仅对 tools 显式包含 mcp__cowork 的桌面会话生效，普通 CLI / Cursor 绝对零误伤；② 对携带 x-stainless-helper: compaction 或 Prompt 包含官方压缩签名的总结请求无条件放行，绝对杜绝卡死会话。"
                             })}
                         </span>
+                    </div>
+                </div>
+
+                {/* ===== 高危进阶选项：Claude Cowork 深度归档增强 (Deep Compact) ===== */}
+                <div className="pt-4 border-t border-red-200/60 dark:border-red-900/30 space-y-3">
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 font-semibold text-xs text-red-700 dark:text-red-400">
+                                <AlertTriangle size={14} className="text-red-600 dark:text-red-400 shrink-0" />
+                                <span>⚠️ 高危选项：Claude Cowork 深度归档增强 (Deep Compact)</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800 font-normal">
+                                    非必要请勿开启
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-normal">
+                                针对 Claude Cowork 模式无法通过 /compact 进行深度归档（被桌面拦截为未注册 Skill 且官方修剪逻辑强制保留 50% 历史）的底层缺陷。
+                                开启后：① 网关支持捕获 <code className="px-1 py-0.5 bg-gray-200 dark:bg-gray-800 rounded font-mono text-[10px]">./compact</code> 文本穿透并就地协调响应式压缩；
+                                ② 配合下方外置微创补丁将历史 100% 深度归档入摘要，基底压缩至 5k~15k tokens（释放率 85%~95%），并动态核算回显真实释放量。默认关闭。
+                            </p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer select-none shrink-0">
+                            <input
+                                type="checkbox"
+                                checked={isManualCompactEnabled}
+                                onChange={(e) => onChange({ enable_cowork_manual_compact: e.target.checked })}
+                                className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-hidden rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-red-600"></div>
+                        </label>
+                    </div>
+
+                    {/* 外置微创补丁操作区 (与网关完全解耦) */}
+                    <div className="p-3 bg-red-50/40 dark:bg-red-950/10 rounded-lg border border-red-200/50 dark:border-red-900/20 space-y-2.5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="text-[11px] text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                                <Wrench size={13} className="text-red-500 shrink-0" />
+                                <span className="font-medium">客户端二进制微创补丁工具 (仅 macOS)</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => handleCheckPatch()}
+                                    disabled={isCheckingPatch}
+                                    className="btn btn-xs bg-white dark:bg-base-100 border border-gray-200 dark:border-base-300 hover:border-red-300 text-gray-700 dark:text-gray-300 text-[11px] gap-1"
+                                >
+                                    <RefreshCw size={11} className={isCheckingPatch ? "animate-spin text-red-500" : ""} />
+                                    检查补丁状态
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleApplyPatch}
+                                    disabled={isPatching}
+                                    className="btn btn-xs bg-red-600 hover:bg-red-700 text-white text-[11px] gap-1 shadow-xs"
+                                >
+                                    <Wrench size={11} />
+                                    一键注入补丁
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleRevertPatch}
+                                    disabled={isPatching}
+                                    className="btn btn-xs bg-gray-200 dark:bg-base-300 hover:bg-gray-300 dark:hover:bg-base-100 text-gray-700 dark:text-gray-300 text-[11px] gap-1"
+                                >
+                                    <RotateCcw size={11} />
+                                    还原原生
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* 目标版本自动发现选择器与自定义路径 */}
+                        <div className="space-y-1.5 pt-1 text-[11px]">
+                            {patchStatus?.available_installations && patchStatus.available_installations.length > 0 && (
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                    <span className="text-gray-500 dark:text-gray-400 shrink-0">检测到本机安装:</span>
+                                    <select
+                                        value={selectedPath}
+                                        onChange={(e) => {
+                                            setSelectedPath(e.target.value);
+                                            setCustomPath("");
+                                            handleCheckPatch(e.target.value);
+                                        }}
+                                        className="select select-xs select-bordered bg-white dark:bg-base-100 text-[11px] font-mono flex-1 truncate"
+                                    >
+                                        {patchStatus.available_installations.map((inst, idx) => (
+                                            <option key={idx} value={inst.path}>
+                                                v{inst.version} ({inst.size_mb} MB) {inst.is_patched ? " [已打补丁]" : " [官方原版]"} - {inst.path}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                                <span className="text-gray-500 dark:text-gray-400 shrink-0">自定义路径:</span>
+                                <input
+                                    type="text"
+                                    value={customPath}
+                                    placeholder="可选：输入自定义 claude 或 .app 路径进行测试/修补"
+                                    onChange={(e) => setCustomPath(e.target.value)}
+                                    onBlur={() => {
+                                        if (customPath.trim()) {
+                                            handleCheckPatch(customPath.trim());
+                                        }
+                                    }}
+                                    className="input input-xs input-bordered bg-white dark:bg-base-100 text-[11px] font-mono flex-1"
+                                />
+                            </div>
+                        </div>
+
+                        {patchStatus && (
+                            <div className={`p-2 rounded text-[11px] border font-mono ${
+                                patchStatus.is_patched
+                                    ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800/40 text-green-800 dark:text-green-300"
+                                    : "bg-gray-100 dark:bg-base-100 border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300"
+                            }`}>
+                                <div className="font-semibold mb-0.5">{patchStatus.message}</div>
+                                <div className="text-[10px] text-gray-500 truncate" title={patchStatus.file_path}>生效路径: {patchStatus.file_path}</div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

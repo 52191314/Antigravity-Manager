@@ -831,6 +831,10 @@ pub fn run() {
             commands::query_transit_info,
             // Patch commands
             commands::patch_agy_binary,
+            commands::list_claude_installations,
+            commands::check_claude_cowork_patch,
+            commands::apply_claude_cowork_patch,
+            commands::revert_claude_cowork_patch,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

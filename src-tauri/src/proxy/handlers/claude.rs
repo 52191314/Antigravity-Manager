@@ -60,7 +60,9 @@ fn is_manual_compact_command(request: &ClaudeRequest) -> bool {
                 MessageContent::Array(blocks) => {
                     let mut s = String::new();
                     for b in blocks {
-                        if let crate::proxy::mappers::claude::models::ContentBlock::Text { text } = b {
+                        if let crate::proxy::mappers::claude::models::ContentBlock::Text { text } =
+                            b
+                        {
                             s.push_str(text);
                             s.push(' ');
                         }
@@ -837,32 +839,36 @@ pub async fn handle_messages(
         .and_then(|h| h.to_str().ok())
         .map_or(false, |v| v.contains("compaction"));
 
-    let is_compaction_request = is_compaction_header
-        || request.messages.last().map_or(false, |m| {
-            let text = match &m.content {
-                crate::proxy::mappers::claude::models::MessageContent::String(s) => s.as_str(),
-                crate::proxy::mappers::claude::models::MessageContent::Array(blocks) => blocks
-                    .iter()
-                    .rev()
-                    .find_map(|b| match b {
-                        crate::proxy::mappers::claude::models::ContentBlock::Text { text } => {
-                            Some(text.as_str())
-                        }
-                        _ => None,
-                    })
-                    .unwrap_or(""),
-            };
-            crate::proxy::mappers::common_utils::is_compaction_request_text(text)
-        })
-        || request.system.as_ref().map_or(false, |sys| {
-            let sys_text = match sys {
-                crate::proxy::mappers::claude::models::SystemPrompt::String(s) => s.as_str(),
-                crate::proxy::mappers::claude::models::SystemPrompt::Array(arr) => {
-                    arr.first().map(|b| b.text.as_str()).unwrap_or("")
-                }
-            };
-            crate::proxy::mappers::common_utils::is_compaction_request_text(sys_text)
-        });
+    // 检查是否有任何消息或 System Prompt 命中摘要特征
+    let has_compaction_message = request.messages.iter().rev().take(5).any(|m| {
+        let text = match &m.content {
+            crate::proxy::mappers::claude::models::MessageContent::String(s) => s.as_str(),
+            crate::proxy::mappers::claude::models::MessageContent::Array(blocks) => blocks
+                .iter()
+                .rev()
+                .find_map(|b| match b {
+                    crate::proxy::mappers::claude::models::ContentBlock::Text { text } => {
+                        Some(text.as_str())
+                    }
+                    _ => None,
+                })
+                .unwrap_or(""),
+        };
+        crate::proxy::mappers::common_utils::is_compaction_request_text(text)
+    });
+
+    let has_compaction_system = request.system.as_ref().map_or(false, |sys| {
+        let sys_text = match sys {
+            crate::proxy::mappers::claude::models::SystemPrompt::String(s) => s.as_str(),
+            crate::proxy::mappers::claude::models::SystemPrompt::Array(arr) => {
+                arr.first().map(|b| b.text.as_str()).unwrap_or("")
+            }
+        };
+        crate::proxy::mappers::common_utils::is_compaction_request_text(sys_text)
+    });
+
+    let is_compaction_request =
+        is_compaction_header || has_compaction_message || has_compaction_system;
 
     if is_compaction_request {
         // [One-Shot Immunity] 为该会话发放单次免死标识，纯状态流转，用完即焚
@@ -878,11 +884,30 @@ pub async fn handle_messages(
         );
     }
 
+    // 检查是否包含接续标记 (Post-Compaction Continuation)
+    let is_continuation_detected = request.messages.first().map_or(false, |m| {
+        let text = match &m.content {
+            crate::proxy::mappers::claude::models::MessageContent::String(s) => s.as_str(),
+            crate::proxy::mappers::claude::models::MessageContent::Array(blocks) => blocks
+                .first()
+                .and_then(|b| match b {
+                    crate::proxy::mappers::claude::models::ContentBlock::Text { text } => {
+                        Some(text.as_str())
+                    }
+                    _ => None,
+                })
+                .unwrap_or(""),
+        };
+        crate::proxy::mappers::common_utils::is_post_compaction_continuation_text(text)
+    });
+
     // 分流 B: 已完成压缩提纯的会话接续 (Post-Compaction Continuation)
     // 采用纯单次消费型状态机 (One-Shot Immunity):
     // 仅豁免紧随压缩完成后的第 1 次续写请求（防止同一次交互内连续收到 400 触发客户端熔断）。
     // 一旦消费即刻从集合中彻底移除清空！后续轮次若再次膨胀超限，将正常进入第 2、第 3 轮自愈，彻底根除“一次压缩终身免死”！
-    let is_post_compaction = if COMPACTION_ONE_SHOT_SESSIONS.remove(&session_key).is_some() {
+    let is_post_compaction = if COMPACTION_ONE_SHOT_SESSIONS.remove(&session_key).is_some()
+        || is_continuation_detected
+    {
         tracing::info!(
             "[{}] [Lifecycle] Consumed one-shot post-compaction immunity for session {}, granted 1M passthrough",
             trace_id, session_key
@@ -892,52 +917,15 @@ pub async fn handle_messages(
         false
     };
 
+    // 检查是否为手动 ./compact 穿透指令
+    let is_manual_compact = is_manual_compact_command(&request);
+
     // 检查是否正处于 manual compact 流程中，若是则自动豁免 auto_compact 门禁，彻底解耦双重 400 撞车！
     let is_in_manual_compact = experimental.enable_cowork_manual_compact
-        && COWORK_MANUAL_COMPACT_SESSIONS.contains_key(&session_key);
+        && (COWORK_MANUAL_COMPACT_SESSIONS.contains_key(&session_key) || is_manual_compact);
 
-    // 分流 C: 超限自愈假报警触发门禁 (必须自定义开启 + 双重确权)
-    // 铁律：普通 Agent 与未开启配置时，绝对不拦截，100% 享受 Gemini 百万超长上下文！
-    if experimental.enable_cowork_auto_compact && !is_compaction_request && !is_post_compaction && !is_in_manual_compact {
-        let is_cowork = request.tools.as_ref().map_or(false, |tools| {
-            tools.iter().any(|t| {
-                let n = t.get_name();
-                n.starts_with("mcp__cowork") || n.starts_with("mcp__workspace")
-            })
-        });
-
-        if is_cowork {
-            let threshold = experimental.cowork_compact_threshold.max(50_000);
-            let est_tokens = crate::proxy::pipeline::estimate_tokens(&original_body);
-            if est_tokens >= threshold {
-                tracing::warn!(
-                    "[{}] [Cowork-Gatekeeper] Cowork session reached {} tokens >= threshold {}, triggering native reactive compact",
-                    trace_id,
-                    est_tokens,
-                    threshold
-                );
-                let err_msg = format!(
-                    "prompt is too long: {} tokens > {} maximum",
-                    est_tokens, threshold
-                );
-                return (
-                    StatusCode::BAD_REQUEST,
-                    [("content-type", "application/json")],
-                    Json(json!({
-                        "type": "error",
-                        "error": {
-                            "type": "invalid_request_error",
-                            "message": err_msg
-                        }
-                    })),
-                )
-                    .into_response();
-            }
-        }
-    }
-
-    // 分流 D: 手动 ./compact 指令拦截与闭环响应 (高危选项，必须显式开启)
-    if experimental.enable_cowork_manual_compact && is_manual_compact_command(&request) {
+    // 分流 C (优先分流): 手动 ./compact 指令拦截与闭环响应 (具有最高调度优先级，彻底短路自动门禁抢跑)
+    if experimental.enable_cowork_manual_compact && is_manual_compact {
         let now = std::time::Instant::now();
         let req_model = request.model.clone();
         let est_tokens = crate::proxy::pipeline::estimate_tokens(&original_body);
@@ -949,7 +937,9 @@ pub async fn handle_messages(
             if now.duration_since(cached_ts).as_secs() < 60 {
                 tracing::info!(
                     "[{}] [Manual-Compact] Cache hit for session {}, returning: {}",
-                    trace_id, session_key, cached_text
+                    trace_id,
+                    session_key,
+                    cached_text
                 );
                 if request.stream {
                     let sse = make_compact_sse_response(cached_text, &req_model, cached_tokens);
@@ -961,14 +951,17 @@ pub async fn handle_messages(
                             (header::CONNECTION, "keep-alive"),
                         ],
                         sse,
-                    ).into_response();
+                    )
+                        .into_response();
                 } else {
-                    let json_val = make_compact_json_response(cached_text, &req_model, cached_tokens);
+                    let json_val =
+                        make_compact_json_response(cached_text, &req_model, cached_tokens);
                     return (
                         StatusCode::OK,
                         [(header::CONTENT_TYPE, "application/json")],
                         Json(json_val),
-                    ).into_response();
+                    )
+                        .into_response();
                 }
             }
         }
@@ -986,11 +979,17 @@ pub async fn handle_messages(
                 before_tok = entry.before_tokens;
                 let summary_already_done = entry.summary_done;
 
-                if summary_already_done && num_msgs <= 10 {
+                // 条件 1: 摘要请求已成功完成
+                if summary_already_done {
                     is_truly_compacted = true;
-                } else if before_tok > 0 && est_tokens < (before_tok * 7 / 10) && num_msgs <= 10 {
+                }
+                // 条件 2: 带有接续豁免令牌或检测到接续标记
+                else if is_post_compaction || is_continuation_detected {
                     is_truly_compacted = true;
-                } else if is_post_compaction && num_msgs <= 10 {
+                }
+                // 条件 3: 上下文 tokens 明显回落（回落至 85% 以下）或消息数削减至 50 以内
+                else if before_tok > 0 && (est_tokens < (before_tok * 85 / 100) || num_msgs < 50)
+                {
                     is_truly_compacted = true;
                 }
             }
@@ -1006,7 +1005,8 @@ pub async fn handle_messages(
             };
 
             COWORK_MANUAL_COMPACT_SESSIONS.remove(&session_key);
-            COWORK_JUST_COMPACTED_CACHE.insert(session_key.clone(), (now, reply_text.clone(), est_tokens));
+            COWORK_JUST_COMPACTED_CACHE
+                .insert(session_key.clone(), (now, reply_text.clone(), est_tokens));
             COMPACTION_ONE_SHOT_SESSIONS.remove(&session_key);
 
             tracing::info!(
@@ -1024,14 +1024,16 @@ pub async fn handle_messages(
                         (header::CONNECTION, "keep-alive"),
                     ],
                     sse,
-                ).into_response();
+                )
+                    .into_response();
             } else {
                 let json_val = make_compact_json_response(&reply_text, &req_model, est_tokens);
                 return (
                     StatusCode::OK,
                     [(header::CONTENT_TYPE, "application/json")],
                     Json(json_val),
-                ).into_response();
+                )
+                    .into_response();
             }
         }
 
@@ -1054,10 +1056,15 @@ pub async fn handle_messages(
         }
 
         let report_tokens = (est_tokens + 50_000).max(250_000);
-        let err_msg = format!("prompt is too long: {} tokens > 200000 maximum", report_tokens);
+        // 目标上限直接钉死为 20,000 maximum，驱动客户端计算出足额的 initialTokenGap，实现断崖式削减至 20k 基底！
+        let target_limit = 20_000;
+        let err_msg = format!(
+            "prompt is too long: {} tokens > {} maximum",
+            report_tokens, target_limit
+        );
         tracing::warn!(
-            "[{}] [Manual-Compact] Intercepted ./compact for session {} (tokens={}), responding with 400 fake alarm to trigger client-side compact",
-            trace_id, session_key, est_tokens
+            "[{}] [Manual-Compact] Intercepted ./compact for session {} (tokens={}), responding with 400 fake alarm (gap target: {} tokens) to trigger deep client-side compact",
+            trace_id, session_key, est_tokens, target_limit
         );
 
         return (
@@ -1070,7 +1077,54 @@ pub async fn handle_messages(
                     "message": err_msg
                 }
             })),
-        ).into_response();
+        )
+            .into_response();
+    }
+
+    // 分流 D: 超限自愈假报警触发门禁 (必须自定义开启 + 双重确权 + 非手动指令)
+    // 铁律：普通 Agent 与未开启配置时，绝对不拦截，100% 享受 Gemini 百万超长上下文！
+    if experimental.enable_cowork_auto_compact
+        && !is_compaction_request
+        && !is_post_compaction
+        && !is_in_manual_compact
+    {
+        let is_cowork = request.tools.as_ref().map_or(false, |tools| {
+            tools.iter().any(|t| {
+                let n = t.get_name();
+                n.starts_with("mcp__cowork") || n.starts_with("mcp__workspace")
+            })
+        });
+
+        if is_cowork {
+            let threshold = experimental.cowork_compact_threshold.max(50_000);
+            let est_tokens = crate::proxy::pipeline::estimate_tokens(&original_body);
+            if est_tokens >= threshold {
+                tracing::warn!(
+                    "[{}] [Cowork-Gatekeeper] Cowork session reached {} tokens >= threshold {}, triggering native reactive compact",
+                    trace_id,
+                    est_tokens,
+                    threshold
+                );
+                // 钉死目标上限为 20k (20,000 tokens)，驱动客户端将上下文断崖式压降至 20k 干净基底
+                let target_limit = 20_000;
+                let err_msg = format!(
+                    "prompt is too long: {} tokens > {} maximum",
+                    est_tokens, target_limit
+                );
+                return (
+                    StatusCode::BAD_REQUEST,
+                    [("content-type", "application/json")],
+                    Json(json!({
+                        "type": "error",
+                        "error": {
+                            "type": "invalid_request_error",
+                            "message": err_msg
+                        }
+                    })),
+                )
+                    .into_response();
+            }
+        }
     }
 
     if is_compaction_request {

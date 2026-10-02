@@ -26,14 +26,180 @@ use crate::proxy::model_specs;
 use crate::proxy::server::AppState;
 use crate::proxy::upstream::client::mask_email;
 use axum::http::HeaderMap;
-use dashmap::DashSet;
-use std::sync::{atomic::Ordering, Arc, LazyLock};
+use dashmap::{DashMap, DashSet};
+use std::sync::{Arc, LazyLock};
 
 /// 记录刚完成压缩总结的会话集合，提供单次续写接续免死标志 (One-Shot Post-Compaction Immunity)
 /// 彻底攻克“静态扫描消息导致一次压缩后终身免死无法再次压缩”的死穴 (Fixes #3563)
 /// 遵循纯粹的状态机单次消费逻辑：无论中间隔了多久（如电脑合盖休眠唤醒），只要第一条业务接续请求到来即刻核销清空，
 /// 绝不人为设置定时器，杜绝超时误杀！
 static COMPACTION_ONE_SHOT_SESSIONS: LazyLock<DashSet<String>> = LazyLock::new(DashSet::new);
+
+/// Claude Cowork 手动 ./compact 执行状态池 (Session -> 状态信息)
+#[derive(Debug, Clone)]
+struct CoworkManualCompactState {
+    before_tokens: u32,
+    ts: std::time::Instant,
+    summary_done: bool,
+}
+
+static COWORK_MANUAL_COMPACT_SESSIONS: LazyLock<DashMap<String, CoworkManualCompactState>> =
+    LazyLock::new(DashMap::new);
+
+/// 刚刚完成 compact 的会话防重放缓存 (Session -> (完成时间戳, 回显文本, 剩余Token量))
+static COWORK_JUST_COMPACTED_CACHE: LazyLock<DashMap<String, (std::time::Instant, String, u32)>> =
+    LazyLock::new(DashMap::new);
+
+/// 判定请求是否为用户在 Cowork 客户端输入的手动 ./compact 指令
+fn is_manual_compact_command(request: &ClaudeRequest) -> bool {
+    let mut text_opt = None;
+    for m in request.messages.iter().rev() {
+        if m.role == "user" {
+            let t = match &m.content {
+                MessageContent::String(s) => s.clone(),
+                MessageContent::Array(blocks) => {
+                    let mut s = String::new();
+                    for b in blocks {
+                        if let crate::proxy::mappers::claude::models::ContentBlock::Text { text } =
+                            b
+                        {
+                            s.push_str(text);
+                            s.push(' ');
+                        }
+                    }
+                    s
+                }
+            };
+            text_opt = Some(t);
+            break;
+        }
+    }
+    if let Some(text) = text_opt {
+        static SYSTEM_REMINDER_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+            regex::Regex::new(r"(?s)<system-reminder>.*?</system-reminder>").unwrap()
+        });
+        let cleaned = SYSTEM_REMINDER_RE.replace_all(&text, "");
+        for line in cleaned.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let lower = trimmed.to_lowercase();
+            if lower == "./compact"
+                || lower == ".\\compact"
+                || lower == "./compact."
+                || lower == "/compact"
+                || lower.starts_with("./compact ")
+            {
+                return true;
+            }
+            break;
+        }
+    }
+    false
+}
+
+/// 构造 Anthropic 原生 SSE 流式响应体，回显真实 Compacted 结果
+fn make_compact_sse_response(text: &str, model: &str, input_tokens: u32) -> String {
+    let msg_id = format!(
+        "msg_compact_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    let mut out = String::new();
+
+    let start_event = json!({
+        "type": "message_start",
+        "message": {
+            "id": msg_id,
+            "type": "message",
+            "role": "assistant",
+            "content": [],
+            "model": model,
+            "stop_reason": serde_json::Value::Null,
+            "stop_sequence": serde_json::Value::Null,
+            "usage": {
+                "input_tokens": input_tokens.max(1),
+                "output_tokens": 1
+            }
+        }
+    });
+    out.push_str(&format!(
+        "event: message_start\ndata: {}\n\n",
+        serde_json::to_string(&start_event).unwrap_or_default()
+    ));
+
+    let cbs_event = json!({
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {"type": "text", "text": ""}
+    });
+    out.push_str(&format!(
+        "event: content_block_start\ndata: {}\n\n",
+        serde_json::to_string(&cbs_event).unwrap_or_default()
+    ));
+
+    let cbd_event = json!({
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {"type": "text_delta", "text": text}
+    });
+    out.push_str(&format!(
+        "event: content_block_delta\ndata: {}\n\n",
+        serde_json::to_string(&cbd_event).unwrap_or_default()
+    ));
+
+    let cbst_event = json!({
+        "type": "content_block_stop",
+        "index": 0
+    });
+    out.push_str(&format!(
+        "event: content_block_stop\ndata: {}\n\n",
+        serde_json::to_string(&cbst_event).unwrap_or_default()
+    ));
+
+    let md_event = json!({
+        "type": "message_delta",
+        "delta": {"stop_reason": "end_turn", "stop_sequence": serde_json::Value::Null},
+        "usage": {"output_tokens": 15}
+    });
+    out.push_str(&format!(
+        "event: message_delta\ndata: {}\n\n",
+        serde_json::to_string(&md_event).unwrap_or_default()
+    ));
+
+    out.push_str("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n");
+    out
+}
+
+/// 构造 Anthropic 原生非流式 JSON 响应体
+fn make_compact_json_response(text: &str, model: &str, input_tokens: u32) -> Value {
+    let msg_id = format!(
+        "msg_compact_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    json!({
+        "id": msg_id,
+        "type": "message",
+        "role": "assistant",
+        "model": model,
+        "content": [{
+            "type": "text",
+            "text": text
+        }],
+        "stop_reason": "end_turn",
+        "stop_sequence": serde_json::Value::Null,
+        "usage": {
+            "input_tokens": input_tokens.max(1),
+            "output_tokens": 15
+        }
+    })
+}
 
 // ===== Task #6: OpenCode variants thinking config mapping =====
 // Helper structs for parsing thinking hints from raw JSON
@@ -673,47 +839,75 @@ pub async fn handle_messages(
         .and_then(|h| h.to_str().ok())
         .map_or(false, |v| v.contains("compaction"));
 
-    let is_compaction_request = is_compaction_header
-        || request.messages.last().map_or(false, |m| {
-            let text = match &m.content {
-                crate::proxy::mappers::claude::models::MessageContent::String(s) => s.as_str(),
-                crate::proxy::mappers::claude::models::MessageContent::Array(blocks) => blocks
-                    .iter()
-                    .rev()
-                    .find_map(|b| match b {
-                        crate::proxy::mappers::claude::models::ContentBlock::Text { text } => {
-                            Some(text.as_str())
-                        }
-                        _ => None,
-                    })
-                    .unwrap_or(""),
-            };
-            crate::proxy::mappers::common_utils::is_compaction_request_text(text)
-        })
-        || request.system.as_ref().map_or(false, |sys| {
-            let sys_text = match sys {
-                crate::proxy::mappers::claude::models::SystemPrompt::String(s) => s.as_str(),
-                crate::proxy::mappers::claude::models::SystemPrompt::Array(arr) => {
-                    arr.first().map(|b| b.text.as_str()).unwrap_or("")
-                }
-            };
-            crate::proxy::mappers::common_utils::is_compaction_request_text(sys_text)
-        });
+    // 检查是否有任何消息或 System Prompt 命中摘要特征
+    let has_compaction_message = request.messages.iter().rev().take(5).any(|m| {
+        let text = match &m.content {
+            crate::proxy::mappers::claude::models::MessageContent::String(s) => s.as_str(),
+            crate::proxy::mappers::claude::models::MessageContent::Array(blocks) => blocks
+                .iter()
+                .rev()
+                .find_map(|b| match b {
+                    crate::proxy::mappers::claude::models::ContentBlock::Text { text } => {
+                        Some(text.as_str())
+                    }
+                    _ => None,
+                })
+                .unwrap_or(""),
+        };
+        crate::proxy::mappers::common_utils::is_compaction_request_text(text)
+    });
+
+    let has_compaction_system = request.system.as_ref().map_or(false, |sys| {
+        let sys_text = match sys {
+            crate::proxy::mappers::claude::models::SystemPrompt::String(s) => s.as_str(),
+            crate::proxy::mappers::claude::models::SystemPrompt::Array(arr) => {
+                arr.first().map(|b| b.text.as_str()).unwrap_or("")
+            }
+        };
+        crate::proxy::mappers::common_utils::is_compaction_request_text(sys_text)
+    });
+
+    let is_compaction_request =
+        is_compaction_header || has_compaction_message || has_compaction_system;
 
     if is_compaction_request {
         // [One-Shot Immunity] 为该会话发放单次免死标识，纯状态流转，用完即焚
         COMPACTION_ONE_SHOT_SESSIONS.insert(session_key.clone());
+        if experimental.enable_cowork_manual_compact {
+            if let Some(mut state) = COWORK_MANUAL_COMPACT_SESSIONS.get_mut(&session_key) {
+                state.summary_done = true;
+            }
+        }
         tracing::info!(
             "[{}] [Lifecycle] Compaction summary request detected for session {}, issued one-shot immunity flag",
             trace_id, session_key
         );
     }
 
+    // 检查是否包含接续标记 (Post-Compaction Continuation)
+    let is_continuation_detected = request.messages.first().map_or(false, |m| {
+        let text = match &m.content {
+            crate::proxy::mappers::claude::models::MessageContent::String(s) => s.as_str(),
+            crate::proxy::mappers::claude::models::MessageContent::Array(blocks) => blocks
+                .first()
+                .and_then(|b| match b {
+                    crate::proxy::mappers::claude::models::ContentBlock::Text { text } => {
+                        Some(text.as_str())
+                    }
+                    _ => None,
+                })
+                .unwrap_or(""),
+        };
+        crate::proxy::mappers::common_utils::is_post_compaction_continuation_text(text)
+    });
+
     // 分流 B: 已完成压缩提纯的会话接续 (Post-Compaction Continuation)
     // 采用纯单次消费型状态机 (One-Shot Immunity):
     // 仅豁免紧随压缩完成后的第 1 次续写请求（防止同一次交互内连续收到 400 触发客户端熔断）。
     // 一旦消费即刻从集合中彻底移除清空！后续轮次若再次膨胀超限，将正常进入第 2、第 3 轮自愈，彻底根除“一次压缩终身免死”！
-    let is_post_compaction = if COMPACTION_ONE_SHOT_SESSIONS.remove(&session_key).is_some() {
+    let is_post_compaction = if COMPACTION_ONE_SHOT_SESSIONS.remove(&session_key).is_some()
+        || is_continuation_detected
+    {
         tracing::info!(
             "[{}] [Lifecycle] Consumed one-shot post-compaction immunity for session {}, granted 1M passthrough",
             trace_id, session_key
@@ -723,9 +917,177 @@ pub async fn handle_messages(
         false
     };
 
-    // 分流 C: 超限自愈假报警触发门禁 (必须自定义开启 + 双重确权)
+    // 检查是否为手动 ./compact 穿透指令
+    let is_manual_compact = is_manual_compact_command(&request);
+
+    // 检查是否正处于 manual compact 流程中，若是则自动豁免 auto_compact 门禁，彻底解耦双重 400 撞车！
+    let is_in_manual_compact = experimental.enable_cowork_manual_compact
+        && (COWORK_MANUAL_COMPACT_SESSIONS.contains_key(&session_key) || is_manual_compact);
+
+    // 分流 C (优先分流): 手动 ./compact 指令拦截与闭环响应 (具有最高调度优先级，彻底短路自动门禁抢跑)
+    if experimental.enable_cowork_manual_compact && is_manual_compact {
+        let now = std::time::Instant::now();
+        let req_model = request.model.clone();
+        let est_tokens = crate::proxy::pipeline::estimate_tokens(&original_body);
+        let num_msgs = request.messages.len();
+
+        // 情况 A: 60秒内刚完成过 compact，命中防重放缓存
+        if let Some(entry) = COWORK_JUST_COMPACTED_CACHE.get(&session_key) {
+            let (cached_ts, ref cached_text, cached_tokens) = *entry;
+            if now.duration_since(cached_ts).as_secs() < 60 {
+                tracing::info!(
+                    "[{}] [Manual-Compact] Cache hit for session {}, returning: {}",
+                    trace_id,
+                    session_key,
+                    cached_text
+                );
+                if request.stream {
+                    let sse = make_compact_sse_response(cached_text, &req_model, cached_tokens);
+                    return (
+                        StatusCode::OK,
+                        [
+                            (header::CONTENT_TYPE, "text/event-stream; charset=utf-8"),
+                            (header::CACHE_CONTROL, "no-cache"),
+                            (header::CONNECTION, "keep-alive"),
+                        ],
+                        sse,
+                    )
+                        .into_response();
+                } else {
+                    let json_val =
+                        make_compact_json_response(cached_text, &req_model, cached_tokens);
+                    return (
+                        StatusCode::OK,
+                        [(header::CONTENT_TYPE, "application/json")],
+                        Json(json_val),
+                    )
+                        .into_response();
+                }
+            }
+        }
+
+        // 情况 B: 判断是否真正完成了压缩并处于重试阶段
+        let mut is_truly_compacted = false;
+        let mut before_tok = 0u32;
+
+        if let Some(entry) = COWORK_MANUAL_COMPACT_SESSIONS.get(&session_key) {
+            // 防死锁：超过 300 秒过期自动重置
+            if now.duration_since(entry.ts).as_secs() >= 300 {
+                drop(entry);
+                COWORK_MANUAL_COMPACT_SESSIONS.remove(&session_key);
+            } else {
+                before_tok = entry.before_tokens;
+                let summary_already_done = entry.summary_done;
+
+                // 条件 1: 摘要请求已成功完成
+                if summary_already_done {
+                    is_truly_compacted = true;
+                }
+                // 条件 2: 带有接续豁免令牌或检测到接续标记
+                else if is_post_compaction || is_continuation_detected {
+                    is_truly_compacted = true;
+                }
+                // 条件 3: 上下文 tokens 明显回落（回落至 85% 以下）或消息数削减至 50 以内
+                else if before_tok > 0 && (est_tokens < (before_tok * 85 / 100) || num_msgs < 50)
+                {
+                    is_truly_compacted = true;
+                }
+            }
+        }
+
+        if is_truly_compacted {
+            let saved_tok = before_tok.saturating_sub(est_tokens);
+            let saved_k = (saved_tok as f64 / 1000.0).round() as u32;
+            let reply_text = if saved_k > 0 {
+                format!("Compacted conversation · saved {}k tokens", saved_k)
+            } else {
+                "Compacted conversation".to_string()
+            };
+
+            COWORK_MANUAL_COMPACT_SESSIONS.remove(&session_key);
+            COWORK_JUST_COMPACTED_CACHE
+                .insert(session_key.clone(), (now, reply_text.clone(), est_tokens));
+            COMPACTION_ONE_SHOT_SESSIONS.remove(&session_key);
+
+            tracing::info!(
+                "[{}] [Manual-Compact] Successfully compacted for session {} ({} -> {} tokens, saved {}k)! Returning 200 OK",
+                trace_id, session_key, before_tok, est_tokens, saved_k
+            );
+
+            if request.stream {
+                let sse = make_compact_sse_response(&reply_text, &req_model, est_tokens);
+                return (
+                    StatusCode::OK,
+                    [
+                        (header::CONTENT_TYPE, "text/event-stream; charset=utf-8"),
+                        (header::CACHE_CONTROL, "no-cache"),
+                        (header::CONNECTION, "keep-alive"),
+                    ],
+                    sse,
+                )
+                    .into_response();
+            } else {
+                let json_val = make_compact_json_response(&reply_text, &req_model, est_tokens);
+                return (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "application/json")],
+                    Json(json_val),
+                )
+                    .into_response();
+            }
+        }
+
+        // 情况 C: 初次捕获 ./compact 指令，或处于客户端网络级即时重试阶段
+        // 持续响应 400 假报警，直到驱动客户端彻底触发 Reactive Compact
+        if !COWORK_MANUAL_COMPACT_SESSIONS.contains_key(&session_key) {
+            COWORK_MANUAL_COMPACT_SESSIONS.insert(
+                session_key.clone(),
+                CoworkManualCompactState {
+                    before_tokens: est_tokens,
+                    ts: now,
+                    summary_done: false,
+                },
+            );
+        } else if let Some(mut entry) = COWORK_MANUAL_COMPACT_SESSIONS.get_mut(&session_key) {
+            entry.ts = now;
+            if entry.before_tokens == 0 {
+                entry.before_tokens = est_tokens;
+            }
+        }
+
+        let report_tokens = (est_tokens + 50_000).max(250_000);
+        // 目标上限直接钉死为 20,000 maximum，驱动客户端计算出足额的 initialTokenGap，实现断崖式削减至 20k 基底！
+        let target_limit = 20_000;
+        let err_msg = format!(
+            "prompt is too long: {} tokens > {} maximum",
+            report_tokens, target_limit
+        );
+        tracing::warn!(
+            "[{}] [Manual-Compact] Intercepted ./compact for session {} (tokens={}), responding with 400 fake alarm (gap target: {} tokens) to trigger deep client-side compact",
+            trace_id, session_key, est_tokens, target_limit
+        );
+
+        return (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "application/json")],
+            Json(json!({
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": err_msg
+                }
+            })),
+        )
+            .into_response();
+    }
+
+    // 分流 D: 超限自愈假报警触发门禁 (必须自定义开启 + 双重确权 + 非手动指令)
     // 铁律：普通 Agent 与未开启配置时，绝对不拦截，100% 享受 Gemini 百万超长上下文！
-    if experimental.enable_cowork_auto_compact && !is_compaction_request && !is_post_compaction {
+    if experimental.enable_cowork_auto_compact
+        && !is_compaction_request
+        && !is_post_compaction
+        && !is_in_manual_compact
+    {
         let is_cowork = request.tools.as_ref().map_or(false, |tools| {
             tools.iter().any(|t| {
                 let n = t.get_name();
@@ -743,9 +1105,11 @@ pub async fn handle_messages(
                     est_tokens,
                     threshold
                 );
+                // 钉死目标上限为 20k (20,000 tokens)，驱动客户端将上下文断崖式压降至 20k 干净基底
+                let target_limit = 20_000;
                 let err_msg = format!(
                     "prompt is too long: {} tokens > {} maximum",
-                    est_tokens, threshold
+                    est_tokens, target_limit
                 );
                 return (
                     StatusCode::BAD_REQUEST,
@@ -2656,5 +3020,120 @@ mod warmup_tests {
             tool_choice: None,
         };
         assert!(!is_warmup_request(&tool_error_req));
+    }
+
+    #[test]
+    fn test_is_manual_compact_command() {
+        use crate::proxy::mappers::claude::models::{ContentBlock, Message, MessageContent};
+
+        // 1. 标准 ./compact 字符串
+        let req1 = ClaudeRequest {
+            model: "claude-3-7-sonnet".to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: MessageContent::String("./compact".to_string()),
+            }],
+            system: None,
+            max_tokens: Some(100),
+            stream: false,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            tools: None,
+            thinking: None,
+            metadata: None,
+            output_config: None,
+            size: None,
+            quality: None,
+            tool_choice: None,
+        };
+        assert!(is_manual_compact_command(&req1));
+
+        // 2. 带 system-reminder 干扰的 ./compact
+        let req2 = ClaudeRequest {
+            model: "claude-3-7-sonnet".to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: MessageContent::String(
+                    "<system-reminder>some reminder</system-reminder>\n\n./compact".to_string(),
+                ),
+            }],
+            system: None,
+            max_tokens: Some(100),
+            stream: false,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            tools: None,
+            thinking: None,
+            metadata: None,
+            output_config: None,
+            size: None,
+            quality: None,
+            tool_choice: None,
+        };
+        assert!(is_manual_compact_command(&req2));
+
+        // 3. Array 结构的 ContentBlock 文本
+        let req3 = ClaudeRequest {
+            model: "claude-3-7-sonnet".to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: MessageContent::Array(vec![ContentBlock::Text {
+                    text: "./compact please summarize".to_string(),
+                }]),
+            }],
+            system: None,
+            max_tokens: Some(100),
+            stream: false,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            tools: None,
+            thinking: None,
+            metadata: None,
+            output_config: None,
+            size: None,
+            quality: None,
+            tool_choice: None,
+        };
+        assert!(is_manual_compact_command(&req3));
+
+        // 4. 普通用户提问，不应误判
+        let req4 = ClaudeRequest {
+            model: "claude-3-7-sonnet".to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: MessageContent::String("How to use compact method in Ruby?".to_string()),
+            }],
+            system: None,
+            max_tokens: Some(100),
+            stream: false,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            tools: None,
+            thinking: None,
+            metadata: None,
+            output_config: None,
+            size: None,
+            quality: None,
+            tool_choice: None,
+        };
+        assert!(!is_manual_compact_command(&req4));
+    }
+
+    #[test]
+    fn test_make_compact_responses() {
+        let text = "Compacted conversation · saved 289k tokens";
+        let sse = make_compact_sse_response(text, "claude-3-7-sonnet", 45100);
+        assert!(sse.contains("event: message_start"));
+        assert!(sse.contains("Compacted conversation · saved 289k tokens"));
+        assert!(sse.contains("\"input_tokens\":45100"));
+
+        let json = make_compact_json_response(text, "claude-3-7-sonnet", 45100);
+        assert_eq!(json["role"], "assistant");
+        assert_eq!(json["content"][0]["text"], text);
+        assert_eq!(json["usage"]["input_tokens"], 45100);
     }
 }

@@ -3,6 +3,12 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.2-beta.2 (2026-10-03)**:
+        -   **[Linux KDE Plasma Graphics Compatibility & Rendering Pipeline Hardening] Eliminate Forcible X11 Fallback and Adaptively Disable WebKit DMA-BUF on KDE Wayland to Eradicate Frame Freezes (Fixes #3581, Thanks to @Selfrandom)**:
+            -   **Preserve Native Wayland on KDE Plasma**: Lifted the legacy `GDK_BACKEND=x11` fallback policy on modern KDE Plasma desktops. Operating natively on Wayland resolves WebKitGTK damage event synchronization failures under Xwayland that caused static black/blank windows with only partial artifacts appearing during scroll, while restoring sharp vector rendering under fractional display scaling.
+            -   **Adaptive WebKit DMA-BUF Renderer Guard**: Extended automatic DMA-BUF disabling (`WEBKIT_DISABLE_DMABUF_RENDERER=1`) to KDE Plasma sessions alongside wlroots compositors while strictly honoring existing user overrides, preventing buffer allocation failures and crashes between WebKitGTK, KWin, and Mesa/NVIDIA drivers.
+            -   **Enhanced NVIDIA Driver Probing**: Added `/sys/module/nvidia` inspection to avoid false negatives when `/dev/nvidia0` is unexposed in hybrid-graphics or sandboxed environments.
+
     *   **v4.9.2-beta.1 (2026-10-03)**:
         -   **[Claude Cowork Deep Compaction, Adaptive Desktop Patching & Zero-Diff Token Estimation] Break Context Window Exhaustion Bottlenecks, Implement Adaptive Recursive Patching, and Strictly Align with Official Tokenizer (PR #3580, PR #3582, Fixes #3576, Thanks to @cubelikeplayDaniel)**:
             -   **Adaptive Recursive Traversal & Version Priority**: Introduced `find_claude_apps_recursively` to automatically penetrate nested random-hash subdirectories in newer Claude Desktop builds (e.g. `2.1.286/f2326db61802/claude.app`); coupled with `parse_semver` to prioritize official production instances over sandbox builds.

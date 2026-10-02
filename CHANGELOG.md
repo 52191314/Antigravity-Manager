@@ -3,6 +3,12 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.2-beta.2 (2026-10-03)**:
+        -   **[Linux KDE Plasma 图形兼容与渲染管线治理] 解除 KDE Plasma 强制 X11 回退并自适应禁用 WebKit DMA-BUF，根治 Fedora/KDE Wayland 界面静止与残影问题 (Fixes #3581, Thanks to @Selfrandom)**:
+            -   **KDE Plasma 原生 Wayland 保留**: 废除将现代 KDE Plasma 桌面误判为强制回退 `GDK_BACKEND=x11` 的历史策略，保持其原生 Wayland 运行，彻底解决在 KDE Plasma 6 的 Xwayland 兼容层下 WebKitGTK 帧渲染事件（Damage events）丢失导致的窗口完全空白/静止以及鼠标滚动时仅残影闪烁的恶性渲染问题，同时恢复高分屏分数缩放原生矢量锐利显示。
+            -   **WebKit DMA-BUF 渲染自适应防护**: 将 KDE Plasma 与 wlroots 家族一并纳入 Wayland DMA-BUF 安全防护范围，自动注入 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（完全尊重用户既有自定义环境变量），杜绝 WebKitGTK 与 KWin/Mesa/NVIDIA 显卡驱动在 DMA-BUF 显存缓冲区格式协商失败引发的黑屏与崩溃。
+            -   **增强 NVIDIA 专有驱动识别**: 补充 `/sys/module/nvidia` 内核模块探测路径，避免在双显卡或特定沙盒环境下由于 `/dev/nvidia0` 设备节点未映射导致驱动类型漏判。
+
     *   **v4.9.2-beta.1 (2026-10-03)**:
         -   **[Claude Cowork 深度归档闭环、客户端自适应补丁与官方 Token 估算绝对对齐] 突破 Claude 桌面端上下文膨胀瓶颈，实现自适应版本穿透微创补丁与官方 0-diff 计词对齐 (PR #3580, PR #3582, Fixes #3576, Thanks to @cubelikeplayDaniel)**:
             -   **自适应递归穿透与版本优先探测**: 引入 `find_claude_apps_recursively`，自动穿透新版 Claude 桌面端嵌套的随机 Hash 子目录（如 `2.1.286/f2326db61802/claude.app`）；结合 `parse_semver` 进行语义数值比较，确保正式生产环境实例优先于本地沙盒测试版本。

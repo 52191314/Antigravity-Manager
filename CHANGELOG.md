@@ -3,6 +3,15 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.2-beta.1 (2026-10-02)**:
+        -   **[Claude Cowork 深度归档闭环、客户端自适应补丁与官方 Token 估算绝对对齐] 突破 Claude 桌面端上下文膨胀瓶颈，实现自适应版本穿透微创补丁与官方 0-diff 计词对齐 (PR #3580, Fixes #3576, Thanks to @cubelikeplayDaniel)**:
+            -   **自适应递归穿透与版本优先探测**: 引入 `find_claude_apps_recursively`，自动穿透新版 Claude 桌面端嵌套的随机 Hash 子目录（如 `2.1.286/f2326db61802/claude.app`）；结合 `parse_semver` 进行语义数值比较，确保正式生产环境实例优先于本地沙盒测试版本。
+            -   **macOS 系统级完整性与安全隔离机制**: 彻底解决打补丁后请求文件夹权限闪退问题，严格校验合法 Bundle 元数据（防止沙盒缺失 `Info.plist` 时请求权限导致 `tccd`/`syspolicyd` 内核强退）；备份文件统一部署在 App Bundle 外部隔离目录 `.deep_compact_backups/`，杜绝破坏 Gatekeeper 密封性；写入补丁后强制赋予 `chmod 0o755` 并执行 `codesign --force --deep --sign -` 递归重签名。
+            -   **假报警状态机与 35k 活跃上下文瘦身**: 废除硬编码 `num_msgs <= 10` 判定死锁，将报错目标上限设定为 20k tokens，驱动客户端足额削减历史并回显 200；手动 `./compact` 穿透优先调度并与自动门禁机制绝对互锁。
+            -   **Token 算力法典与官方 0-diff 绝对对齐**: 逆向对齐官方客户端底层计词调用链，多模态高分辨率图片统一固定折算为 2000 tokens（小图 258）；在 `tool_result` 中精准识别 Base64 媒体拦截，防止图片被误当纯文本虚增数万 tokens；剔除虚高安全余量，文本与紧凑工具 Schema 估算与官方 `/context` 完美拟合。
+            -   **前端交互与渐进式解耦架构 (`AgentSettings.tsx`)**: 移除高危警告标签并标注为“实验性功能 (Experimental)”；引入双步标准 ModalDialog（说明“仅开开关原生折半”与“配合补丁深度瘦身至 35k 以下”的安全边界，并提供 `./compact` 极简使用指南）；默认 Opt-in，保障全平台用户无感与零侵入。
+            -   **长效架构规范白皮书**: 随版本沉淀永久技术架构文档 `docs/CLAUDE_COWORK_DEEP_COMPACT_SPEC.md`，涵盖完整时序图、反编译 AST 源码对比、物理偏移与等长填充公式及混淆定位脚本。
+
     *   **v4.9.1 (2026-10-02)**:
         -   **[模型路由治理与淘汰模型平滑重定向] 修复 3.1-flash-lite 误重定向、拯救 Layer-3 后台摘要与压缩并将已退役 2.5 系列平滑重定向至 3.6-flash-medium (Fixes #3577, Thanks to @Xyloz3n)**:
             -   **纠正 gemini-3.1-flash-lite 错误降级与健康直传**: 彻底移除核心映射表中将健康存活的 `gemini-3.1-flash-lite` 错误重定向至已故 `gemini-2.5-flash-lite` 的硬编码。恢复为其自身标准直传（出站 1:1 透传上游具备 1M 上下文的 `MODEL_PLACEHOLDER_M50`），彻底消除由此引发的 429 与 503 报错，上游实测 200 OK。

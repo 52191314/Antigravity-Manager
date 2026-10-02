@@ -3,6 +3,15 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.2-beta.1 (2026-10-02)**:
+        -   **[Claude Cowork Deep Compaction, Adaptive Desktop Patching & Zero-Diff Token Estimation] Break Context Window Exhaustion Bottlenecks, Implement Adaptive Recursive Patching, and Strictly Align with Official Tokenizer (PR #3580, Fixes #3576, Thanks to @cubelikeplayDaniel)**:
+            -   **Adaptive Recursive Traversal & Version Priority**: Introduced `find_claude_apps_recursively` to automatically penetrate nested random-hash subdirectories in newer Claude Desktop builds (e.g. `2.1.286/f2326db61802/claude.app`); coupled with `parse_semver` to prioritize official production instances over sandbox builds.
+            -   **macOS System-Level Integrity & Safe Isolation**: Resolved folder-permission crash issues after patching by verifying valid Bundle metadata (`Info.plist`), preventing kernel crashes (`tccd`/`syspolicyd`); backups are strictly isolated in `.deep_compact_backups/` outside the App Bundle to preserve Gatekeeper seals; applied `chmod 0o755` and recursive ad-hoc re-signing via `codesign --force --deep --sign -`.
+            -   **Alarm State Machine & 35k Active Context Diet**: Eliminated hardcoded `num_msgs <= 10` deadlocks, setting error target caps to 20k tokens to guide clients in trimming history while returning 200 OK; prioritized manual `./compact` dispatch with strict mutual locking against auto gates.
+            -   **Token Estimation Canon Aligned with Official Specification**: Reverse-engineered client-side token counting routines, pinning high-res images to 2000 tokens (small images 258); intercepted Base64 media inside `tool_result` to prevent inflated token counts; eliminated redundant safety margins, matching official `/context` readings.
+            -   **Frontend UX & Progressive Decoupling (`AgentSettings.tsx`)**: Replaced high-risk warnings with an elegant "Experimental" badge; introduced a two-step standard ModalDialog clarifying the boundary between switch-only mode and full patch mode, plus `./compact` guidance; kept fully opt-in with zero intrusion for default users.
+            -   **Long-Term Architectural Specification**: Shipped `docs/CLAUDE_COWORK_DEEP_COMPACT_SPEC.md` covering end-to-end sequence flows, decompiler AST comparisons, physical offset and padding formulas, and obfuscation tracking scripts.
+
     *   **v4.9.1 (2026-10-02)**:
         -   **[Model Routing & Deprecated Model Seamless Redirect] Fix Stale gemini-3.1-flash-lite Redirect, Restore Layer-3 Background Summary, and Route Retired 2.5 Family to gemini-3.6-flash-medium (Fixes #3577, Thanks to @Xyloz3n)**:
             -   **Correct gemini-3.1-flash-lite Direct Passthrough**: Permanently removed the hardcoded redirect that sent healthy `gemini-3.1-flash-lite` requests to the retired `gemini-2.5-flash-lite`. Restored 1:1 passthrough to upstream's active 1M-context `MODEL_PLACEHOLDER_M50`, eliminating upstream 429/503 errors and serving requests as 200 OK.

@@ -3,6 +3,12 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.2-beta.3 (2026-10-03)**:
+        -   **[当前账号状态同步] 修复悬浮窗与账号管理页初始化未拉取活跃账号及悬浮窗刷新死锁 (PR #3589, Thanks to @EricZhou05)**:
+            -   **悬浮窗挂载主动同步**: `MiniView` 挂载时主动调用 `fetchCurrentAccount()`，解决直接从子页面打开迷你悬浮窗时长期停留在 `No account selected` 的问题。
+            -   **解除刷新按钮死锁**: 移除 `handleRefresh` 对 `currentAccount` 的前置拦截，仅在存在账号时刷新配额，但始终重新拉取当前账号，打破“无账号不请求、不请求无账号”的循环。
+            -   **账号页「当前」标签恢复**: `Accounts` 页面挂载时同步拉取当前账号，修复直达或刷新账号管理页时「当前」标签不显示的问题。
+
     *   **v4.9.2-beta.2 (2026-10-03)**:
         -   **[Linux KDE Plasma 图形兼容与渲染管线治理] 解除 KDE Plasma 强制 X11 回退并自适应禁用 WebKit DMA-BUF，根治 Fedora/KDE Wayland 界面静止与残影问题 (Fixes #3581, Thanks to @Selfrandom)**:
             -   **KDE Plasma 原生 Wayland 保留**: 废除将现代 KDE Plasma 桌面误判为强制回退 `GDK_BACKEND=x11` 的历史策略，保持其原生 Wayland 运行，彻底解决在 KDE Plasma 6 的 Xwayland 兼容层下 WebKitGTK 帧渲染事件（Damage events）丢失导致的窗口完全空白/静止以及鼠标滚动时仅残影闪烁的恶性渲染问题，同时恢复高分屏分数缩放原生矢量锐利显示。

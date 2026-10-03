@@ -3,6 +3,12 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.2-beta.3 (2026-10-03)**:
+        -   **[Active Account Sync] Fetch Current Account on Mini View & Accounts Page Init and Resolve Mini View Refresh Deadlock (PR #3589, Thanks to @EricZhou05)**:
+            -   **Mini View Mount Sync**: `MiniView` now calls `fetchCurrentAccount()` on mount, fixing the persistent `No account selected` state when the mini window is opened directly from a sub-page.
+            -   **Refresh Deadlock Removed**: Dropped the `currentAccount` early-return guard in `handleRefresh`; quota is refreshed only when an account exists, but the current account is always re-fetched, breaking the "no account → no request → no account" loop.
+            -   **Accounts Page "Current" Badge Restored**: The `Accounts` page now fetches the current account on mount, so the "Current" badge renders correctly when the page is opened directly or reloaded.
+
     *   **v4.9.2-beta.2 (2026-10-03)**:
         -   **[Linux KDE Plasma Graphics Compatibility & Rendering Pipeline Hardening] Eliminate Forcible X11 Fallback and Adaptively Disable WebKit DMA-BUF on KDE Wayland to Eradicate Frame Freezes (Fixes #3581, Thanks to @Selfrandom)**:
             -   **Preserve Native Wayland on KDE Plasma**: Lifted the legacy `GDK_BACKEND=x11` fallback policy on modern KDE Plasma desktops. Operating natively on Wayland resolves WebKitGTK damage event synchronization failures under Xwayland that caused static black/blank windows with only partial artifacts appearing during scroll, while restoring sharp vector rendering under fractional display scaling.

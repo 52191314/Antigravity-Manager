@@ -185,7 +185,6 @@ export default function MiniView() {
         try {
             if (scopeMode === 'pool') {
                 await refreshAllQuotas();
-                await fetchAccounts();
                 await fetchCurrentAccount();
             } else {
                 if (currentAccount) {
@@ -221,7 +220,7 @@ export default function MiniView() {
 
         const timer = setTimeout(adjustSize, 50);
         return () => clearTimeout(timer);
-    }, [currentAccount, scopeMode, accounts]);
+    }, [currentAccount, scopeMode, accounts, quotaView]);
 
     const handleMaximize = async () => {
         await exitMiniMode();
@@ -315,7 +314,7 @@ export default function MiniView() {
         ].filter(Boolean).join(' | ');
 
         const tag = q.isWeeklyExhausted ? (
-            <span className="text-[9px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-900/30 px-1 py-0.2 rounded" title={t('dashboard.weekly_exhausted_badge', '周额度熔断')}>
+            <span className="text-[9px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-900/30 px-1 py-0.5 rounded" title={t('dashboard.weekly_exhausted_badge', '周额度熔断')}>
                 {t('dashboard.mini_tag_exhausted', '熔断')}
             </span>
         ) : quotaView === '5h' && q.isWeeklyConstrained && q.raw5h !== null && q.rawWeekly !== null ? (
@@ -350,18 +349,18 @@ export default function MiniView() {
         const tag = (
             <div className="flex items-center gap-1 shrink-0">
                 {metric.zeroCount > 0 && (
-                    <span className="text-[9px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-900/30 px-1 py-0.2 rounded" title={`${metric.zeroCount} 个账号额度见底/熔断`}>
-                        {metric.zeroCount}枯竭
+                    <span className="text-[9px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-900/30 px-1 py-0.5 rounded" title={t('dashboard.mini_pool_zero_tooltip', '{{count}} 个账号额度见底/熔断', { count: metric.zeroCount })}>
+                        {t('dashboard.mini_pool_zero_tag', '{{count}}枯竭', { count: metric.zeroCount })}
                     </span>
                 )}
                 {quotaView === '5h' && metric.constrainedCount > 0 && (
-                    <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400" title={`${metric.constrainedCount} 个账号 5H 额度受 7 天周配额短板压制`}>
-                        [{t('dashboard.mini_tag_constrained', '周限')}: {metric.constrainedCount}个]
+                    <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400" title={t('dashboard.mini_pool_constrained_tooltip', '{{count}} 个账号 5H 额度受 7 天周配额短板压制', { count: metric.constrainedCount })}>
+                        [{t('dashboard.mini_tag_constrained', '周限')}: {t('dashboard.account_count_unit', '{{count}}个', { count: metric.constrainedCount })}]
                     </span>
                 )}
                 {quotaView === 'weekly' && metric.coolingCount > 0 && (
-                    <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400" title={`${metric.coolingCount} 个账号处于 5H 冷却态`}>
-                        [{t('dashboard.mini_tag_cooling', '冷却')}: {metric.coolingCount}个]
+                    <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400" title={t('dashboard.mini_pool_cooling_tooltip', '{{count}} 个账号处于 5H 冷却态', { count: metric.coolingCount })}>
+                        [{t('dashboard.mini_tag_cooling', '冷却')}: {t('dashboard.account_count_unit', '{{count}}个', { count: metric.coolingCount })}]
                     </span>
                 )}
             </div>
@@ -375,7 +374,7 @@ export default function MiniView() {
                 colorClass={colorClass}
                 tag={tag}
                 resetText={metric.nearestReset ? `R: ${formatTimeRemaining(metric.nearestReset)}` : t('common.unknown')}
-                resetTooltip={metric.nearestReset ? `最近重置: ${new Date(metric.nearestReset).toLocaleTimeString()}` : t('common.unknown')}
+                resetTooltip={metric.nearestReset ? `${t('dashboard.nearest_reset', '最近重置')}: ${new Date(metric.nearestReset).toLocaleTimeString()}` : t('common.unknown')}
             />
         );
     };
@@ -397,7 +396,7 @@ export default function MiniView() {
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-900 dark:text-white overflow-hidden max-w-[136px]">
                         <div className={clsx("w-2 h-2 rounded-full shrink-0 animate-pulse", scopeMode === 'pool' ? "bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]" : "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]")} />
                         {scopeMode === 'pool' ? (
-                            <span className="truncate" title={`账号池 (${availableAccounts.length}/${accounts.length} 可用)`}>
+                            <span className="truncate" title={t('dashboard.account_pool_tooltip', '账号池 ({{available}}/{{total}} 可用)', { available: availableAccounts.length, total: accounts.length })}>
                                 {t('dashboard.account_pool', '账号池')} ({availableAccounts.length}/{accounts.length})
                             </span>
                         ) : (
@@ -420,7 +419,7 @@ export default function MiniView() {
                                 )}
                                 title={t('dashboard.single_account_view', '单账号监测')}
                             >
-                                单
+                                {t('dashboard.mini_scope_single_short', '单')}
                             </button>
                             <button
                                 onClick={() => setScopeMode('pool')}
@@ -430,7 +429,7 @@ export default function MiniView() {
                                 )}
                                 title={t('dashboard.pool_matrix_view', '全账号池矩阵')}
                             >
-                                池
+                                {t('dashboard.mini_scope_pool_short', '池')}
                             </button>
                         </div>
 
@@ -445,7 +444,7 @@ export default function MiniView() {
                                 )}
                                 title={t('dashboard.view_mode_title_weighted', '综合加权')}
                             >
-                                综
+                                {t('dashboard.mini_view_weighted_short', '综')}
                             </button>
                             <button
                                 onClick={() => setQuotaView('5h')}
@@ -455,7 +454,7 @@ export default function MiniView() {
                                 )}
                                 title={t('dashboard.view_mode_title_5h', '5H 滚动')}
                             >
-                                5H
+                                {t('dashboard.mini_view_5h_short', '5H')}
                             </button>
                             <button
                                 onClick={() => setQuotaView('weekly')}
@@ -465,7 +464,7 @@ export default function MiniView() {
                                 )}
                                 title={t('dashboard.view_mode_title_weekly', '7天周配额')}
                             >
-                                周
+                                {t('dashboard.mini_view_weekly_short', '周')}
                             </button>
                         </div>
 

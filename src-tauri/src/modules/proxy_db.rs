@@ -1566,7 +1566,21 @@ fn make_room(conn: &Connection, budget: u64, log_bytes: u64) -> Result<(), Strin
     if projected_bytes(conn, log_bytes)? <= budget {
         Ok(())
     } else {
-        Err("proxy log disk budget exhausted".to_string())
+        // [FIX] 防范非日志表 (如 tool_signatures) 导致的磁盘配额死锁：
+        // 若已执行多轮清理但物理文件依然超预算，且 request_logs 表已删空或仅存微量记录，
+        // 绝不可直接抛错导致全代理请求日志无法持久化并彻底致盲监控。
+        let remaining_logs: i64 = conn
+            .query_row("SELECT COUNT(*) FROM request_logs", [], |r| r.get(0))
+            .unwrap_or(0);
+        if remaining_logs <= 1 {
+            tracing::warn!(
+                "[ProxyLog] Disk budget reached ({:.2} MB) but database size is occupied by non-log tables. Preserving service logging availability.",
+                budget as f64 / 1_048_576.0
+            );
+            Ok(())
+        } else {
+            Err("proxy log disk budget exhausted".to_string())
+        }
     }
 }
 

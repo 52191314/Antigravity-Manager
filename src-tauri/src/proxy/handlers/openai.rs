@@ -2130,60 +2130,81 @@ pub async fn handle_chat_completions(
 
         // 4. 获取 Token (使用准确的 request_type)
         // 关键：在重试尝试时根据 force_rotate 决定是否轮换账号
-        let (access_token, project_id, email, account_id, _wait_ms) =
-            if let Some(credentials) = retry_credentials.take() {
-                credentials
-            } else if config.request_type == "image_gen" {
-                drop(image_permit.take());
-                match token_manager
-                    .get_image_token(
-                        force_rotate,
-                        Some(&affinity_key),
-                        &mapped_model,
-                        &image_scheduler,
-                        request_timeout,
-                    )
-                    .await
-                {
-                    Ok((access_token, project_id, email, account_id, wait_ms, permit)) => {
-                        image_permit = Some(permit);
-                        (access_token, project_id, email, account_id, wait_ms)
-                    }
-                    Err((status, message)) => {
-                        failure_statuses.record(status);
-                        last_error = message;
-                        break;
-                    }
+        let (access_token, project_id, email, account_id, _wait_ms) = if let Some(credentials) =
+            retry_credentials.take()
+        {
+            credentials
+        } else if config.request_type == "image_gen" {
+            drop(image_permit.take());
+            match token_manager
+                .get_image_token(
+                    force_rotate,
+                    Some(&affinity_key),
+                    &mapped_model,
+                    &image_scheduler,
+                    request_timeout,
+                )
+                .await
+            {
+                Ok((access_token, project_id, email, account_id, wait_ms, permit)) => {
+                    image_permit = Some(permit);
+                    (access_token, project_id, email, account_id, wait_ms)
                 }
-            } else {
-                match token_manager
-                    .get_token(
-                        &config.request_type,
-                        force_rotate,
-                        Some(&affinity_key),
-                        &mapped_model,
-                    )
-                    .await
-                {
-                    Ok(t) => t,
-                    Err(e) => {
-                        // [Issue #3414] Attach headers with Retry-After if temporary cooldown exists
-                        let headers = crate::proxy::handlers::common::build_token_error_headers(
-                            Some(mapped_model.as_str()),
-                            None,
-                            &e,
-                        );
-                        let dual_err = crate::proxy::handlers::common::build_dual_track_error(
-                            "openai",
-                            StatusCode::SERVICE_UNAVAILABLE.as_u16(),
-                            mapped_model.as_str(),
-                            &e,
-                        );
-                        return Ok((StatusCode::SERVICE_UNAVAILABLE, headers, Json(dual_err))
-                            .into_response());
-                    }
+                Err((status, message)) => {
+                    failure_statuses.record(status);
+                    last_error = message;
+                    break;
                 }
-            };
+            }
+        } else {
+            let mut token_result = token_manager
+                .get_token(
+                    &config.request_type,
+                    force_rotate,
+                    Some(&affinity_key),
+                    &mapped_model,
+                )
+                .await;
+
+            if let Err(ref e) = token_result {
+                if crate::proxy::handlers::common::is_transient_token_error(e) {
+                    tracing::warn!(
+                            "Token acquisition transient error ({}), retrying once with force_rotate...",
+                            e
+                        );
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    token_result = token_manager
+                        .get_token(
+                            &config.request_type,
+                            true,
+                            Some(&affinity_key),
+                            &mapped_model,
+                        )
+                        .await;
+                }
+            }
+
+            match token_result {
+                Ok(t) => t,
+                Err(e) => {
+                    // [Issue #3414] Attach headers with Retry-After if temporary cooldown exists
+                    let headers = crate::proxy::handlers::common::build_token_error_headers(
+                        Some(mapped_model.as_str()),
+                        None,
+                        &e,
+                    );
+                    let dual_err = crate::proxy::handlers::common::build_dual_track_error(
+                        "openai",
+                        StatusCode::SERVICE_UNAVAILABLE.as_u16(),
+                        mapped_model.as_str(),
+                        &e,
+                    );
+                    return Ok(
+                        (StatusCode::SERVICE_UNAVAILABLE, headers, Json(dual_err)).into_response()
+                    );
+                }
+            }
+        };
 
         // [NEW v4.1.29] 获取完整 Token 对象用于动态规格查询
         let proxy_token = token_manager.get_token_by_id(&account_id);
@@ -3885,35 +3906,50 @@ pub async fn handle_completions(
 
         let session_id = Some(affinity_key.as_str());
 
-        let (access_token, project_id, email, account_id, _wait_ms) =
-            if let Some(credentials) = retry_credentials.take() {
-                credentials
-            } else {
-                match token_manager
-                    .get_token(
-                        &config.request_type,
-                        force_rotate,
-                        session_id,
-                        &mapped_model,
-                    )
-                    .await
-                {
-                    Ok(t) => t,
-                    Err(e) => {
-                        let headers = crate::proxy::handlers::common::build_token_error_headers(
-                            Some(mapped_model.as_str()),
-                            None,
-                            &e,
+        let (access_token, project_id, email, account_id, _wait_ms) = if let Some(credentials) =
+            retry_credentials.take()
+        {
+            credentials
+        } else {
+            let mut token_result = token_manager
+                .get_token(
+                    &config.request_type,
+                    force_rotate,
+                    session_id,
+                    &mapped_model,
+                )
+                .await;
+
+            if let Err(ref e) = token_result {
+                if crate::proxy::handlers::common::is_transient_token_error(e) {
+                    tracing::warn!(
+                            "Token acquisition transient error ({}), retrying once with force_rotate...",
+                            e
                         );
-                        return (
-                            StatusCode::SERVICE_UNAVAILABLE,
-                            headers,
-                            format!("Token error: {}", e),
-                        )
-                            .into_response();
-                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    token_result = token_manager
+                        .get_token(&config.request_type, true, session_id, &mapped_model)
+                        .await;
                 }
-            };
+            }
+
+            match token_result {
+                Ok(t) => t,
+                Err(e) => {
+                    let headers = crate::proxy::handlers::common::build_token_error_headers(
+                        Some(mapped_model.as_str()),
+                        None,
+                        &e,
+                    );
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        headers,
+                        format!("Token error: {}", e),
+                    )
+                        .into_response();
+                }
+            }
+        };
 
         let mapped_model = token_manager
             .resolve_dynamic_model_for_account(&account_id, &mapped_model)

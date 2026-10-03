@@ -1462,15 +1462,29 @@ pub async fn handle_messages(
         let client_session_id = session_scope.client_id.clone();
         let session_id = Some(affinity_key.as_str());
 
-        let (access_token, project_id, email, account_id, _wait_ms) = match token_manager
+        let mut token_result = token_manager
             .get_token(
                 &config.request_type,
                 force_rotate,
                 session_id,
                 &config.final_model,
             )
-            .await
-        {
+            .await;
+
+        if let Err(ref e) = token_result {
+            if crate::proxy::handlers::common::is_transient_token_error(e) {
+                tracing::warn!(
+                    "Token acquisition transient error ({}), retrying once with force_rotate...",
+                    e
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                token_result = token_manager
+                    .get_token(&config.request_type, true, session_id, &config.final_model)
+                    .await;
+            }
+        }
+
+        let (access_token, project_id, email, account_id, _wait_ms) = match token_result {
             Ok(t) => t,
             Err(e) => {
                 let safe_message = if e.contains("invalid_grant") {

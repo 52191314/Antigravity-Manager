@@ -3,6 +3,16 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.2-beta.4 (2026-10-04)**:
+        -   **[Mini View Multi-Account Pool & Toggle Improvements] Support Account Pool Matrix vs. Single View Toggle and UI Polish (Thanks to @EricZhou05)**:
+            -   **Single View vs. Pool Matrix Toggle**: Mini window now supports seamlessly toggling between single account details and the full account pool matrix view.
+            -   **Compact i18n Labels**: Compacted mini view toggle button labels across all supported locales to prevent text overflow and line wraps.
+            -   **Quota Bar Warning Color**: Quota bars automatically transition to warning yellow when remaining quota drops below 50%.
+            -   **UI Polish & Refactoring**: Fixed badge padding, resolved window resize effect dependency bugs, eliminated redundant refreshes, and extracted i18n label keys.
+        -   **[Viewport Boundaries & Anti-Clipping Fixes] Resolve Dropdown Overflow and Scrolling Interception in GroupedSelect (PR #3591, Thanks to @zepeng-jin)**:
+            -   **Smart Viewport Auto-Flip**: Dynamically measures remaining space above and below the trigger; automatically flips dropdown upward when space below is under 260px and top space is more ample.
+            -   **Fixed Positioning & Dynamic Max Height**: Upgraded Portal float position to `fixed` with dynamic `maxHeight` bounds, ensuring full dropdown item visibility and smooth scrolling.
+
     *   **v4.9.2-beta.3 (2026-10-03)**:
         -   **[Claude 5.5 Thinking Signature Recognition & Gatekeeper Hardening] Resolve Upstream 400 Missing Signature Error for Claude 5.5 Tiered Models via OpenAI API (Fixes #3587)**:
             -   **Claude 5.5 Protobuf Signature Support**: Upgraded `is_claude_signature` to recognize official Claude 5.5 Protobuf signatures (prefixed with `CAQS` / wrapped as `Q0FR`, corresponding to Protobuf tags `0x08 0x04 0x12`) and multi-layer Base64 decoding, preventing native valid signatures from being stripped as foreign.

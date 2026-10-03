@@ -226,19 +226,52 @@ pub async fn patch_agy_binary(file_path: String) -> Result<String, String> {
 
     let offset = patch_offset.unwrap();
     let patch_bytes = new_inst_bytes.unwrap();
+    let orig_pattern = data[offset..offset + patch_bytes.len()].to_vec();
 
-    // Create backup
+    // Create backup atomically
     let backup_path = format!("{}.bak", actual_path);
-    if !Path::new(&backup_path).exists() {
-        fs::copy(path, &backup_path).map_err(|e| format!("Failed to create backup: {}", e))?;
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&backup_path)
+    {
+        Ok(mut backup_file) => {
+            let mut src_file = fs::File::open(path)
+                .map_err(|e| format!("Failed to open file for backup: {}", e))?;
+            if let Err(e) = std::io::copy(&mut src_file, &mut backup_file) {
+                let _ = fs::remove_file(&backup_path);
+                return Err(format!("Failed to write backup: {}", e));
+            }
+            if let Err(e) = backup_file.sync_all() {
+                let _ = fs::remove_file(&backup_path);
+                return Err(format!("Failed to sync backup: {}", e));
+            }
+            #[cfg(unix)]
+            if let Ok(src_meta) = src_file.metadata() {
+                let _ = backup_file.set_permissions(src_meta.permissions());
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(format!("Failed to create backup: {}", e)),
     }
 
     // Apply patch
-    use std::io::{Seek, SeekFrom, Write};
+    use std::io::{Read, Seek, SeekFrom, Write};
     let mut file = fs::OpenOptions::new()
+        .read(true)
         .write(true)
         .open(path)
         .map_err(|e| format!("Failed to open file for writing: {}", e))?;
+    file.seek(SeekFrom::Start(offset as u64))
+        .map_err(|e| format!("Seek failed: {}", e))?;
+
+    let mut current_bytes = vec![0u8; orig_pattern.len()];
+    file.read_exact(&mut current_bytes)
+        .map_err(|e| format!("Failed to read target bytes at offset: {}", e))?;
+    if current_bytes != orig_pattern {
+        return Err("Existing bytes at offset do not match expected pattern".into());
+    }
+
     file.seek(SeekFrom::Start(offset as u64))
         .map_err(|e| format!("Seek failed: {}", e))?;
     file.write_all(&patch_bytes)
@@ -248,11 +281,11 @@ pub async fn patch_agy_binary(file_path: String) -> Result<String, String> {
     #[cfg(target_os = "macos")]
     {
         if !is_pe_x64 {
-            let _ = Command::new("codesign")
-                .args(&["--remove-signature", &actual_path])
+            let _ = Command::new("/usr/bin/codesign")
+                .args(&["--remove-signature", "--", &actual_path])
                 .output();
-            let output = Command::new("codesign")
-                .args(&["--sign", "-", &actual_path])
+            let output = Command::new("/usr/bin/codesign")
+                .args(&["--sign", "-", "--", &actual_path])
                 .output();
             match output {
                 Ok(out) if out.status.success() => {}
@@ -299,28 +332,54 @@ fn find_claude_apps_recursively(
     dir: &Path,
     max_depth: usize,
 ) -> Vec<(std::path::PathBuf, std::path::PathBuf)> {
-    let mut results = Vec::new();
-    if max_depth == 0 || !dir.is_dir() {
-        return results;
-    }
+    let Ok(canonical_base) = dir.canonicalize() else {
+        return Vec::new();
+    };
 
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                if p.file_name().map_or(false, |n| n == "claude.app") {
-                    let bin = p.join("Contents/MacOS/claude");
-                    if bin.exists() {
-                        results.push((p, bin));
+    fn scan_dir(
+        dir: &Path,
+        base_root: &Path,
+        max_depth: usize,
+    ) -> Vec<(std::path::PathBuf, std::path::PathBuf)> {
+        let mut results = Vec::new();
+        if max_depth == 0 || !dir.is_dir() {
+            return results;
+        }
+
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                // entry.file_type()?.is_symlink() guard: 拒绝符号链接以防目录穿越与无限环路
+                let is_symlink = entry.file_type().map(|ft| ft.is_symlink()).unwrap_or(true);
+                if is_symlink {
+                    continue;
+                }
+
+                let p = entry.path();
+                // 确保规范化路径完全包含在 base root 内部
+                let Ok(canonical_p) = p.canonicalize() else {
+                    continue;
+                };
+                if !canonical_p.starts_with(base_root) {
+                    continue;
+                }
+
+                if canonical_p.is_dir() {
+                    if canonical_p.file_name().map_or(false, |n| n == "claude.app") {
+                        let bin = canonical_p.join("Contents/MacOS/claude");
+                        if bin.exists() {
+                            results.push((canonical_p, bin));
+                        }
+                    } else {
+                        results.extend(scan_dir(&canonical_p, base_root, max_depth - 1));
                     }
-                } else {
-                    results.extend(find_claude_apps_recursively(&p, max_depth - 1));
                 }
             }
         }
+
+        results
     }
 
-    results
+    scan_dir(&canonical_base, &canonical_base, max_depth)
 }
 
 /// 从 App Bundle 或路径中解析版本号
@@ -600,6 +659,7 @@ pub async fn apply_claude_cowork_patch(file_path: Option<String>) -> Result<Stri
     let matched_match = caps.get(0).unwrap();
     let offset = matched_match.start();
     let matched_len = matched_match.end() - offset;
+    let orig_pattern = matched_match.as_bytes().to_vec();
 
     let fn_name = std::str::from_utf8(caps.get(1).unwrap().as_bytes()).unwrap();
     let p1 = std::str::from_utf8(caps.get(2).unwrap().as_bytes()).unwrap();
@@ -619,40 +679,90 @@ pub async fn apply_claude_cowork_patch(file_path: Option<String>) -> Result<Stri
 
     // 3. 创建 .bak 备份文件（使用安全目录，不污染 Bundle 内部）
     let backup_path = get_safe_backup_path(&path);
-    if !backup_path.exists() {
-        fs::copy(&path, &backup_path).map_err(|e| format!("创建备份文件失败: {}", e))?;
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&backup_path)
+    {
+        Ok(mut backup_file) => {
+            let mut src_file =
+                fs::File::open(&path).map_err(|e| format!("打开原始文件失败: {}", e))?;
+            if let Err(e) = std::io::copy(&mut src_file, &mut backup_file) {
+                let _ = fs::remove_file(&backup_path);
+                return Err(format!("写入备份文件失败: {}", e));
+            }
+            if let Err(e) = backup_file.sync_all() {
+                let _ = fs::remove_file(&backup_path);
+                return Err(format!("同步备份文件失败: {}", e));
+            }
+            #[cfg(unix)]
+            if let Ok(src_meta) = src_file.metadata() {
+                let _ = backup_file.set_permissions(src_meta.permissions());
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // 备份文件已原子存在，保留初始纯净副本，无需重复创建
+        }
+        Err(e) => return Err(format!("创建备份文件失败: {}", e)),
     }
 
-    // 4. 原位定点写入 (In-place WriteAt)
-    use std::io::{Seek, SeekFrom, Write};
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .open(&path)
-        .map_err(|e| format!("无法以写模式打开目标文件: {}", e))?;
+    // 4. 原子写入与替换 (Atomic Write-and-Replace)
+    let parent_dir = path
+        .parent()
+        .ok_or_else(|| "无法获取目标文件所在目录".to_string())?;
 
-    file.seek(SeekFrom::Start(offset as u64))
-        .map_err(|e| format!("定位写入偏移失败: {}", e))?;
-    file.write_all(&replacement)
-        .map_err(|e| format!("写入补丁失败: {}", e))?;
-    file.flush().map_err(|e| format!("刷新缓冲区失败: {}", e))?;
-    drop(file);
+    let mut patched_data = data;
+    if &patched_data[offset..offset + matched_len] != orig_pattern.as_slice() {
+        return Err("目标偏移字节与原始模式不匹配，终止写入以防破坏二进制".into());
+    }
+    patched_data[offset..offset + matched_len].copy_from_slice(&replacement);
 
-    // 4.1 确保二进制保留可执行权限 (chmod 0o755)
-    #[cfg(unix)]
-    {
-        if let Ok(metadata) = fs::metadata(&path) {
-            let mut perms = metadata.permissions();
-            perms.set_mode(0o755);
-            let _ = fs::set_permissions(&path, perms);
+    let temp_file_path = parent_dir.join(format!(".claude_patch_{}.tmp", uuid::Uuid::new_v4()));
+    let write_res = (|| -> Result<(), String> {
+        use std::io::Write;
+        let mut temp_file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_file_path)
+            .map_err(|e| format!("创建临时文件失败: {}", e))?;
+
+        temp_file
+            .write_all(&patched_data)
+            .map_err(|e| format!("写入临时文件失败: {}", e))?;
+        temp_file
+            .flush()
+            .map_err(|e| format!("刷新临时文件缓冲区失败: {}", e))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = temp_file.metadata() {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o755);
+                let _ = temp_file.set_permissions(perms);
+            }
         }
+
+        temp_file
+            .sync_all()
+            .map_err(|e| format!("同步临时文件到磁盘失败: {}", e))?;
+        drop(temp_file);
+
+        fs::rename(&temp_file_path, &path).map_err(|e| format!("原子替换目标文件失败: {}", e))?;
+        Ok(())
+    })();
+
+    if let Err(e) = write_res {
+        let _ = fs::remove_file(&temp_file_path);
+        return Err(e);
     }
 
     // 5. macOS ad-hoc 代码重签名（若属于 App Bundle，需连带进行 Deep 重签名以满足系统 Gatekeeper 规范）
     #[cfg(target_os = "macos")]
     {
         // 5.1 签名核心可执行二进制
-        let output = std::process::Command::new("codesign")
-            .args(&["--force", "--sign", "-", &actual_path])
+        let output = std::process::Command::new("/usr/bin/codesign")
+            .args(&["--force", "--sign", "-", "--", &actual_path])
             .output();
         match output {
             Ok(out) if out.status.success() => {}
@@ -671,8 +781,8 @@ pub async fn apply_claude_cowork_patch(file_path: Option<String>) -> Result<Stri
         // 5.2 若位于 .app Bundle 内，对整个 App 进行 Deep 签名
         if let Some(bundle_path) = find_enclosing_app_bundle(&path) {
             let bundle_str = bundle_path.to_string_lossy().to_string();
-            let bundle_output = std::process::Command::new("codesign")
-                .args(&["--force", "--deep", "--sign", "-", &bundle_str])
+            let bundle_output = std::process::Command::new("/usr/bin/codesign")
+                .args(&["--force", "--deep", "--sign", "-", "--", &bundle_str])
                 .output();
             match bundle_output {
                 Ok(out) if out.status.success() => {}
@@ -716,14 +826,14 @@ pub async fn revert_claude_cowork_patch(file_path: Option<String>) -> Result<Str
 
         #[cfg(target_os = "macos")]
         {
-            let _ = std::process::Command::new("codesign")
-                .args(&["--force", "--sign", "-", &actual_path])
+            let _ = std::process::Command::new("/usr/bin/codesign")
+                .args(&["--force", "--sign", "-", "--", &actual_path])
                 .output();
 
             if let Some(bundle_path) = find_enclosing_app_bundle(&path) {
                 let bundle_str = bundle_path.to_string_lossy().to_string();
-                let _ = std::process::Command::new("codesign")
-                    .args(&["--force", "--deep", "--sign", "-", &bundle_str])
+                let _ = std::process::Command::new("/usr/bin/codesign")
+                    .args(&["--force", "--deep", "--sign", "-", "--", &bundle_str])
                     .output();
             }
         }

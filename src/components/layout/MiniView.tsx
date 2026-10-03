@@ -87,6 +87,10 @@ export default function MiniView() {
         fetchVersion();
     }, []);
 
+    useEffect(() => {
+        fetchCurrentAccount();
+    }, [fetchCurrentAccount]);
+
     // Auto-refresh logic based on config
     useEffect(() => {
         if (!config?.auto_refresh || !config?.refresh_interval || config.refresh_interval <= 0) return;
@@ -122,10 +126,12 @@ export default function MiniView() {
     }, [currentAccount]);
 
     const handleRefresh = async () => {
-        if (!currentAccount || isRefreshing) return;
+        if (isRefreshing) return;
         setIsRefreshing(true);
         try {
-            await refreshQuota(currentAccount.id);
+            if (currentAccount) {
+                await refreshQuota(currentAccount.id);
+            }
             await fetchCurrentAccount();
         } finally {
             setTimeout(() => setIsRefreshing(false), 800);

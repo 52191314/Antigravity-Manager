@@ -26,14 +26,26 @@ use crate::proxy::model_specs;
 use crate::proxy::server::AppState;
 use crate::proxy::upstream::client::mask_email;
 use axum::http::HeaderMap;
-use dashmap::{DashMap, DashSet};
+use dashmap::DashMap;
 use std::sync::{Arc, LazyLock};
 
-/// 记录刚完成压缩总结的会话集合，提供单次续写接续免死标志 (One-Shot Post-Compaction Immunity)
-/// 彻底攻克“静态扫描消息导致一次压缩后终身免死无法再次压缩”的死穴 (Fixes #3563)
-/// 遵循纯粹的状态机单次消费逻辑：无论中间隔了多久（如电脑合盖休眠唤醒），只要第一条业务接续请求到来即刻核销清空，
-/// 绝不人为设置定时器，杜绝超时误杀！
-static COMPACTION_ONE_SHOT_SESSIONS: LazyLock<DashSet<String>> = LazyLock::new(DashSet::new);
+/// 基于代际租约与滑动窗口的压缩免死状态机 (Compaction Immunity Lease)
+/// 替代原无类型 DashSet 单次原子核销机制，天然支持并发请求、工具调用与网络重试；
+/// 初始处于未激活保护态（支持长达 300s 电脑休眠唤醒），在首个业务请求接入后激活 30s 滑动窗口，
+/// 支持窗口期内的所有并发请求与工具调用安全放行；滑动窗口超时后彻底销毁，
+/// 根除“一次压缩终身免死无法再次自愈” (Fixes #3563)。
+#[derive(Debug, Clone)]
+struct CompactionImmunityLease {
+    created_at: std::time::Instant,
+    last_touched: std::time::Instant,
+    consumed: bool,
+}
+
+static COMPACTION_IMMUNITY_LEASES: LazyLock<DashMap<String, CompactionImmunityLease>> =
+    LazyLock::new(DashMap::new);
+
+const COMPACTION_IMMUNITY_INITIAL_TTL_SECS: u64 = 300;
+const COMPACTION_IMMUNITY_WINDOW_SECS: u64 = 30;
 
 /// Claude Cowork 手动 ./compact 执行状态池 (Session -> 状态信息)
 #[derive(Debug, Clone)]
@@ -49,6 +61,7 @@ static COWORK_MANUAL_COMPACT_SESSIONS: LazyLock<DashMap<String, CoworkManualComp
 /// 刚刚完成 compact 的会话防重放缓存 (Session -> (完成时间戳, 回显文本, 剩余Token量))
 static COWORK_JUST_COMPACTED_CACHE: LazyLock<DashMap<String, (std::time::Instant, String, u32)>> =
     LazyLock::new(DashMap::new);
+const MAX_JUST_COMPACTED_CACHE_CAPACITY: usize = 1000;
 
 /// 判定请求是否为用户在 Cowork 客户端输入的手动 ./compact 指令
 fn is_manual_compact_command(request: &ClaudeRequest) -> bool {
@@ -97,6 +110,33 @@ fn is_manual_compact_command(request: &ClaudeRequest) -> bool {
         }
     }
     false
+}
+
+/// 计算 Claude 请求中非对话历史的固定开销 (Fixed Overhead: System Prompt + Tool 声明)
+/// 用于动态计算可解的目标上限 (target_limit = max(fixed_overhead + 15000, 35000))
+fn calculate_claude_fixed_overhead(request: &ClaudeRequest) -> u32 {
+    let mut overhead = 0u32;
+    if let Some(sys) = &request.system {
+        match sys {
+            crate::proxy::mappers::claude::models::SystemPrompt::String(s) => {
+                overhead += crate::proxy::pipeline::estimator::estimate_tokens_from_str(s);
+            }
+            crate::proxy::mappers::claude::models::SystemPrompt::Array(blocks) => {
+                for block in blocks {
+                    overhead +=
+                        crate::proxy::pipeline::estimator::estimate_tokens_from_str(&block.text);
+                }
+            }
+        }
+    }
+    if let Some(tools) = &request.tools {
+        for tool in tools {
+            let name_len =
+                crate::proxy::pipeline::estimator::estimate_tokens_from_str(&tool.get_name());
+            overhead += name_len + 60;
+        }
+    }
+    overhead
 }
 
 /// 构造 Anthropic 原生 SSE 流式响应体，回显真实 Compacted 结果
@@ -828,9 +868,17 @@ pub async fn handle_messages(
                 crate::proxy::thinking_store::derive_winner_session_id("anon", None, &anchor)
             });
 
-    // 维持状态机容量
-    if COMPACTION_ONE_SHOT_SESSIONS.len() > 2000 {
-        COMPACTION_ONE_SHOT_SESSIONS.clear();
+    // 维持状态机容量，执行条目级细粒度 TTL 清理，彻底避免粗暴全量 clear() 导致的 herd invalidation
+    if COMPACTION_IMMUNITY_LEASES.len() > 1000 {
+        let now = std::time::Instant::now();
+        COMPACTION_IMMUNITY_LEASES.retain(|_, lease| {
+            if !lease.consumed {
+                now.duration_since(lease.created_at).as_secs()
+                    < COMPACTION_IMMUNITY_INITIAL_TTL_SECS
+            } else {
+                now.duration_since(lease.last_touched).as_secs() < COMPACTION_IMMUNITY_WINDOW_SECS
+            }
+        });
     }
 
     // 分流 A: 客户端原生发起的压缩总结请求 (Compaction Summary Request) -> 生命线直通放行，绝对不误杀
@@ -871,15 +919,23 @@ pub async fn handle_messages(
         is_compaction_header || has_compaction_message || has_compaction_system;
 
     if is_compaction_request {
-        // [One-Shot Immunity] 为该会话发放单次免死标识，纯状态流转，用完即焚
-        COMPACTION_ONE_SHOT_SESSIONS.insert(session_key.clone());
+        // [Compaction Immunity Lease] 为该会话发放免死租约，支持并发接续与重试
+        let now = std::time::Instant::now();
+        COMPACTION_IMMUNITY_LEASES.insert(
+            session_key.clone(),
+            CompactionImmunityLease {
+                created_at: now,
+                last_touched: now,
+                consumed: false,
+            },
+        );
         if experimental.enable_cowork_manual_compact {
             if let Some(mut state) = COWORK_MANUAL_COMPACT_SESSIONS.get_mut(&session_key) {
                 state.summary_done = true;
             }
         }
         tracing::info!(
-            "[{}] [Lifecycle] Compaction summary request detected for session {}, issued one-shot immunity flag",
+            "[{}] [Lifecycle] Compaction summary request detected for session {}, issued immunity lease",
             trace_id, session_key
         );
     }
@@ -902,17 +958,35 @@ pub async fn handle_messages(
     });
 
     // 分流 B: 已完成压缩提纯的会话接续 (Post-Compaction Continuation)
-    // 采用纯单次消费型状态机 (One-Shot Immunity):
-    // 仅豁免紧随压缩完成后的第 1 次续写请求（防止同一次交互内连续收到 400 触发客户端熔断）。
-    // 一旦消费即刻从集合中彻底移除清空！后续轮次若再次膨胀超限，将正常进入第 2、第 3 轮自愈，彻底根除“一次压缩终身免死”！
-    let is_post_compaction = if COMPACTION_ONE_SHOT_SESSIONS.remove(&session_key).is_some()
-        || is_continuation_detected
-    {
-        tracing::info!(
-            "[{}] [Lifecycle] Consumed one-shot post-compaction immunity for session {}, granted 1M passthrough",
-            trace_id, session_key
-        );
-        true
+    // 采用代际租约状态机 (CompactionImmunityLease):
+    // 1. 严格守卫 !is_compaction_request：压缩摘要请求自身绝对不自毁刚刚发放的免死租约；
+    // 2. 首个接续请求接入后激活 30 秒滑动窗口，窗口内放行该会话的所有并发请求、工具调用与网络重试；
+    // 3. 空闲超过 30 秒后即刻核销失效，后续若再次超限将正常触发下一轮自愈，彻底杜绝终身免死 (Fixes #3563)。
+    let is_post_compaction = if !is_compaction_request {
+        if let Some(mut lease) = COMPACTION_IMMUNITY_LEASES.get_mut(&session_key) {
+            let now = std::time::Instant::now();
+            let valid = if !lease.consumed {
+                now.duration_since(lease.created_at).as_secs()
+                    < COMPACTION_IMMUNITY_INITIAL_TTL_SECS
+            } else {
+                now.duration_since(lease.last_touched).as_secs() < COMPACTION_IMMUNITY_WINDOW_SECS
+            };
+            if valid {
+                lease.consumed = true;
+                lease.last_touched = now;
+                tracing::info!(
+                    "[{}] [Lifecycle] Active immunity lease for session {}, granted 1M passthrough (sliding window active)",
+                    trace_id, session_key
+                );
+                true
+            } else {
+                drop(lease);
+                COMPACTION_IMMUNITY_LEASES.remove(&session_key);
+                is_continuation_detected
+            }
+        } else {
+            is_continuation_detected
+        }
     } else {
         false
     };
@@ -921,8 +995,20 @@ pub async fn handle_messages(
     let is_manual_compact = is_manual_compact_command(&request);
 
     // 检查是否正处于 manual compact 流程中，若是则自动豁免 auto_compact 门禁，彻底解耦双重 400 撞车！
+    // 超过 300 秒未完成的孤儿 manual compact 会话视为超时失效并清理，防止永久禁用 auto_compact
     let is_in_manual_compact = experimental.enable_cowork_manual_compact
-        && (COWORK_MANUAL_COMPACT_SESSIONS.contains_key(&session_key) || is_manual_compact);
+        && (is_manual_compact
+            || COWORK_MANUAL_COMPACT_SESSIONS
+                .get(&session_key)
+                .map_or(false, |entry| {
+                    if entry.ts.elapsed().as_secs() < 300 {
+                        true
+                    } else {
+                        drop(entry);
+                        COWORK_MANUAL_COMPACT_SESSIONS.remove(&session_key);
+                        false
+                    }
+                }));
 
     // 分流 C (优先分流): 手动 ./compact 指令拦截与闭环响应 (具有最高调度优先级，彻底短路自动门禁抢跑)
     if experimental.enable_cowork_manual_compact && is_manual_compact {
@@ -963,6 +1049,9 @@ pub async fn handle_messages(
                     )
                         .into_response();
                 }
+            } else {
+                drop(entry);
+                COWORK_JUST_COMPACTED_CACHE.remove(&session_key);
             }
         }
 
@@ -1005,9 +1094,17 @@ pub async fn handle_messages(
             };
 
             COWORK_MANUAL_COMPACT_SESSIONS.remove(&session_key);
+            if COWORK_JUST_COMPACTED_CACHE.len() >= MAX_JUST_COMPACTED_CACHE_CAPACITY {
+                let purge_now = std::time::Instant::now();
+                COWORK_JUST_COMPACTED_CACHE
+                    .retain(|_, (ts, _, _)| purge_now.duration_since(*ts).as_secs() < 60);
+                if COWORK_JUST_COMPACTED_CACHE.len() >= MAX_JUST_COMPACTED_CACHE_CAPACITY {
+                    COWORK_JUST_COMPACTED_CACHE.clear();
+                }
+            }
             COWORK_JUST_COMPACTED_CACHE
                 .insert(session_key.clone(), (now, reply_text.clone(), est_tokens));
-            COMPACTION_ONE_SHOT_SESSIONS.remove(&session_key);
+            COMPACTION_IMMUNITY_LEASES.remove(&session_key);
 
             tracing::info!(
                 "[{}] [Manual-Compact] Successfully compacted for session {} ({} -> {} tokens, saved {}k)! Returning 200 OK",
@@ -1055,16 +1152,48 @@ pub async fn handle_messages(
             }
         }
 
-        let report_tokens = (est_tokens + 50_000).max(250_000);
-        // 目标上限直接钉死为 20,000 maximum，驱动客户端计算出足额的 initialTokenGap，实现断崖式削减至 20k 基底！
-        let target_limit = 20_000;
+        let fixed_overhead = calculate_claude_fixed_overhead(&request);
+        let target_limit = (fixed_overhead + 15_000).max(35_000);
+
+        // 防御性校验：若当前 tokens 已经处于 target_limit 之内，直接返回 200 成功响应，
+        // 绝不发射 400 假报警，彻底杜绝客户端 Fst / fIt 算出负/零 initialTokenGap 触发 compactionImpossible
+        if est_tokens <= target_limit {
+            let reply_text = "Compacted conversation · already at minimal context".to_string();
+            tracing::info!(
+                "[{}] [Manual-Compact] Session {} context ({} tokens) is already <= target_limit ({}), returning 200 OK directly",
+                trace_id, session_key, est_tokens, target_limit
+            );
+            if request.stream {
+                let sse = make_compact_sse_response(&reply_text, &req_model, est_tokens);
+                return (
+                    StatusCode::OK,
+                    [
+                        (header::CONTENT_TYPE, "text/event-stream; charset=utf-8"),
+                        (header::CACHE_CONTROL, "no-cache"),
+                        (header::CONNECTION, "keep-alive"),
+                    ],
+                    sse,
+                )
+                    .into_response();
+            } else {
+                let json_val = make_compact_json_response(&reply_text, &req_model, est_tokens);
+                return (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "application/json")],
+                    Json(json_val),
+                )
+                    .into_response();
+            }
+        }
+
+        let report_tokens = est_tokens.max(target_limit + 10_000);
         let err_msg = format!(
             "prompt is too long: {} tokens > {} maximum",
             report_tokens, target_limit
         );
         tracing::warn!(
-            "[{}] [Manual-Compact] Intercepted ./compact for session {} (tokens={}), responding with 400 fake alarm (gap target: {} tokens) to trigger deep client-side compact",
-            trace_id, session_key, est_tokens, target_limit
+            "[{}] [Manual-Compact] Intercepted ./compact for session {} (tokens={}, fixed_overhead={}), responding with 400 fake alarm (gap target: {} tokens) to trigger deep client-side compact",
+            trace_id, session_key, est_tokens, fixed_overhead, target_limit
         );
 
         return (
@@ -1098,18 +1227,22 @@ pub async fn handle_messages(
         if is_cowork {
             let threshold = experimental.cowork_compact_threshold.max(50_000);
             let est_tokens = crate::proxy::pipeline::estimate_tokens(&original_body);
-            if est_tokens >= threshold {
+            // 动态计算目标上限: max(fixed_overhead + 15000, 35000)，确保客户端 initialTokenGap 恒可解
+            let fixed_overhead = calculate_claude_fixed_overhead(&request);
+            let target_limit = (fixed_overhead + 15_000).max(35_000);
+
+            // 负 Gap 防御门禁：必须满足 est_tokens >= threshold 且 est_tokens > target_limit，严防负数或零 gap
+            if est_tokens >= threshold && est_tokens > target_limit {
                 tracing::warn!(
                     "[{}] [Cowork-Gatekeeper] Cowork session reached {} tokens >= threshold {}, triggering native reactive compact",
                     trace_id,
                     est_tokens,
                     threshold
                 );
-                // 钉死目标上限为 20k (20,000 tokens)，驱动客户端将上下文断崖式压降至 20k 干净基底
-                let target_limit = 20_000;
+                let report_tokens = est_tokens.max(target_limit + 10_000);
                 let err_msg = format!(
                     "prompt is too long: {} tokens > {} maximum",
-                    est_tokens, target_limit
+                    report_tokens, target_limit
                 );
                 return (
                     StatusCode::BAD_REQUEST,
@@ -3135,5 +3268,227 @@ mod warmup_tests {
         assert_eq!(json["role"], "assistant");
         assert_eq!(json["content"][0]["text"], text);
         assert_eq!(json["usage"]["input_tokens"], 45100);
+    }
+
+    #[test]
+    fn test_calculate_claude_fixed_overhead_and_solvable_target_limit() {
+        use crate::proxy::mappers::claude::models::{SystemBlock, SystemPrompt, Tool};
+
+        let req = ClaudeRequest {
+            model: "claude-3-7-sonnet".to_string(),
+            messages: vec![],
+            system: Some(SystemPrompt::Array(vec![SystemBlock {
+                block_type: "text".to_string(),
+                text: "You are Claude Code, an AI assistant.".to_string(),
+            }])),
+            tools: Some(vec![
+                Tool {
+                    type_: None,
+                    name: Some("Bash".to_string()),
+                    description: Some("Execute bash command".to_string()),
+                    input_schema: None,
+                },
+                Tool {
+                    type_: None,
+                    name: Some("Read".to_string()),
+                    description: Some("Read file".to_string()),
+                    input_schema: None,
+                },
+            ]),
+            ..Default::default()
+        };
+
+        let overhead = calculate_claude_fixed_overhead(&req);
+        assert!(overhead > 0);
+        let target_limit = (overhead + 15_000).max(35_000);
+        assert!(target_limit >= 35_000);
+        assert!(target_limit >= overhead + 15_000);
+    }
+
+    #[test]
+    fn test_manual_session_orphan_timeout_eviction() {
+        let session_key = "test_orphan_session_eviction".to_string();
+        COWORK_MANUAL_COMPACT_SESSIONS.insert(
+            session_key.clone(),
+            CoworkManualCompactState {
+                before_tokens: 100_000,
+                ts: std::time::Instant::now() - std::time::Duration::from_secs(301),
+                summary_done: false,
+            },
+        );
+
+        let is_manual = false;
+        let is_in_manual = is_manual
+            || COWORK_MANUAL_COMPACT_SESSIONS
+                .get(&session_key)
+                .map_or(false, |entry| {
+                    if entry.ts.elapsed().as_secs() < 300 {
+                        true
+                    } else {
+                        drop(entry);
+                        COWORK_MANUAL_COMPACT_SESSIONS.remove(&session_key);
+                        false
+                    }
+                });
+
+        assert!(
+            !is_in_manual,
+            "Expired orphan session must not be considered in manual compact"
+        );
+        assert!(
+            !COWORK_MANUAL_COMPACT_SESSIONS.contains_key(&session_key),
+            "Expired orphan session must be evicted from map"
+        );
+    }
+
+    #[test]
+    fn test_just_compacted_cache_expiration_and_capacity_cap() {
+        let session_key = "test_expired_compacted_session".to_string();
+        COWORK_JUST_COMPACTED_CACHE.insert(
+            session_key.clone(),
+            (
+                std::time::Instant::now() - std::time::Duration::from_secs(65),
+                "Compacted conversation".to_string(),
+                20_000,
+            ),
+        );
+
+        let now = std::time::Instant::now();
+        if let Some(entry) = COWORK_JUST_COMPACTED_CACHE.get(&session_key) {
+            let (cached_ts, _, _) = *entry;
+            if now.duration_since(cached_ts).as_secs() < 60 {
+                panic!("Should not hit cache for expired entry");
+            } else {
+                drop(entry);
+                COWORK_JUST_COMPACTED_CACHE.remove(&session_key);
+            }
+        }
+
+        assert!(
+            !COWORK_JUST_COMPACTED_CACHE.contains_key(&session_key),
+            "Expired entry must be actively removed from COWORK_JUST_COMPACTED_CACHE"
+        );
+
+        // Test capacity cap behavior
+        for i in 0..1005 {
+            let k = format!("cap_test_session_{}", i);
+            COWORK_JUST_COMPACTED_CACHE.insert(
+                k,
+                (
+                    std::time::Instant::now() - std::time::Duration::from_secs(70),
+                    "Compacted conversation".to_string(),
+                    10_000,
+                ),
+            );
+        }
+
+        if COWORK_JUST_COMPACTED_CACHE.len() >= MAX_JUST_COMPACTED_CACHE_CAPACITY {
+            let purge_now = std::time::Instant::now();
+            COWORK_JUST_COMPACTED_CACHE
+                .retain(|_, (ts, _, _)| purge_now.duration_since(*ts).as_secs() < 60);
+            if COWORK_JUST_COMPACTED_CACHE.len() >= MAX_JUST_COMPACTED_CACHE_CAPACITY {
+                COWORK_JUST_COMPACTED_CACHE.clear();
+            }
+        }
+
+        assert!(
+            COWORK_JUST_COMPACTED_CACHE.len() <= MAX_JUST_COMPACTED_CACHE_CAPACITY,
+            "Cache length must not exceed maximum capacity"
+        );
+    }
+
+    #[test]
+    fn test_compaction_immunity_lease_lifecycle() {
+        let session_key = "test_lease_lifecycle".to_string();
+        let now = std::time::Instant::now();
+        COMPACTION_IMMUNITY_LEASES.insert(
+            session_key.clone(),
+            CompactionImmunityLease {
+                created_at: now,
+                last_touched: now,
+                consumed: false,
+            },
+        );
+
+        // Turn 1: Initial passthrough activates sliding window
+        let is_compaction_req = false;
+        let mut passed = false;
+        if !is_compaction_req {
+            if let Some(mut lease) = COMPACTION_IMMUNITY_LEASES.get_mut(&session_key) {
+                let check_now = std::time::Instant::now();
+                let valid = if !lease.consumed {
+                    check_now.duration_since(lease.created_at).as_secs()
+                        < COMPACTION_IMMUNITY_INITIAL_TTL_SECS
+                } else {
+                    check_now.duration_since(lease.last_touched).as_secs()
+                        < COMPACTION_IMMUNITY_WINDOW_SECS
+                };
+                if valid {
+                    lease.consumed = true;
+                    lease.last_touched = check_now;
+                    passed = true;
+                }
+            }
+        }
+        assert!(passed, "Turn 1 must pass through and activate lease");
+        assert!(
+            COMPACTION_IMMUNITY_LEASES
+                .get(&session_key)
+                .unwrap()
+                .consumed,
+            "Lease must be marked as consumed"
+        );
+
+        // Turn 2: Concurrent request / tool call within 30s sliding window passes through
+        passed = false;
+        if !is_compaction_req {
+            if let Some(mut lease) = COMPACTION_IMMUNITY_LEASES.get_mut(&session_key) {
+                let check_now = std::time::Instant::now();
+                let valid = if !lease.consumed {
+                    check_now.duration_since(lease.created_at).as_secs()
+                        < COMPACTION_IMMUNITY_INITIAL_TTL_SECS
+                } else {
+                    check_now.duration_since(lease.last_touched).as_secs()
+                        < COMPACTION_IMMUNITY_WINDOW_SECS
+                };
+                if valid {
+                    lease.last_touched = check_now;
+                    passed = true;
+                }
+            }
+        }
+        assert!(
+            passed,
+            "Concurrent turn within sliding window must pass through"
+        );
+
+        // Expired lease after window is evicted
+        if let Some(mut lease) = COMPACTION_IMMUNITY_LEASES.get_mut(&session_key) {
+            lease.last_touched = std::time::Instant::now() - std::time::Duration::from_secs(35);
+        }
+        passed = false;
+        if !is_compaction_req {
+            if let Some(lease) = COMPACTION_IMMUNITY_LEASES.get_mut(&session_key) {
+                let check_now = std::time::Instant::now();
+                let valid = if !lease.consumed {
+                    check_now.duration_since(lease.created_at).as_secs()
+                        < COMPACTION_IMMUNITY_INITIAL_TTL_SECS
+                } else {
+                    check_now.duration_since(lease.last_touched).as_secs()
+                        < COMPACTION_IMMUNITY_WINDOW_SECS
+                };
+                if valid {
+                    passed = true;
+                } else {
+                    drop(lease);
+                    COMPACTION_IMMUNITY_LEASES.remove(&session_key);
+                }
+            }
+        }
+        assert!(!passed, "Expired lease must not pass through");
+        assert!(
+            !COMPACTION_IMMUNITY_LEASES.contains_key(&session_key),
+            "Expired lease must be removed"
+        );
     }
 }

@@ -4,6 +4,10 @@
 
 *   **版本演进**:
     *   **v4.9.2-beta.3 (2026-10-03)**:
+        -   **[Claude 5.5 思考签名识别与出站准入守卫加固] 解决 Claude 5.5 Tiered 模型在 OpenAI 兼容端多轮调用必报 400 签名缺失错误 (Fixes #3587)**:
+            -   **Claude 5.5 Protobuf 签名特征支持**: 升级 `is_claude_signature` 判定，补充对官方以 `CAQS` 开头（经包装为 `Q0FR`，对应二进制 Protobuf 标签 `0x08 0x04 0x12`）的 Claude 5.5 真实签名识别与多层 Base64 解析，杜绝原生合法签名被误当异构签名剔除。
+            -   **出站思考块签名守卫门禁**: 在 `finalize_gemini_contents_thinking_with_session` 中对 Claude 轮次增加有效签名准入检查。若本轮未能安置合法签名，严禁发送 `thought: true` 块，自动安全降级为普通正文（`<think>` 纯文本形式出站），彻底消除 Google 校验器 `messages.N.content.0.thinking.signature: Field required` 报错。
+            -   **OpenAI 兼容端签名重试阻断**: 命中上游 400 思考签名错误重试时，定向净化 ThinkingStore 污染签名的同时，主动剥离入参 `messages` 的 `signature` 并将未签名 `reasoning_content` 安全转换为普通正文，确保原地重试必能自愈成功。
         -   **[当前账号状态同步] 修复悬浮窗与账号管理页初始化未拉取活跃账号及悬浮窗刷新死锁 (PR #3589, Thanks to @EricZhou05)**:
             -   **悬浮窗挂载主动同步**: `MiniView` 挂载时主动调用 `fetchCurrentAccount()`，解决直接从子页面打开迷你悬浮窗时长期停留在 `No account selected` 的问题。
             -   **解除刷新按钮死锁**: 移除 `handleRefresh` 对 `currentAccount` 的前置拦截，仅在存在账号时刷新配额，但始终重新拉取当前账号，打破“无账号不请求、不请求无账号”的循环。
@@ -16,6 +20,9 @@
             -   **Semver 元组化解析与日期快照过滤**: 采用 `(u32, u32)` 精准版本比对，避免未来如 `3.10` 等次版本号被浮点截断；主动过滤 8 位日期快照。
             -   **出站门禁哨兵签名兜底注入**: 为非 Claude 及自定义模型在流式多轮缺少 `thoughtSignature` 时自动注入哨兵签名，防止 Gemini AST 校验 400 拒绝；提前同步 `requestId` 与 `labels.trajectory_id`。
             -   **Tool Signatures 防爆与 TTL 淘汰**: 为 `tool_signatures` 设定 10,000 行容量硬上限与 7 天 TTL 滑动淘汰，避免高并发长对话下 `proxy_logs.db` 磁盘配额死锁。
+        -   **[视口边界自适应与防截断治理] 修复 GroupedSelect 下拉菜单靠近视口底部时被截断与无法滚动的溢出问题 (PR #3591, Thanks to @zepeng-jin)**:
+            -   **智能视口翻转 (Auto-Flip)**: 动态计算视口上下方剩余空间，当下部空间不足 260px 且上方更充裕时自动向上翻转展开，彻底解决底部卡片（如自定义模型映射）下拉菜单穿底的问题。
+            -   **Fixed 视口定位与动态高度约束**: 将 Portal 浮层定位升级为 `position: fixed`，并动态计算 `maxHeight`（保留视口上下安全边距）与横向防溢出边界保护，确保在小窗口及任何滚动场景下选项与输入框完整可见且滚动顺畅。
 
     *   **v4.9.2-beta.2 (2026-10-03)**:
         -   **[Linux KDE Plasma 图形兼容与渲染管线治理] 解除 KDE Plasma 强制 X11 回退并自适应禁用 WebKit DMA-BUF，根治 Fedora/KDE Wayland 界面静止与残影问题 (Fixes #3581, Thanks to @Selfrandom)**:

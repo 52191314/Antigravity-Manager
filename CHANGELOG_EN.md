@@ -4,6 +4,10 @@
 
 *   **Version History**:
     *   **v4.9.2-beta.3 (2026-10-03)**:
+        -   **[Claude 5.5 Thinking Signature Recognition & Gatekeeper Hardening] Resolve Upstream 400 Missing Signature Error for Claude 5.5 Tiered Models via OpenAI API (Fixes #3587)**:
+            -   **Claude 5.5 Protobuf Signature Support**: Upgraded `is_claude_signature` to recognize official Claude 5.5 Protobuf signatures (prefixed with `CAQS` / wrapped as `Q0FR`, corresponding to Protobuf tags `0x08 0x04 0x12`) and multi-layer Base64 decoding, preventing native valid signatures from being stripped as foreign.
+            -   **Outbound Thinking Block Signature Guard**: Added signature admission checks in `finalize_gemini_contents_thinking_with_session` for Claude turns. If no valid signature is anchored in the turn, sending `thought: true` blocks is strictly intercepted, safely downgrading thoughts to wrapped `<think>` plain text to eradicate Google's `messages.N.content.0.thinking.signature: Field required` 400 rejection.
+            -   **OpenAI Handler Retry Loop Circuit Breaker**: On upstream 400 signature retry attempts, actively purged poisoned signatures in `ThinkingStore`, stripped `signature` from in-flight messages, and converted unanchored `reasoning_content` into plain text, guaranteeing self-healing on the same account.
         -   **[Active Account Sync] Fetch Current Account on Mini View & Accounts Page Init and Resolve Mini View Refresh Deadlock (PR #3589, Thanks to @EricZhou05)**:
             -   **Mini View Mount Sync**: `MiniView` now calls `fetchCurrentAccount()` on mount, fixing the persistent `No account selected` state when the mini window is opened directly from a sub-page.
             -   **Refresh Deadlock Removed**: Dropped the `currentAccount` early-return guard in `handleRefresh`; quota is refreshed only when an account exists, but the current account is always re-fetched, breaking the "no account → no request → no account" loop.
@@ -16,6 +20,9 @@
             -   **Semver Tuple Parsing & Date Snapshot Filtering**: Migrated to `(u32, u32)` semantic version comparisons to prevent float truncation on minor releases like `3.10`; filtered 8-digit date snapshots.
             -   **Gatekeeper Sentinel Injection**: Auto-injected fallback sentinel thought signatures for non-Claude/custom models on multi-turn tool calls lacking signatures, preventing upstream 400 AST rejections; synchronized `requestId` and `labels.trajectory_id`.
             -   **Tool Signatures DB Bounding & TTL Eviction**: Enforced a 10,000-row cap and a 7-day TTL rolling prune on `tool_signatures`, eliminating disk budget deadlocks in `proxy_logs.db`.
+        -   **[Adaptive Viewport Positioning & Dropdown Anti-Truncation] Fix GroupedSelect Dropdown Truncation and Inability to Scroll Near Viewport Bottom (PR #3591, Thanks to @zepeng-jin)**:
+            -   **Intelligent Auto-Flip Placement**: Dynamically calculates remaining space above and below the trigger button, flipping the dropdown upward when bottom clearance is under 260px and top space is larger, resolving overflow clipping on bottom cards (such as custom model mappings).
+            -   **Fixed Viewport Positioning & Adaptive Height**: Upgraded portal styling to `position: fixed` with dynamic `maxHeight` bounds (retaining viewport padding) and horizontal overflow boundaries, ensuring full visibility and smooth scrolling across all resolutions and scroll states.
 
     *   **v4.9.2-beta.2 (2026-10-03)**:
         -   **[Linux KDE Plasma Graphics Compatibility & Rendering Pipeline Hardening] Eliminate Forcible X11 Fallback and Adaptively Disable WebKit DMA-BUF on KDE Wayland to Eradicate Frame Freezes (Fixes #3581, Thanks to @Selfrandom)**:

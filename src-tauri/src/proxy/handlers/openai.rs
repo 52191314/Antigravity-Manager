@@ -2865,6 +2865,30 @@ pub async fn handle_chat_completions(
                 );
                 // 1. 精准定向净化 ThinkingStore 中的异构污染签名（保留思考文本与健康签名）
                 session_scope.purge_signatures(&mapped_model);
+                // 2. 剥离消息中的 signature，将 reasoning_content 降级为 text，阻断无签名 thought 重新生成
+                for msg in openai_req.messages.iter_mut() {
+                    msg.signature = None;
+                    if let Some(tool_calls) = &mut msg.tool_calls {
+                        for tc in tool_calls {
+                            tc.signature = None;
+                        }
+                    }
+                    if let Some(rc) = msg.reasoning_content.take() {
+                        if !crate::proxy::thinking_store::is_placeholder_thought(&rc) {
+                            match &mut msg.content {
+                                Some(OpenAIContent::String(s)) => {
+                                    *s = format!("{}\n\n{}", s, rc);
+                                }
+                                Some(OpenAIContent::Array(blocks)) => {
+                                    blocks.insert(0, OpenAIContentBlock::Text { text: rc });
+                                }
+                                None => {
+                                    msg.content = Some(OpenAIContent::String(rc));
+                                }
+                            }
+                        }
+                    }
+                }
                 // 3. 保持同一账号原地重试
                 force_rotate = false;
                 continue;

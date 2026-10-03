@@ -1761,7 +1761,18 @@ pub fn finalize_gemini_contents_thinking_with_session(
             // 3. 治理思考块 (thinking_parts)
             // 思考块不挂签名。Claude 保留思考正文（Mac IDE 与 Windows 桌面端都回传）。
             // Gemini 在已有非思考 part 时丢掉思考正文，连续只靠签名。
-            if is_thinking_enabled {
+            // 【守卫法则】：对于 Claude 模型，上游 Google 严格校验签名，若本轮未能安置有效签名，
+            // 严禁送出 `thought: true` 块（否则必报 messages.N.content.0.thinking.signature: Field required 400）。
+            // 此时必须将思考正文安全降级为普通正文（包裹 <think>）以纯文本出站。
+            let claude_has_signature = is_claude_turn
+                && other_parts.iter().any(|p| {
+                    p.get("thoughtSignature")
+                        .or_else(|| p.get("thought_signature"))
+                        .and_then(|s| s.as_str())
+                        .map_or(false, |s| is_real_signature(s) && is_claude_signature(s))
+                });
+
+            if is_thinking_enabled && (!is_claude_turn || claude_has_signature) {
                 for tp in thinking_parts.iter_mut() {
                     if let Some(obj) = tp.as_object_mut() {
                         obj.remove("thoughtSignature");
@@ -1772,7 +1783,7 @@ pub fn finalize_gemini_contents_thinking_with_session(
                     parts.extend(thinking_parts);
                 }
             } else {
-                // 当思考模式为关时：
+                // 当思考模式为关，或者 Claude 缺少签名无法通过上游合法性检验时：
                 // 1. 绝不主动注入任何占位思考块（如 "..."）；
                 // 2. 若含有实质性思考内容的思考块，单次出站降级为普通文本以防丢失语义，摘除 thought: true 标记；
                 // 3. 纯占位符则直接剔除，绝不上送 thought: true 结构
@@ -2183,8 +2194,19 @@ pub fn is_claude_signature(sig: &str) -> bool {
         {
             return true;
         }
+        // Claude 5.5 / 官方报文签名特征：以 CAQS 开头 (Protobuf 格式：0x08 0x04 0x12)
+        if decoded.starts_with(b"CAQS") {
+            return true;
+        }
         if let Ok(inner) = base64::engine::general_purpose::STANDARD.decode(&decoded) {
             if inner.windows(6).any(|w| w.eq_ignore_ascii_case(b"claude")) {
+                return true;
+            }
+            if inner.starts_with(b"CAQS") {
+                return true;
+            }
+            // 二进制 Protobuf 特征：0x08 0x04 0x12
+            if inner.starts_with(&[0x08, 0x04, 0x12]) {
                 return true;
             }
         }
@@ -4300,11 +4322,18 @@ mod tests {
             base64::engine::general_purpose::STANDARD.encode(raw_claude_sig.as_bytes());
         assert!(is_claude_signature(&wrapped_claude_sig));
 
-        // 3. Gemini 签名绝不是 Claude 签名
+        // 3. Claude 5.5 官方真实报文签名测试（CAQS / Q0FR 开头 Protobuf 结构）
+        let claude_5_5_protobuf = "CAQSpAN01LkwMTAnAAEq";
+        let wrapped_5_5 =
+            base64::engine::general_purpose::STANDARD.encode(claude_5_5_protobuf.as_bytes());
+        assert!(is_claude_signature(claude_5_5_protobuf));
+        assert!(is_claude_signature(&wrapped_5_5));
+
+        // 4. Gemini 签名绝不是 Claude 签名
         let gemini_sig = "Ep4KCpsKAWkUfRMa5ZYMDdlPjxrQTLzVZ6MZeopI88888888888888888888888888888888";
         assert!(!is_claude_signature(gemini_sig));
 
-        // 4. 空与哨兵
+        // 5. 空与哨兵
         assert!(!is_claude_signature(""));
         assert!(!is_claude_signature(SENTINEL_SIGNATURE));
     }

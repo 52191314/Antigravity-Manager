@@ -1290,7 +1290,11 @@ impl InboundThinkingPipeline {
         // Google Gemini 3+ 规则：全会话历史与活跃轮次中的所有工具调用 (Function Calling)
         // 均被 Google AST 校验器严格强制检查 thoughtSignature。
         // 若任意历史或活跃轮次的某个 functionCall 缺少签名，出站前统一自动注入官方合法哨兵 SENTINEL_SIGNATURE，彻底杜绝上游 400！
-        if target_model.to_lowercase().contains("gemini") {
+        let is_claude_model = target_model.to_lowercase().contains("claude")
+            || crate::models::OfficialModelCatalog::get(target_model)
+                .map(|m| m.is_claude())
+                .unwrap_or(false);
+        if !is_claude_model || target_model.to_lowercase().contains("gemini") {
             if let Some(contents_arr) = canonical_contents.as_array_mut() {
                 for content in contents_arr.iter_mut() {
                     if let Some(parts) = content.get_mut("parts").and_then(|p| p.as_array_mut()) {
@@ -1681,16 +1685,38 @@ impl InboundThinkingPipeline {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let top_rid_str = request_id
-            .as_ref()
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
 
         // 7. 处理 requestType
         let mut request_type = body_obj.remove("requestType");
 
         // 8. 规范化内部 request
         if let Some(inner_req) = body_obj.get_mut("request") {
+            // [Issue / Defect 18] 若 requestId 仍未生成，根据 sessionId 与 contents 步数提前构建官方 requestId，
+            // 确保后续 align_google_request_prefix_topology_with_model 解析出的 labels.trajectory_id
+            // 与顶层 requestId 中的 trajectory_id 保持 100% 严格同步一致
+            if request_id
+                .as_ref()
+                .and_then(|v| v.as_str())
+                .map_or(true, |s| s.is_empty())
+            {
+                let sid = inner_req
+                    .get("sessionId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("default");
+                let step = inner_req
+                    .get("contents")
+                    .and_then(|c| c.as_array())
+                    .map_or(0, |a| a.len() as u64);
+                request_id = Some(json!(
+                    crate::proxy::mappers::common_utils::build_official_request_id(sid, step)
+                ));
+            }
+
+            let top_rid_str = request_id
+                .as_ref()
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
             Self::align_google_request_prefix_topology_with_model(
                 inner_req,
                 &model_str,
@@ -1711,18 +1737,18 @@ impl InboundThinkingPipeline {
                     request_type = Some(json!("agent"));
                 }
             }
-
-            // 若 requestId 仍未生成，根据 sessionId 与 contents 步数构建官方 requestId
+        } else {
+            // 如果顶层没有 request 包装，直接规范化 body 自身
             if request_id
                 .as_ref()
                 .and_then(|v| v.as_str())
                 .map_or(true, |s| s.is_empty())
             {
-                let sid = inner_req
+                let sid = body
                     .get("sessionId")
                     .and_then(|v| v.as_str())
                     .unwrap_or("default");
-                let step = inner_req
+                let step = body
                     .get("contents")
                     .and_then(|c| c.as_array())
                     .map_or(0, |a| a.len() as u64);
@@ -1730,8 +1756,12 @@ impl InboundThinkingPipeline {
                     crate::proxy::mappers::common_utils::build_official_request_id(sid, step)
                 ));
             }
-        } else {
-            // 如果顶层没有 request 包装，直接规范化 body 自身
+
+            let top_rid_str = request_id
+                .as_ref()
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
             Self::align_google_request_prefix_topology_with_model(
                 body,
                 &model_str,
@@ -1872,7 +1902,7 @@ mod tests {
 
         InboundThinkingPipeline::process_contents(
             &mut contents,
-            "gemini-2.5-pro",
+            "claude-sonnet-4-6",
             true,
             None,
             false,
@@ -2028,9 +2058,10 @@ mod tests {
         assert_eq!(parts.len(), 1);
         assert!(parts[0].get("functionCall").is_some());
         assert!(parts[0].get("thought").is_none());
-        assert!(
-            parts[0].get("thoughtSignature").is_none(),
-            "FunctionCall must NOT fall back to rejected sentinel signature"
+        assert_eq!(
+            parts[0]["thoughtSignature"],
+            crate::proxy::thinking_store::SENTINEL_SIGNATURE,
+            "Foreign Claude signature stripped, gatekeeper injects sentinel signature for Gemini"
         );
     }
 
@@ -2368,6 +2399,23 @@ mod tests {
             ]
         })];
 
+        // 1. 测试 Claude 目标：成功提升为 thought: true 思考块并保留正文回答
+        let mut claude_contents = contents.clone();
+        InboundThinkingPipeline::process_contents(
+            &mut claude_contents,
+            "claude-sonnet-4-6",
+            true,
+            None,
+            false,
+        );
+        let c_parts = claude_contents[0]["parts"].as_array().expect("parts array");
+        assert_eq!(c_parts[0]["thought"], true);
+        assert_eq!(c_parts[0]["text"], thought_text);
+        assert!(c_parts[0].get("thoughtSignature").is_none());
+        assert_eq!(c_parts[1]["text"], visible_answer);
+        assert!(c_parts[1].get("thought").is_none());
+
+        // 2. 测试 Gemini 目标：历史模型轮次存在可见正文时依规剥离思考块，保留纯净回答
         InboundThinkingPipeline::process_contents(
             &mut contents,
             "gemini-3.8-flash-tiered",
@@ -2377,20 +2425,9 @@ mod tests {
         );
 
         let parts = contents[0]["parts"].as_array().expect("parts array");
-        // 1. 首位成功提升为 thought: true 的思考块
-        assert_eq!(parts[0]["thought"], true);
-        assert_eq!(parts[0]["text"], thought_text);
-        // 铁律 I4：Gemini 目标的思考块**绝不**携带签名。
-        // 哨兵（skip_thought_signature_validator）不属于 Antigravity 协议 ——
-        // 官方 3 份报文 23 处签名里出现 0 次。
-        assert!(
-            parts[0].get("thoughtSignature").is_none(),
-            "Gemini 目标的思考块不得携带签名（I4）"
-        );
-
-        // 2. 正文部件已干净剔除 <think>...</think> 标签与换行，仅保留真实回答
-        assert_eq!(parts[1]["text"], visible_answer);
-        assert!(parts[1].get("thought").is_none());
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0]["text"], visible_answer);
+        assert!(parts[0].get("thought").is_none());
     }
 
     // ============ 工具回执（functionResponse）role 归一化 ============
@@ -3389,6 +3426,78 @@ mod tests {
         assert!(
             request_with_tools.get("toolConfig").is_some(),
             "当 tools 存在时，toolConfig 必须被完整保留"
+        );
+    }
+
+    #[test]
+    fn test_trajectory_id_and_top_request_id_synchronized() {
+        let mut body = json!({
+            "project": "test-project",
+            "model": "gemini-3.1-pro-high",
+            "request": {
+                "sessionId": "test-session-uuid-12345",
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [{"text": "hello"}]
+                    }
+                ]
+            }
+        });
+
+        InboundThinkingPipeline::align_official_envelope(&mut body);
+
+        let req_id = body
+            .get("requestId")
+            .and_then(|v| v.as_str())
+            .expect("requestId must exist");
+        let parts: Vec<&str> = req_id.split('/').collect();
+        assert!(
+            parts.len() >= 5,
+            "requestId must be official shape: {}",
+            req_id
+        );
+        let top_traj_uuid = parts[3];
+
+        let inner_traj_uuid = body["request"]["labels"]["trajectory_id"]
+            .as_str()
+            .expect("labels.trajectory_id must exist");
+
+        assert_eq!(
+            top_traj_uuid, inner_traj_uuid,
+            "Top-level requestId trajectory UUID must match labels.trajectory_id perfectly (Defect 18)"
+        );
+    }
+
+    #[test]
+    fn test_gatekeeper_sentinel_injected_for_custom_non_claude_model() {
+        let mut inner_req = json!({
+            "contents": [
+                {
+                    "role": "model",
+                    "parts": [
+                        {
+                            "functionCall": {
+                                "name": "custom_tool",
+                                "args": {}
+                            }
+                        }
+                    ]
+                }
+            ]
+        });
+
+        InboundThinkingPipeline::align_google_request_prefix_topology_with_model(
+            &mut inner_req,
+            "custom-unknown-model",
+            None,
+        );
+
+        let fc_part = &inner_req["contents"][0]["parts"][0];
+        assert_eq!(
+            fc_part.get("thoughtSignature").and_then(|v| v.as_str()),
+            Some(crate::proxy::thinking_store::SENTINEL_SIGNATURE),
+            "Gatekeeper must inject sentinel signature for non-Claude models (Defect 10)"
         );
     }
 }

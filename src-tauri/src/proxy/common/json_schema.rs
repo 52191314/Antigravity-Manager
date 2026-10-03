@@ -227,6 +227,15 @@ fn clean_json_schema_recursive(value: &mut Value, is_schema_node: bool, depth: u
 
             // 1. [CRITICAL] 深度递归处理子项
             // 处理 properties (对象)
+            // [FIX] Gemini's Schema proto requires `properties` to be an object (map<string, Schema>).
+            // Non-object values (null, [], boolean, etc.) trigger upstream 400 errors.
+            // Normalize non-object `properties` to an empty object `{}`.
+            if let Some(props_val) = map.get_mut("properties") {
+                if !props_val.is_object() {
+                    *props_val = json!({});
+                }
+            }
+
             if let Some(Value::Object(props)) = map.get_mut("properties") {
                 // [FIX] Drop boolean / non-object sub-schemas. JSON Schema allows
                 // `prop: true|false`, but Gemini's Schema proto requires every property
@@ -248,20 +257,20 @@ fn clean_json_schema_recursive(value: &mut Value, is_schema_node: bool, depth: u
                         nullable_keys.insert(k.clone());
                     }
                 }
+                let valid_keys: std::collections::HashSet<String> = props.keys().cloned().collect();
 
-                if !nullable_keys.is_empty() || !dropped_keys.is_empty() {
-                    if let Some(Value::Array(req_arr)) = map.get_mut("required") {
-                        req_arr.retain(|r| {
-                            r.as_str()
-                                .map(|s| {
-                                    !nullable_keys.contains(s)
-                                        && !dropped_keys.iter().any(|d| d == s)
-                                })
-                                .unwrap_or(true)
-                        });
-                        if req_arr.is_empty() {
-                            map.remove("required");
-                        }
+                if let Some(Value::Array(req_arr)) = map.get_mut("required") {
+                    req_arr.retain(|r| {
+                        r.as_str()
+                            .map(|s| {
+                                valid_keys.contains(s)
+                                    && !nullable_keys.contains(s)
+                                    && !dropped_keys.iter().any(|d| d == s)
+                            })
+                            .unwrap_or(false)
+                    });
+                    if req_arr.is_empty() {
+                        map.remove("required");
                     }
                 }
 
@@ -824,6 +833,37 @@ mod tests {
             .cloned()
             .unwrap_or_default();
         assert!(req.iter().all(|r| r.as_str() != Some("forbidden")));
+    }
+
+    #[test]
+    fn test_non_object_properties_normalized_to_empty_object() {
+        let mut schema_null = json!({
+            "type": "object",
+            "properties": null,
+            "required": ["foo"]
+        });
+        clean_json_schema(&mut schema_null);
+        assert!(schema_null["properties"].is_object());
+        assert_eq!(schema_null["properties"].as_object().unwrap().len(), 0);
+        assert!(schema_null.get("required").is_none());
+
+        let mut schema_array = json!({
+            "type": "object",
+            "properties": ["a", "b"],
+            "required": ["a"]
+        });
+        clean_json_schema(&mut schema_array);
+        assert!(schema_array["properties"].is_object());
+        assert_eq!(schema_array["properties"].as_object().unwrap().len(), 0);
+        assert!(schema_array.get("required").is_none());
+
+        let mut schema_bool = json!({
+            "type": "object",
+            "properties": false
+        });
+        clean_json_schema(&mut schema_bool);
+        assert!(schema_bool["properties"].is_object());
+        assert_eq!(schema_bool["properties"].as_object().unwrap().len(), 0);
     }
     #[test]
     fn test_clean_json_schema_draft_2020_12() {

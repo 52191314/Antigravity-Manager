@@ -236,6 +236,39 @@ pub fn map_claude_model_to_gemini(input: &str) -> String {
     input.to_string()
 }
 
+/// 解析形如 "4.6", "4-6", "3.10", "3-10", "3" 的 (major, minor) 版本元组。
+/// 严格过滤 8 位日期快照 (如 20241022, 20250219) 以及大于等于 1000 的年份/非语义版本数字。
+pub fn parse_version_tuple(s: &str) -> Option<(u32, u32)> {
+    let s = s.trim().trim_start_matches('v');
+    let mut parts = s.split(|c: char| c == '.' || c == '-' || c == '_');
+    let major_token = parts.next()?;
+    if major_token.len() == 8 && (major_token.starts_with("202") || major_token.starts_with("201"))
+    {
+        return None;
+    }
+    let major = major_token.parse::<u32>().ok()?;
+    if major >= 1000 {
+        return None;
+    }
+    let minor = if let Some(minor_token) = parts.next() {
+        if minor_token.len() == 8
+            && (minor_token.starts_with("202") || minor_token.starts_with("201"))
+        {
+            0
+        } else {
+            let m = minor_token.parse::<u32>().ok()?;
+            if m >= 1000 {
+                0
+            } else {
+                m
+            }
+        }
+    } else {
+        0
+    };
+    Some((major, minor))
+}
+
 /// 核心基准线过滤器：严格遵循官方客户端当前展示的模型基准线
 /// 1. Gemini Flash 系列：基准线 3.5。版本 >= 3.5 保留；< 3.5 的除了 2.5 经典系列外全部淘汰。
 /// 2. Claude 系列：基准线 4.6。版本 >= 4.6 保留；4.6 以下全部淘汰。
@@ -266,30 +299,43 @@ pub fn is_model_compliant_with_baseline(model: &str) -> bool {
             let rest = &m[pos..];
             let tokens: Vec<&str> = rest.split(|c: char| c == '-' || c == '_').collect();
             let mut i = 0;
-            let mut detected_version: Option<f32> = None;
+            let mut detected_version: Option<(u32, u32)> = None;
             while i < tokens.len() {
                 let token = tokens[i];
+                // 忽略纯日期快照 (如 20241022, 20250219)
+                if token.len() == 8 && (token.starts_with("202") || token.starts_with("201")) {
+                    i += 1;
+                    continue;
+                }
                 if let Ok(major) = token.parse::<u32>() {
+                    if major >= 1000 {
+                        i += 1;
+                        continue;
+                    }
+                    let mut minor = 0;
                     if i + 1 < tokens.len() {
-                        if let Ok(minor) = tokens[i + 1].parse::<u32>() {
-                            if let Ok(ver) = format!("{}.{}", major, minor).parse::<f32>() {
-                                detected_version =
-                                    Some(detected_version.map_or(ver, |v| v.max(ver)));
-                                i += 2;
-                                continue;
+                        let next_tok = tokens[i + 1];
+                        if !(next_tok.len() == 8
+                            && (next_tok.starts_with("202") || next_tok.starts_with("201")))
+                        {
+                            if let Ok(m) = next_tok.parse::<u32>() {
+                                if m < 1000 {
+                                    minor = m;
+                                    i += 1;
+                                }
                             }
                         }
                     }
-                    let ver = major as f32;
+                    let ver = (major, minor);
                     detected_version = Some(detected_version.map_or(ver, |v| v.max(ver)));
-                } else if let Ok(ver) = token.parse::<f32>() {
+                } else if let Some(ver) = parse_version_tuple(token) {
                     detected_version = Some(detected_version.map_or(ver, |v| v.max(ver)));
                 }
                 i += 1;
             }
 
             if let Some(ver) = detected_version {
-                return ver >= 4.6;
+                return ver >= (4, 6);
             }
         }
         return false;
@@ -319,12 +365,12 @@ pub fn is_model_compliant_with_baseline(model: &str) -> bool {
         if m.contains("3.1") {
             return true;
         }
-        // 未知更高版本 pro (如 4.x)
+        // 未知更高版本 pro (如 3.10, 4.x)
         if let Some(pos) = m.find("gemini-") {
             let rest = &m[pos + 7..];
             if let Some(pro_pos) = rest.find("-pro") {
-                if let Ok(ver) = rest[..pro_pos].parse::<f32>() {
-                    return ver >= 3.1;
+                if let Some(ver) = parse_version_tuple(&rest[..pro_pos]) {
+                    return ver >= (3, 1);
                 }
             }
         }
@@ -348,13 +394,13 @@ pub fn is_model_compliant_with_baseline(model: &str) -> bool {
             return false;
         }
 
-        // 解析版本号
+        // 解析版本号 (使用语义元组比较，正确支持 3.10 > 3.5 等双位数次版本)
         if let Some(pos) = m.find("gemini-") {
             let rest = &m[pos + 7..];
             if let Some(flash_pos) = rest.find("-flash") {
                 let ver_str = &rest[..flash_pos];
-                if let Ok(ver) = ver_str.parse::<f32>() {
-                    return ver >= 3.5;
+                if let Some(ver) = parse_version_tuple(ver_str) {
+                    return ver >= (3, 5);
                 }
             }
         }
@@ -685,21 +731,9 @@ fn is_high_tier_flash(lower: &str) -> bool {
     if let Some(pos) = lower.find("gemini-") {
         let rest = &lower[pos + 7..];
         if let Some(flash_pos) = rest.find("-flash") {
-            let ver = &rest[..flash_pos];
-            let mut parts = ver.split('.');
-            if let Some(major_s) = parts.next() {
-                if let Ok(major) = major_s.parse::<u32>() {
-                    if major > 3 {
-                        return true;
-                    }
-                    if major == 3 {
-                        if let Some(minor_s) = parts.next() {
-                            if let Ok(minor) = minor_s.parse::<u32>() {
-                                return minor >= 5;
-                            }
-                        }
-                    }
-                }
+            let ver_str = &rest[..flash_pos];
+            if let Some(ver) = parse_version_tuple(ver_str) {
+                return ver >= (3, 5);
             }
         }
     }
@@ -1144,6 +1178,7 @@ mod tests {
         assert!(is_model_compliant_with_baseline("gemini-3.7-flash-medium"));
         assert!(is_model_compliant_with_baseline("gemini-3.6-flash-low"));
         assert!(is_model_compliant_with_baseline("gemini-3.5-flash-low"));
+        assert!(is_model_compliant_with_baseline("gemini-3.10-flash-high"));
         assert!(is_model_compliant_with_baseline("gemini-3.1-flash-lite"));
         assert!(!is_model_compliant_with_baseline("gemini-2.5-flash"));
         assert!(!is_model_compliant_with_baseline("gemini-2.5-flash-lite"));
@@ -1154,6 +1189,18 @@ mod tests {
         assert!(!is_model_compliant_with_baseline("gemini-3-flash"));
         assert!(!is_model_compliant_with_baseline("gemini-1.5-flash"));
         assert!(!is_model_compliant_with_baseline("gemini-2.0-flash"));
+
+        // is_high_tier_flash verification
+        assert!(is_high_tier_flash("gemini-3.5-flash"));
+        assert!(is_high_tier_flash("gemini-3.10-flash"));
+        assert!(is_high_tier_flash("gemini-4.0-flash"));
+        assert!(!is_high_tier_flash("gemini-3.0-flash"));
+        assert!(!is_high_tier_flash("gemini-2.5-flash"));
+
+        // Date snapshots must be filtered
+        assert!(!is_model_compliant_with_baseline(
+            "claude-3-5-sonnet-20241022"
+        ));
 
         // Gemini Pro: 3.1 pass, 2.5/1.5/2.0/3.0 rejected
         assert!(is_model_compliant_with_baseline("gemini-3.1-pro-high"));

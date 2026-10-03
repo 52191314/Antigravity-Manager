@@ -20,9 +20,10 @@ fn test_retry_strategy_404() {
 #[test]
 fn test_retry_strategy_429_no_delay() {
     let strategy = determine_retry_strategy(429, "rate limited", false);
+    // 5abc8a6f 自适应限流：单账号没有明确 delay 时，采用保底 GraceRetry 等待 (3000ms)，避免闪电刷死
     assert!(
-        matches!(strategy, RetryStrategy::LinearBackoff { base_ms: 5000 }),
-        "Expected LinearBackoff {{ base_ms: 5000 }}, got {:?}",
+        matches!(strategy, RetryStrategy::GraceRetry(d) if d == Duration::from_millis(3000)),
+        "Expected GraceRetry(3000ms), got {:?}",
         strategy
     );
 }
@@ -30,15 +31,16 @@ fn test_retry_strategy_429_no_delay() {
 #[test]
 fn test_retry_strategy_503() {
     let strategy = determine_retry_strategy(503, "", false);
+    // 5abc8a6f 自适应退避：单账号或已遍历全池采用 ExponentialBackoff { base_ms: 5000, max_ms: 30000 }
     assert!(
         matches!(
             strategy,
             RetryStrategy::ExponentialBackoff {
-                base_ms: 10000,
-                max_ms: 60000
+                base_ms: 5000,
+                max_ms: 30000
             }
         ),
-        "Expected ExponentialBackoff {{ base_ms: 10000, max_ms: 60000 }}, got {:?}",
+        "Expected ExponentialBackoff {{ base_ms: 5000, max_ms: 30000 }}, got {:?}",
         strategy
     );
 }
@@ -46,15 +48,16 @@ fn test_retry_strategy_503() {
 #[test]
 fn test_retry_strategy_529() {
     let strategy = determine_retry_strategy(529, "", false);
+    // 5abc8a6f 自适应退避：单账号或已遍历全池采用 ExponentialBackoff { base_ms: 5000, max_ms: 30000 }
     assert!(
         matches!(
             strategy,
             RetryStrategy::ExponentialBackoff {
-                base_ms: 10000,
-                max_ms: 60000
+                base_ms: 5000,
+                max_ms: 30000
             }
         ),
-        "Expected ExponentialBackoff {{ base_ms: 10000, max_ms: 60000 }}, got {:?}",
+        "Expected ExponentialBackoff {{ base_ms: 5000, max_ms: 30000 }}, got {:?}",
         strategy
     );
 }

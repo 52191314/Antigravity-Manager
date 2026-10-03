@@ -34,6 +34,7 @@ mod tests {
 
     // Global mutex to prevent concurrent test execution
     static TEST_MUTEX: Lazy<StdMutex<()>> = Lazy::new(|| StdMutex::new(()));
+    static TEST_DIR_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
     struct TestDataDir {
         path: PathBuf,
@@ -41,13 +42,15 @@ mod tests {
 
     impl TestDataDir {
         fn new() -> Self {
+            let seq = TEST_DIR_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let temp_path = std::env::temp_dir().join(format!(
-                "antigravity_test_{}_{}",
+                "antigravity_test_{}_{}_{}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
-                    .as_millis()
+                    .as_nanos(),
+                seq
             ));
             fs::create_dir_all(&temp_path).expect("Failed to create temp dir");
 

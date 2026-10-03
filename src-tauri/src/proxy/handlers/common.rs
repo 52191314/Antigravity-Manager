@@ -232,20 +232,22 @@ pub fn determine_retry_strategy_adaptive(
                 return RetryStrategy::FixedDelay(Duration::from_millis(50));
             }
 
-            // 3. 单账号模式 (pool_size <= 1)：无法切号，等待是唯一选择
+            // 3. 单账号模式 (pool_size <= 1)：无法切号，若未曾 GraceRetry 则等待，否则降级为固定退避或放弃
             if pool_size <= 1 {
                 if let Some(delay) = parsed_delay {
                     let actual_ms = delay.actual_wait_ms();
-                    if actual_ms <= 30_000 {
+                    if actual_ms <= 30_000 && allow_grace_retry {
                         tracing::info!(
                             "[Retry] Single account 429: quotaResetDelay detected ({}ms), applying GraceRetry",
                             actual_ms
                         );
                         return RetryStrategy::GraceRetry(Duration::from_millis(actual_ms));
                     } else {
-                        return RetryStrategy::FixedDelay(Duration::from_millis(30_000));
+                        return RetryStrategy::FixedDelay(Duration::from_millis(
+                            actual_ms.min(30_000),
+                        ));
                     }
-                } else {
+                } else if allow_grace_retry {
                     // 没有给出明确延迟时的保底退避 (单账号等待 3s~5s，杜绝 50ms 闪电耗尽重试)
                     let backoff_ms = (3000 * (attempt + 1) as u64).min(10_000);
                     tracing::info!(
@@ -253,6 +255,9 @@ pub fn determine_retry_strategy_adaptive(
                         backoff_ms
                     );
                     return RetryStrategy::GraceRetry(Duration::from_millis(backoff_ms));
+                } else {
+                    let backoff_ms = (3000 * (attempt + 1) as u64).min(10_000);
+                    return RetryStrategy::FixedDelay(Duration::from_millis(backoff_ms));
                 }
             }
 
@@ -568,10 +573,7 @@ pub fn build_token_error_headers<'a>(
 }
 
 /// 判断是否为模型不存在/不支持的错误
-pub fn is_model_not_found_error(status: u16, body: &str) -> bool {
-    if status == 404 {
-        return true;
-    }
+pub fn is_model_not_found_error(_status: u16, body: &str) -> bool {
     let lower = body.to_lowercase();
     lower.contains("model not found")
         || lower.contains("unknown model")

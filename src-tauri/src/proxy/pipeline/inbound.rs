@@ -1600,9 +1600,12 @@ impl InboundThinkingPipeline {
         }
         if let Some(tools) = canonical_tools {
             reordered.insert("tools".to_string(), tools);
-        }
-        if let Some(tc) = canonical_tool_config {
-            reordered.insert("toolConfig".to_string(), tc);
+            // [Pipeline First] 严格保持 Gemini 上游契约一致性：
+            // 只有当存在有效 tools 声明时，才传递客户端指定的 toolConfig；
+            // 杜绝 tools 为空或不存在时发送孤立悬挂的 toolConfig 引发上游 400 INVALID_ARGUMENT 报错。
+            if let Some(tc) = canonical_tool_config {
+                reordered.insert("toolConfig".to_string(), tc);
+            }
         }
         if let Some(labels) = canonical_labels {
             reordered.insert("labels".to_string(), labels);
@@ -3315,6 +3318,77 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some(SENTINEL_SIGNATURE),
             "伪哈希 ID 在 SQLite 仍未命中时，必须兜底回填官方哨兵"
+        );
+    }
+
+    #[test]
+    fn test_align_google_request_prefix_topology_drops_orphaned_tool_config_when_tools_empty() {
+        // 当客户端请求传入了 toolConfig，但 tools 为空或未注册时：
+        // 门禁必须安全丢弃孤立悬挂的 toolConfig，杜绝上游 400 INVALID_ARGUMENT 报错 (Issue #3586)
+        let mut inner_request = json!({
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": "hello without tools"}]
+                }
+            ],
+            "toolConfig": {
+                "functionCallingConfig": {
+                    "mode": "ANY"
+                }
+            }
+        });
+
+        InboundThinkingPipeline::align_google_request_prefix_topology_with_model(
+            &mut inner_request,
+            "gemini-2.5-flash",
+            None,
+        );
+
+        assert!(
+            inner_request.get("toolConfig").is_none(),
+            "当 tools 为空或不存在时，孤立的 toolConfig 必须被完全剔除"
+        );
+        assert!(
+            inner_request.get("tools").is_none(),
+            "tools 必须保持为 None"
+        );
+
+        // 反向验证：当存在有效 tools 时，toolConfig 必须完整保留
+        let mut request_with_tools = json!({
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": "hello with tools"}]
+                }
+            ],
+            "tools": [
+                {
+                    "functionDeclarations": [
+                        {
+                            "name": "search",
+                            "description": "search tool"
+                        }
+                    ]
+                }
+            ],
+            "toolConfig": {
+                "functionCallingConfig": {
+                    "mode": "ANY"
+                }
+            }
+        });
+
+        InboundThinkingPipeline::align_google_request_prefix_topology_with_model(
+            &mut request_with_tools,
+            "gemini-2.5-flash",
+            None,
+        );
+
+        assert!(request_with_tools.get("tools").is_some(), "tools 必须存在");
+        assert!(
+            request_with_tools.get("toolConfig").is_some(),
+            "当 tools 存在时，toolConfig 必须被完整保留"
         );
     }
 }

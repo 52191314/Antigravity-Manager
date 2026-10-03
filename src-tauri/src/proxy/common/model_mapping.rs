@@ -262,12 +262,34 @@ pub fn is_model_compliant_with_baseline(model: &str) -> bool {
             return true;
         }
         // 兼容未来可能发布的 >= 4.6 版本 (如 4.7+, 5.x)
-        if let Some(pos) = m.find("claude-") {
-            let rest = &m[pos + 7..];
-            for token in rest.split('-') {
-                if let Ok(ver) = token.parse::<f32>() {
-                    return ver >= 4.6;
+        if let Some(pos) = m.find("claude") {
+            let rest = &m[pos..];
+            let tokens: Vec<&str> = rest.split(|c: char| c == '-' || c == '_').collect();
+            let mut i = 0;
+            let mut detected_version: Option<f32> = None;
+            while i < tokens.len() {
+                let token = tokens[i];
+                if let Ok(major) = token.parse::<u32>() {
+                    if i + 1 < tokens.len() {
+                        if let Ok(minor) = tokens[i + 1].parse::<u32>() {
+                            if let Ok(ver) = format!("{}.{}", major, minor).parse::<f32>() {
+                                detected_version =
+                                    Some(detected_version.map_or(ver, |v| v.max(ver)));
+                                i += 2;
+                                continue;
+                            }
+                        }
+                    }
+                    let ver = major as f32;
+                    detected_version = Some(detected_version.map_or(ver, |v| v.max(ver)));
+                } else if let Ok(ver) = token.parse::<f32>() {
+                    detected_version = Some(detected_version.map_or(ver, |v| v.max(ver)));
                 }
+                i += 1;
+            }
+
+            if let Some(ver) = detected_version {
+                return ver >= 4.6;
             }
         }
         return false;
@@ -411,6 +433,7 @@ pub async fn get_all_dynamic_models(
 ) -> Vec<String> {
     use std::collections::HashSet;
     let mut model_ids = HashSet::new();
+    let mut custom_keys = HashSet::new();
 
     // 1. 获取所有账号从官方接口汇聚而来的动态模型 (Quota Models)
     if let Some(tm) = token_manager {
@@ -425,6 +448,7 @@ pub async fn get_all_dynamic_models(
         {
             let mapping = custom_mapping.read().await;
             for key in mapping.keys() {
+                custom_keys.insert(key.clone());
                 model_ids.insert(key.clone());
             }
         }
@@ -436,9 +460,10 @@ pub async fn get_all_dynamic_models(
     }
 
     // 4. 应用官方基准线过滤，彻底剔除已淘汰的旧版模型与内部虚拟 ID
+    // 自定义别名映射（custom_mapping）由用户显式指定，不受官方基准线过滤误杀
     let mut sorted_ids: Vec<_> = model_ids
         .into_iter()
-        .filter(|id| is_model_compliant_with_baseline(id))
+        .filter(|id| custom_keys.contains(id) || is_model_compliant_with_baseline(id))
         .collect();
     sorted_ids.sort();
     sorted_ids
@@ -1090,10 +1115,10 @@ mod tests {
             "gemini-3.9-flash-high"
         );
 
-        // 4. 大于 3.8 的未来模型即使不在精确表中也统一走 tiered（含 4.x）
+        // 4. 4.x 裸 Flash 模型由 resolve_bare_flash_route 统一路由至 high
         assert_eq!(
             resolve_model_route("gemini-4.0-flash", &custom),
-            "gemini-4.0-flash-tiered"
+            "gemini-4.0-flash-high"
         );
     }
 

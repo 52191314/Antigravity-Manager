@@ -8,6 +8,14 @@
             -   **Mini View Mount Sync**: `MiniView` now calls `fetchCurrentAccount()` on mount, fixing the persistent `No account selected` state when the mini window is opened directly from a sub-page.
             -   **Refresh Deadlock Removed**: Dropped the `currentAccount` early-return guard in `handleRefresh`; quota is refreshed only when an account exists, but the current account is always re-fetched, breaking the "no account → no request → no account" loop.
             -   **Accounts Page "Current" Badge Restored**: The `Accounts` page now fetches the current account on mount, so the "Current" badge renders correctly when the page is opened directly or reloaded.
+        -   **[Gateway Core Stability & Pipeline Schema Hardening] Eradicate 503 Inverted Timeouts, Isolate Clients from IDE, Harden 429 Retry Engine & Bound Signatures DB (PR #3590, Supersedes PR #3584, Fixes #3253, Fixes #3506, Fixes #3585, Fixes #3586, Thanks to @cubelikeplayDaniel)**:
+            -   **Eradicate 503 Token Acquisition Timeouts**: Introduced a 30s background pre-refresh loop (refreshing when token TTL < 600s), added 3.5s fast failover and lock timeouts on the hot path, and expanded outer safety guards to 15s, eliminating inverted timeouts and queue deadlocks under concurrency.
+            -   **Process & Storage Isolation for Classic Client and IDE**: Unified `antigravity_ide` variant filtering and removed implicit fallback to IDE database/device paths when Classic is not found, preventing cross-client pollution.
+            -   **Harden 429 Retry State Machine**: Prevented 50ms spinloops on single-account 429s; properly identified Google `RESOURCE_EXHAUSTED` errors to allow full-pool rotation before giving up.
+            -   **Gemini Schema Protobuf Deep Normalization**: Normalized non-object `properties` to `{}`, pruned orphan `required` keys, and restored `type: "object"`, preventing upstream 400 Bad Request; preserved raw multiline description formatting.
+            -   **Semver Tuple Parsing & Date Snapshot Filtering**: Migrated to `(u32, u32)` semantic version comparisons to prevent float truncation on minor releases like `3.10`; filtered 8-digit date snapshots.
+            -   **Gatekeeper Sentinel Injection**: Auto-injected fallback sentinel thought signatures for non-Claude/custom models on multi-turn tool calls lacking signatures, preventing upstream 400 AST rejections; synchronized `requestId` and `labels.trajectory_id`.
+            -   **Tool Signatures DB Bounding & TTL Eviction**: Enforced a 10,000-row cap and a 7-day TTL rolling prune on `tool_signatures`, eliminating disk budget deadlocks in `proxy_logs.db`.
 
     *   **v4.9.2-beta.2 (2026-10-03)**:
         -   **[Linux KDE Plasma Graphics Compatibility & Rendering Pipeline Hardening] Eliminate Forcible X11 Fallback and Adaptively Disable WebKit DMA-BUF on KDE Wayland to Eradicate Frame Freezes (Fixes #3581, Thanks to @Selfrandom)**:

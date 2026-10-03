@@ -8,6 +8,14 @@
             -   **悬浮窗挂载主动同步**: `MiniView` 挂载时主动调用 `fetchCurrentAccount()`，解决直接从子页面打开迷你悬浮窗时长期停留在 `No account selected` 的问题。
             -   **解除刷新按钮死锁**: 移除 `handleRefresh` 对 `currentAccount` 的前置拦截，仅在存在账号时刷新配额，但始终重新拉取当前账号，打破“无账号不请求、不请求无账号”的循环。
             -   **账号页「当前」标签恢复**: `Accounts` 页面挂载时同步拉取当前账号，修复直达或刷新账号管理页时「当前」标签不显示的问题。
+        -   **[网关核心稳定性与管道规整加固] 根治 503 超时倒置、客户端与 IDE 隔离、429 重试状态机与 Schema 规整防爆 (PR #3590, Supersedes PR #3584, Fixes #3253, Fixes #3506, Fixes #3585, Fixes #3586, Thanks to @cubelikeplayDaniel)**:
+            -   **503 Token Acquisition 超时根治**: 引入 30s 定时后台预刷新任务（生命周期 < 600s 提前刷新），热路径获取与 Project ID 解析增加 3.5s 快速切号与锁等待超时守卫，网关层全局守卫放宽至 15s，彻底根除弱网与高并发下 5s 超时倒置与无界排队。
+            -   **经典版客户端与 IDE 进程/数据双重隔离**: 统一覆盖 `antigravity_ide` 命名变体，并在探测经典版缺失时剔除隐式降级至 IDE 路径逻辑，杜绝跨应用进程与数据库互相污染。
+            -   **429 速率限制重试状态机加固**: 单账号 429 严禁 50ms 空转刷死；准确识别 Google 官方 `RESOURCE_EXHAUSTED` 错误，健全号池完整轮换深度。
+            -   **Google Gemini Schema Protobuf 深度规整**: 规整非对象 `properties` 为 `{}`，剔除无效 `required` 键名，补齐 `type: "object"`，解决上游 400 Bad Request；保留原始换行排版不被折叠。
+            -   **Semver 元组化解析与日期快照过滤**: 采用 `(u32, u32)` 精准版本比对，避免未来如 `3.10` 等次版本号被浮点截断；主动过滤 8 位日期快照。
+            -   **出站门禁哨兵签名兜底注入**: 为非 Claude 及自定义模型在流式多轮缺少 `thoughtSignature` 时自动注入哨兵签名，防止 Gemini AST 校验 400 拒绝；提前同步 `requestId` 与 `labels.trajectory_id`。
+            -   **Tool Signatures 防爆与 TTL 淘汰**: 为 `tool_signatures` 设定 10,000 行容量硬上限与 7 天 TTL 滑动淘汰，避免高并发长对话下 `proxy_logs.db` 磁盘配额死锁。
 
     *   **v4.9.2-beta.2 (2026-10-03)**:
         -   **[Linux KDE Plasma 图形兼容与渲染管线治理] 解除 KDE Plasma 强制 X11 回退并自适应禁用 WebKit DMA-BUF，根治 Fedora/KDE Wayland 界面静止与残影问题 (Fixes #3581, Thanks to @Selfrandom)**:

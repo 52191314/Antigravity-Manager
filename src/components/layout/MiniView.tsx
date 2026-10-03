@@ -65,7 +65,6 @@ function MiniQuotaRow({
         }
         if (pct >= 20) {
             if (colorClass === 'cyan') return 'bg-gradient-to-r from-orange-400 to-orange-500';
-            if (colorClass === 'purple') return 'bg-gradient-to-r from-purple-400 to-purple-500';
             return 'bg-gradient-to-r from-amber-400 to-amber-500';
         }
         return 'bg-gradient-to-r from-rose-400 to-rose-500';

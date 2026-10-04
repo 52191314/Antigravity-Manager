@@ -3,6 +3,17 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.2-beta.6 (2026-10-04)**:
+        -   **[纯数据驱动模型发现与消除硬编码] 彻底清理 Claude 5.5 与 gemini-3.x-flash 假模型规则，重构全链路动态衍生与低等模型过滤**:
+            -   **清理 Claude 5.5 幽灵模型与根除 503 报错**: 从后端公开模型列表（`get_supported_models`）、前端配置预设（`modelConfig.ts`）以及分档路由器保底逻辑中彻底清除未经官方发布的 `claude-sonnet-5-5` 与 `claude-opus-5-5`。杜绝因网关虚假暴露该模型导致下游客户端调用后因账号池缺少配额而爆出 503 Service Unavailable 的问题。
+            -   **全面移除 gemini-3.x-flash 静态特判**: 彻底移除旧版中针对 `gemini-3.x-flash (x > 8)` 强转为 `3.x-flash-tiered` 的硬编码拦截、默认映射与前端 UI 特殊胶囊标签；加入本地配置自动平滑迁移清洗。全链路统一由 `DynamicTierRouter` 动态探测真实上游档位自适应接管，前端放开通用通配符（`*`）自定义配置。
+            -   **纯数据驱动的动态裸模型衍生 (前后端对齐)**: 严格以 Google 官方真实下发的可用模型（如 `gemini-3.8-flash-tiered`、`gemini-3.1-pro-high/low`、`claude-opus-4-6-thinking`、`claude-sonnet-4-6`、`gemini-3.1-flash-image` 等）为基准源。在此基础上，通过全自动通用后缀剥离扫描（`["-tiered", "-high", "-medium", "-low", "-extra-low"]`）动态派生出受档位与网关预算控制的裸模型（如 `gemini-3.1-pro`、`gemini-3.5-flash`、`gemini-3.6-flash`、`gemini-3.7-flash`、`gemini-3.8-flash` 等），彻底告别静态维护。
+            -   **前后端基准线过滤精准对齐**: 前后端统一基准线过滤机制，坚决过滤 `chat_20706` / `chat_23310` 等内部测试 ID、淘汰的 `gemini-2.5-*` 旧模型以及 4.6 以下的 Claude 历史旧模型；准确放行官方活跃的 `gemini-pro-agent`、`gemini-3-flash-agent`、`tab_flash_lite_preview`、`tab_jump_flash_lite_preview`、`gemini-3.1-flash-lite` 与 `gemini-3.5-flash-lite`。
+        -   **[Flash 裸模型默认路由自适应与防无脑保底] 移除 Flash 强制 High 特判，严格遵循真实存在档位决策链**:
+            -   **彻底移除 Flash 裸模型强制 High 特判**: 清理了 `is_bare_gemini_v3_flash` 未传思考强度时强制路由至 `-high` 的 3 处硬编码残留（路由器特判、variant_mapping 默认 tier、思考预算默认判定），所有裸模型统一遵循通用自适应决策链。
+            -   **防无脑保底 low 与可用档位强校验**: 重构 `pick_optimal_default_tier` 与显式 effort 匹配防御：优先匹配自适应 `tiered` -> 其次 `medium` -> 再次高于 low 的最低档 -> **仅当 low 真实存在于上游可用档位时**才选取 low -> 极端保底仅取上游实际存在的首个档位（如 extra-low）；若上游无可用档位则原样保持裸模型，绝不凭空捏造不存在的 `-low` 或 `-high` 导致上游报错。
+            -   **网关预算权威覆盖全链路协同**: 确保在网关权威模式下，用户为各思考档位自定义预定的思考预算（> 0 或 -1）具有最高物理优先级，严格覆盖官方结构体默认值，并与动态衍生裸模型全链路联动。
+
     *   **v4.9.2-beta.5 (2026-10-04)**:
         -   **[通用分档路由器与 Claude 5.5 动态规格架构升级] 纯数据驱动的通用 DynamicTierRouter、可用档位自动扫描与 Claude 5.5 全链路接入 (PR #3594 启发推进, Thanks to @CarlitoDon)**:
             -   **纯数据驱动通用分档路由器 (DynamicTierRouter)**: 从硬编码特判中彻底解耦，在 `OfficialModelCatalog` 中实现 `collect_tiers_for_base`，支持从官方目录动态探测任意模型的所有可用分档后缀（available_tiers 列表）。无论是 Gemini 3.x Flash 还是 Claude 5.5 或未来的新模型，自动剥离后缀派生裸模型并根据权重梯队（`lite < low < default < medium < high < xhigh < max`）与客户端 effort 动态智能路由。

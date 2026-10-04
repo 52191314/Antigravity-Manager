@@ -279,14 +279,20 @@ pub fn is_model_compliant_with_baseline(model: &str) -> bool {
     let m = lower.trim();
 
     // 过滤内部任务与测试模型
-    if m.starts_with("chat_")
-        || m.starts_with("tab_jump")
-        || m.contains("internal")
-        || m == "gemini-pro-agent"
-        || m == "gemini-3-flash-agent"
-        || m.contains("-exp")
-    {
+    if m.starts_with("chat_") || m.contains("internal") || m.contains("-exp") {
         return false;
+    }
+
+    // 特许放行的官方白名单模型（包含官方 agent 与 tab 预览模型）
+    if m == "gemini-pro-agent"
+        || m == "gemini-3-flash-agent"
+        || m == "gemini-3-flash"
+        || m == "tab_flash_lite_preview"
+        || m == "tab_jump_flash_lite_preview"
+        || m == "gemini-3.1-flash-lite"
+        || m == "gemini-3.5-flash-lite"
+    {
+        return true;
     }
 
     // 1. Claude 系列：以 4.6 为基准线，4.6 以下全部淘汰
@@ -384,14 +390,9 @@ pub fn is_model_compliant_with_baseline(model: &str) -> bool {
             return false;
         }
 
-        // 3.1-flash-lite 特别放行（1M 上下文轻量健康模型）
-        if m == "gemini-3.1-flash-lite" {
+        // 3.1-flash-lite 与 3.5-flash-lite 特别放行
+        if m == "gemini-3.1-flash-lite" || m == "gemini-3.5-flash-lite" {
             return true;
-        }
-
-        // 3.5-flash-lite 上游已下线 503
-        if m == "gemini-3.5-flash-lite" {
-            return false;
         }
 
         // 解析版本号 (使用语义元组比较，正确支持 3.10 > 3.5 等双位数次版本)
@@ -450,7 +451,11 @@ pub fn get_supported_models() -> Vec<String> {
         "gemini-3.5-flash",
         "gemini-3.5-flash-low",
         "gemini-3.5-flash-extra-low",
+        // Gemini 3 系列
+        "gemini-3-flash",
+        "gemini-3-flash-agent",
         // Gemini 3.1 Pro 系列
+        "gemini-3.1-pro",
         "gemini-3.1-pro-high",
         "gemini-3.1-pro-low",
         // Gemini 3.1 Flash Lite 系列 (轻量快速 1M 上下文模型)
@@ -463,9 +468,10 @@ pub fn get_supported_models() -> Vec<String> {
         "claude-sonnet-4-6-thinking",
         "claude-opus-4-6",
         "claude-opus-4-6-thinking",
-        // Claude 5.5 系列 (裸模型)
-        "claude-sonnet-5-5",
-        "claude-opus-5-5",
+        // 官方 Agent 与预览模型
+        "gemini-pro-agent",
+        "tab_flash_lite_preview",
+        "tab_jump_flash_lite_preview",
         // OpenAI 系列 (以官方为准)
         "gpt-oss-120b-medium",
     ]
@@ -496,7 +502,7 @@ pub async fn get_all_dynamic_models(
     // 自动剥离后缀并衍生对应的裸模型名，只要符合官方基准线，任何品牌家族均可自动派生。
     let mut derived_bare_models = HashSet::new();
     for id in &model_ids {
-        for suffix in &["-high", "-medium", "-low", "-extra-low"] {
+        for suffix in &["-tiered", "-high", "-medium", "-low", "-extra-low"] {
             if let Some(base) = id.strip_suffix(suffix) {
                 if !base.is_empty() && is_model_compliant_with_baseline(base) {
                     derived_bare_models.insert(base.to_string());
@@ -660,20 +666,6 @@ pub fn resolve_model_route_with_effort(
             original_model, target
         ));
         return target.clone();
-    }
-
-    // 1.5 [NEW] 检查是否命中自定义映射中的通配符规则 `gemini-3.x-flash`（要求 x > 8）
-    // 统一转为 3.x-flash-tiered 模型
-    if custom_mapping.contains_key("gemini-3.x-flash") {
-        if let Some(target) =
-            crate::proxy::model_specs::resolve_gemini_3x_flash_tiered(original_model)
-        {
-            crate::modules::logger::log_info(&format!(
-                "[Router] 命中内置通配符规则 gemini-3.x-flash (x > 8): {} -> {}",
-                original_model, target
-            ));
-            return target;
-        }
     }
 
     // 2. Wildcard match - most specific (highest non-wildcard chars) wins
@@ -1122,17 +1114,16 @@ mod tests {
 
     #[test]
     fn test_gemini_3x_flash_wildcard_route() {
-        let mut custom = crate::proxy::config::default_custom_mapping();
-        assert!(custom.contains_key("gemini-3.x-flash"));
+        let mut custom = HashMap::new();
 
-        // 1. 3.x Flash 裸模型依据思考档位路由 (未指定或 high 默认 high, low 对应 low, medium 对应 medium)
+        // 1. 3.x Flash 裸模型依据思考档位路由 (未指定时优先遵循决策链 tiered，显式传档位时路由至对应档位)
         assert_eq!(
             resolve_model_route_with_effort("gemini-3.8-flash", &custom, Some("high")),
             "gemini-3.8-flash-high"
         );
         assert_eq!(
             resolve_model_route("gemini-3.8-flash", &custom),
-            "gemini-3.8-flash-high"
+            "gemini-3.8-flash-tiered"
         );
         assert_eq!(
             resolve_model_route_with_effort("gemini-3.8-flash", &custom, Some("low")),
@@ -1148,30 +1139,14 @@ mod tests {
             "gemini-3.8-flash-tiered"
         );
 
-        // 2. x > 8 命中通配符规则 gemini-3.x-flash，统一转为 3.x-flash-tiered
-        assert_eq!(
-            resolve_model_route("gemini-3.9-flash", &custom),
-            "gemini-3.9-flash-tiered"
-        );
-        assert_eq!(
-            resolve_model_route("gemini-3.10-flash", &custom),
-            "gemini-3.10-flash-tiered"
-        );
-
-        // 3. 用户如果自定义精确覆盖 gemini-3.9-flash，用户自定义优先
+        // 2. 通用通配符映射（用户自定义）
         custom.insert(
-            "gemini-3.9-flash".to_string(),
-            "gemini-3.9-flash-high".to_string(),
+            "gemini-3.9-*".to_string(),
+            "gemini-3.8-flash-tiered".to_string(),
         );
         assert_eq!(
             resolve_model_route("gemini-3.9-flash", &custom),
-            "gemini-3.9-flash-high"
-        );
-
-        // 4. 4.x 裸 Flash 模型由 resolve_bare_flash_route 统一路由至 high
-        assert_eq!(
-            resolve_model_route("gemini-4.0-flash", &custom),
-            "gemini-4.0-flash-high"
+            "gemini-3.8-flash-tiered"
         );
     }
 
@@ -1234,88 +1209,58 @@ mod tests {
         assert!(is_model_compliant_with_baseline("gemini-3.1-flash-image"));
         assert!(is_model_compliant_with_baseline("gemini-3-pro-image"));
 
-        // Internal models
-        assert!(!is_model_compliant_with_baseline(
-            "tab_jump_flash_lite_preview"
-        ));
+        // Internal / Deprecated models
         assert!(!is_model_compliant_with_baseline("chat_20706"));
         assert!(!is_model_compliant_with_baseline("chat_23310"));
-        assert!(!is_model_compliant_with_baseline("gemini-pro-agent"));
-        assert!(!is_model_compliant_with_baseline("gemini-3-flash-agent"));
+        assert!(!is_model_compliant_with_baseline("gemini-2.5-flash"));
+        assert!(!is_model_compliant_with_baseline("gemini-2.5-pro"));
 
-        // Claude >= 5.0 (含裸模型与档位变体)
-        assert!(is_model_compliant_with_baseline("claude-sonnet-5-5"));
-        assert!(is_model_compliant_with_baseline("claude-sonnet-5-5-low"));
-        assert!(is_model_compliant_with_baseline("claude-sonnet-5-5-medium"));
-        assert!(is_model_compliant_with_baseline("claude-sonnet-5-5-high"));
-        assert!(is_model_compliant_with_baseline("claude-opus-5-5"));
-        assert!(is_model_compliant_with_baseline("claude-opus-5-5-low"));
-        assert!(is_model_compliant_with_baseline("claude-opus-5-5-medium"));
-        assert!(is_model_compliant_with_baseline("claude-opus-5-5-high"));
+        // Official Agent & Preview & Derived Bare models (Kept)
+        assert!(is_model_compliant_with_baseline(
+            "tab_jump_flash_lite_preview"
+        ));
+        assert!(is_model_compliant_with_baseline("tab_flash_lite_preview"));
+        assert!(is_model_compliant_with_baseline("gemini-pro-agent"));
+        assert!(is_model_compliant_with_baseline("gemini-3-flash-agent"));
+        assert!(is_model_compliant_with_baseline("gemini-3-flash"));
+        assert!(is_model_compliant_with_baseline("gemini-3.1-pro"));
+        assert!(is_model_compliant_with_baseline("gemini-3.5-flash"));
     }
 
     #[test]
-    fn test_claude_tiered_bare_routing() {
+    fn test_bare_model_tiered_routing() {
         let empty = HashMap::new();
 
-        // 1. 裸模型显式传递 effort
+        // 1. 衍生裸模型 gemini-3.1-pro 显式传递 effort
         assert_eq!(
-            resolve_model_route_with_effort("claude-sonnet-5-5", &empty, Some("low")),
-            "claude-sonnet-5-5-low"
+            resolve_model_route_with_effort("gemini-3.1-pro", &empty, Some("low")),
+            "gemini-3.1-pro-low"
         );
         assert_eq!(
-            resolve_model_route_with_effort("claude-sonnet-5-5", &empty, Some("high")),
-            "claude-sonnet-5-5-high"
-        );
-        assert_eq!(
-            resolve_model_route_with_effort("claude-opus-5-5", &empty, Some("low")),
-            "claude-opus-5-5-low"
-        );
-        assert_eq!(
-            resolve_model_route_with_effort("claude-opus-5-5", &empty, Some("high")),
-            "claude-opus-5-5-high"
+            resolve_model_route_with_effort("gemini-3.1-pro", &empty, Some("high")),
+            "gemini-3.1-pro-high"
         );
 
-        // 2. 裸模型点号命名兼容与 Effort 映射
+        // 2. 衍生裸模型 gemini-3.1-pro 缺省 effort 遵循 pick_optimal_default_tier 决策链 (取高于 low 的最低档 -> high)
         assert_eq!(
-            resolve_model_route_with_effort("claude-sonnet-5.5", &empty, Some("high")),
-            "claude-sonnet-5-5-high"
+            resolve_model_route_with_effort("gemini-3.1-pro", &empty, None),
+            "gemini-3.1-pro-high"
         );
 
-        // 3. 裸模型缺省 effort 默认走 medium
+        // 3. 衍生裸模型 gemini-3.5-flash 缺省 effort 遵循决策链 (取 low)
         assert_eq!(
-            resolve_model_route_with_effort("claude-sonnet-5-5", &empty, None),
-            "claude-sonnet-5-5-medium"
-        );
-        assert_eq!(
-            resolve_model_route_with_effort("claude-opus-5-5", &empty, None),
-            "claude-opus-5-5-medium"
+            resolve_model_route_with_effort("gemini-3.5-flash", &empty, None),
+            "gemini-3.5-flash-low"
         );
 
         // 4. 显式档位变体原样透传
         assert_eq!(
-            resolve_model_route_with_effort("claude-sonnet-5-5-low", &empty, None),
-            "claude-sonnet-5-5-low"
+            resolve_model_route_with_effort("gemini-3.1-pro-low", &empty, None),
+            "gemini-3.1-pro-low"
         );
         assert_eq!(
-            resolve_model_route_with_effort("claude-sonnet-5-5-medium", &empty, None),
-            "claude-sonnet-5-5-medium"
-        );
-        assert_eq!(
-            resolve_model_route_with_effort("claude-sonnet-5-5-high", &empty, None),
-            "claude-sonnet-5-5-high"
-        );
-        assert_eq!(
-            resolve_model_route_with_effort("claude-opus-5-5-low", &empty, None),
-            "claude-opus-5-5-low"
-        );
-        assert_eq!(
-            resolve_model_route_with_effort("claude-opus-5-5-medium", &empty, None),
-            "claude-opus-5-5-medium"
-        );
-        assert_eq!(
-            resolve_model_route_with_effort("claude-opus-5-5-high", &empty, None),
-            "claude-opus-5-5-high"
+            resolve_model_route_with_effort("gemini-3.1-pro-high", &empty, None),
+            "gemini-3.1-pro-high"
         );
     }
 }

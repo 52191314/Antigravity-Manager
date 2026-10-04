@@ -241,13 +241,17 @@ pub fn resolve_with_tier(
             VariantTier::High
         };
 
-        // [NEW] 3.x Flash 裸模型依据思考档位路由为 {base}-high / -low / -medium，
-        // 而显式指定的 *-tiered 模型原样保留模型名！
+        // 3.x Flash 裸模型依据思考档位路由为 {base}-high / -low / -medium / -tiered，
+        // 未显式指定档位时遵循统一决策链（tiered 优先 -> medium 次之 -> 向上取高于 low 的最低档位 -> 保底 low）
         let resolved_id = if crate::proxy::model_specs::is_bare_gemini_v3_flash(canonical) {
-            let eff_str = match dynamic_tier {
-                VariantTier::High => Some("high"),
-                VariantTier::Low => Some("low"),
-                VariantTier::Medium => Some("medium"),
+            let eff_str = if explicit_tier.is_some() || name_tier.is_some() {
+                match dynamic_tier {
+                    VariantTier::High => Some("high"),
+                    VariantTier::Low => Some("low"),
+                    VariantTier::Medium => Some("medium"),
+                }
+            } else {
+                None
             };
             crate::proxy::model_specs::resolve_bare_flash_route(canonical, eff_str)
                 .unwrap_or_else(|| canonical.to_string())
@@ -292,9 +296,8 @@ pub fn resolve_with_tier(
     // 4. 纯通用分档模型动态规格解析 (Dynamic RealModelSpec Factory):
     // 针对任何具备档位后缀（-high, -medium, -low, -tiered）或可从官方目录解析为分档的任意品牌模型，
     // 动态生成 RealModelSpec，彻底告别静态 SPEC 常量维护：
-    let has_available_tiers = !crate::models::OfficialModelCatalog::collect_tiers_for_base(&lower)
-        .is_empty()
-        || crate::proxy::model_specs::is_claude_v5_or_above(&lower);
+    let has_available_tiers =
+        !crate::models::OfficialModelCatalog::collect_tiers_for_base(&lower).is_empty();
 
     let is_tiered_model = name_tier.is_some() || explicit_tier.is_some() || has_available_tiers;
     if is_tiered_model {
@@ -311,11 +314,15 @@ pub fn resolve_with_tier(
             }
         };
 
-        // 如果是裸模型，动态解析出带档位后缀的真实 ID
-        let eff_str = match dynamic_tier {
-            VariantTier::High => Some("high"),
-            VariantTier::Low => Some("low"),
-            VariantTier::Medium => Some("medium"),
+        // 如果是裸模型，动态解析出带档位后缀的真实 ID；未显式传档位时透传 None 走默认决策链
+        let eff_str = if explicit_tier.is_some() || name_tier.is_some() {
+            match dynamic_tier {
+                VariantTier::High => Some("high"),
+                VariantTier::Low => Some("low"),
+                VariantTier::Medium => Some("medium"),
+            }
+        } else {
+            None
         };
 
         let resolved_id =
@@ -799,33 +806,20 @@ mod tests {
         assert_eq!(s.thinking_budget, 1024);
         assert_eq!(s.max_output_tokens, 64000);
 
-        // Claude >= 5.0 动态变体解析（通用动态生成，无静态常量硬编码）
-        let s = resolve("claude-sonnet-5-5-low", None).unwrap();
-        assert_eq!(s.id, "claude-sonnet-5-5-low");
-        assert_eq!(s.max_output_tokens, 128000);
-        assert!(s.preserve_client_budget);
+        // Gemini 3.1 Pro 衍生裸模型动态解析
+        let s = resolve("gemini-3.1-pro-low", None).unwrap();
+        assert_eq!(s.id, "gemini-3.1-pro-low");
 
-        let s = resolve("claude-sonnet-5-5-medium", None).unwrap();
-        assert_eq!(s.id, "claude-sonnet-5-5-medium");
-        assert_eq!(s.max_output_tokens, 128000);
+        let s = resolve("gemini-3.1-pro-high", None).unwrap();
+        assert_eq!(s.id, "gemini-3.1-pro-high");
 
-        let s = resolve("claude-sonnet-5-5-high", None).unwrap();
-        assert_eq!(s.id, "claude-sonnet-5-5-high");
-        assert_eq!(s.max_output_tokens, 128000);
-
-        let s = resolve("claude-opus-5-5-high", None).unwrap();
-        assert_eq!(s.id, "claude-opus-5-5-high");
-        assert_eq!(s.max_output_tokens, 128000);
-
-        // 裸模型解析（默认 Medium 档位）
-        let s = resolve("claude-sonnet-5-5", None).unwrap();
-        assert_eq!(s.id, "claude-sonnet-5-5-medium");
-        assert_eq!(s.max_output_tokens, 128000);
+        // 裸模型解析（缺省遵循决策链 -> high）
+        let s = resolve("gemini-3.1-pro", None).unwrap();
+        assert_eq!(s.id, "gemini-3.1-pro-high");
 
         // 裸模型带显式档位解析
-        let s = resolve_with_tier("claude-sonnet-5-5", Some(VariantTier::High), None).unwrap();
-        assert_eq!(s.id, "claude-sonnet-5-5-high");
-        assert_eq!(s.max_output_tokens, 128000);
+        let s = resolve_with_tier("gemini-3.1-pro", Some(VariantTier::Low), None).unwrap();
+        assert_eq!(s.id, "gemini-3.1-pro-low");
     }
 
     #[test]

@@ -439,10 +439,11 @@ pub fn tier_weight(tier: &str) -> i32 {
 /// 1. 优先找 tiered 模型（如存在 -tiered，走自适应思考）
 /// 2. 其次找 medium
 /// 3. 再次找大于 low 的最低等级（如在 ["low", "high"] 中命中 high）
-/// 4. 否则若有等于 low 的取 low，再否则取数组中第一个
-pub fn pick_optimal_default_tier(available_tiers: &[String]) -> String {
+/// 4. 否则若有等于 low 且确实存在时取 low
+/// 5. 极端保底：仅从真实存在的可用档位中取首项，绝不虚构不存在的档位
+pub fn pick_optimal_default_tier(available_tiers: &[String]) -> Option<String> {
     if available_tiers.is_empty() {
-        return "medium".to_string();
+        return None;
     }
 
     // 1. 优先找 tiered 模型
@@ -450,7 +451,7 @@ pub fn pick_optimal_default_tier(available_tiers: &[String]) -> String {
         .iter()
         .find(|t| t.eq_ignore_ascii_case("tiered"))
     {
-        return t.clone();
+        return Some(t.clone());
     }
 
     // 2. 其次找 medium
@@ -458,7 +459,7 @@ pub fn pick_optimal_default_tier(available_tiers: &[String]) -> String {
         .iter()
         .find(|t| t.eq_ignore_ascii_case("medium"))
     {
-        return t.clone();
+        return Some(t.clone());
     }
 
     // 3. 再次找权重严格大于 low (weight > 1) 的最低等级
@@ -472,19 +473,19 @@ pub fn pick_optimal_default_tier(available_tiers: &[String]) -> String {
     if !candidates_above_low.is_empty() {
         // 取大于 low 的最低权重项（例如 high 权重为 4）
         candidates_above_low.sort_by_key(|(_, w)| *w);
-        return candidates_above_low[0].0.clone();
+        return Some(candidates_above_low[0].0.clone());
     }
 
-    // 4. 若无大于 low 的等级，找 low
+    // 4. 若无大于 low 的等级，且 low 真实存在，取 low
     if let Some(t) = available_tiers
         .iter()
         .find(|t| t.eq_ignore_ascii_case("low"))
     {
-        return t.clone();
+        return Some(t.clone());
     }
 
-    // 5. 极端保底：取数组中第一个
-    available_tiers[0].clone()
+    // 5. 极端保底：仅从真实存在的可用档位中取第一个，绝不虚构不存在的档位
+    available_tiers.first().cloned()
 }
 
 /// 纯通用裸模型分档路由器 (Dynamic Tier Router)
@@ -517,13 +518,7 @@ impl DynamicTierRouter {
         };
 
         // 2. 动态收集属于该 base 模型的所有可用档位后缀
-        let mut available_tiers =
-            crate::models::OfficialModelCatalog::collect_tiers_for_base(&base);
-
-        // 如果目录尚未收录该 base 的具体档位，但属于高版本 Claude，保底补充标准三档
-        if available_tiers.is_empty() && is_claude_v5_or_above(&base) {
-            available_tiers = vec!["low".to_string(), "medium".to_string(), "high".to_string()];
-        }
+        let available_tiers = crate::models::OfficialModelCatalog::collect_tiers_for_base(&base);
 
         if available_tiers.is_empty() {
             return None;
@@ -543,33 +538,26 @@ impl DynamicTierRouter {
                 return Some(format!("{}-{}", base, matched));
             }
 
-            // 若客户端传了 high 但无 high，或传了 medium 但无 medium：
-            // 按权重就近在 available_tiers 中匹配最接近的档位
+            // 若客户端传了 high 但无 high，或传了 low 但无 low：
+            // 必须严格在真实存在的 available_tiers 中按权重就近匹配，绝不虚构不存在的档位
             let target_w = tier_weight(&target_tier);
-            let closest = available_tiers
+            if let Some(closest) = available_tiers
                 .iter()
                 .min_by_key(|t| (tier_weight(t) - target_w).abs())
-                .unwrap_or(&target_tier);
-
-            if base.contains("3.5") && closest == "medium" {
-                return Some("gemini-3.5-flash".to_string());
+            {
+                if base.contains("3.5") && closest == "medium" {
+                    return Some("gemini-3.5-flash".to_string());
+                }
+                return Some(format!("{}-{}", base, closest));
             }
-            return Some(format!("{}-{}", base, closest));
+            return None;
         }
 
-        // 4. 客户端未指定思考强度：按默认档位决策原则自动选取
-        // 对于 3.x Flash，未指定 effort 时按照既有规则保持 high
-        let default_tier = if is_bare_gemini_v3_flash(&base) {
-            if available_tiers
-                .iter()
-                .any(|t| t.eq_ignore_ascii_case("high"))
-            {
-                "high".to_string()
-            } else {
-                pick_optimal_default_tier(&available_tiers)
-            }
-        } else {
-            pick_optimal_default_tier(&available_tiers)
+        // 4. 客户端未指定思考强度：按统一默认档位决策原则自动选取
+        // 遵循原则：tiered 优先 -> medium 次之 -> 向上取高于 low 的最低档位 -> 存在时保底 low
+        let default_tier = match pick_optimal_default_tier(&available_tiers) {
+            Some(t) => t,
+            None => return None,
         };
 
         if base.contains("3.5") && (default_tier == "medium" || default_tier == "high") {
@@ -588,24 +576,6 @@ pub fn resolve_bare_tiered_model_route(model: &str, client_effort: Option<&str>)
 /// 将 3.x Flash 裸模型（如 gemini-3.8-flash, gemini-3.7-flash 等）依据客户端思考档位解析为具名模型（兼容封装）
 pub fn resolve_bare_flash_route(model: &str, client_effort: Option<&str>) -> Option<String> {
     DynamicTierRouter::resolve(model, client_effort)
-}
-
-/// 检查模型是否匹配 `gemini-3.x-flash` 通配符且 x > 8（例如 gemini-3.9-flash, gemini-3.10-flash 等）。
-/// 若匹配且 x > 8，统一转为 3.x-flash-tiered 模型（如 "gemini-3.9-flash-tiered"）。
-/// 严格要求：x 必须大于 8，对于 3.6 / 3.7 / 3.8 等模型由专用预设接管，3.5 及其以下严格排除。
-pub fn resolve_gemini_3x_flash_tiered(model: &str) -> Option<String> {
-    let lower = model.to_lowercase();
-    let prefix = "gemini-3.";
-    let suffix = "-flash";
-    if lower.starts_with(prefix) && lower.ends_with(suffix) {
-        let middle = &lower[prefix.len()..lower.len() - suffix.len()];
-        if let Ok(x) = middle.parse::<f32>() {
-            if x > 8.0 {
-                return Some(format!("gemini-3.{}-flash-tiered", middle));
-            }
-        }
-    }
-    None
 }
 
 /// 依据系统 Thinking Budget 配置以及当前模型与请求参数，在协议归一化后统一解析应当发送到上游的思考预算。
@@ -811,7 +781,7 @@ pub fn resolve_custom_budget(
             let is_bare = is_bare_gemini_v3_flash(model);
             let eff_level = client_effort.and_then(normalize_client_thinking_level);
             let is_high = if is_bare {
-                matches!(eff_level, Some("HIGH")) || client_effort.is_none()
+                matches!(eff_level, Some("HIGH"))
             } else {
                 lower.contains("-high")
                     || lower.ends_with("-high")
@@ -1153,36 +1123,6 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_gemini_3x_flash_tiered_wildcard() {
-        // x > 8 命中转为 3.x-flash-tiered
-        assert_eq!(
-            resolve_gemini_3x_flash_tiered("gemini-3.9-flash"),
-            Some("gemini-3.9-flash-tiered".to_string())
-        );
-        assert_eq!(
-            resolve_gemini_3x_flash_tiered("gemini-3.10-flash"),
-            Some("gemini-3.10-flash-tiered".to_string())
-        );
-        assert_eq!(
-            resolve_gemini_3x_flash_tiered("gemini-3.9.1-flash"),
-            Some("gemini-3.9.1-flash-tiered".to_string())
-        );
-
-        // x <= 8 必须返回 None，严格由专用映射接管
-        assert_eq!(resolve_gemini_3x_flash_tiered("gemini-3.8-flash"), None);
-        assert_eq!(resolve_gemini_3x_flash_tiered("gemini-3.7-flash"), None);
-        assert_eq!(resolve_gemini_3x_flash_tiered("gemini-3.6-flash"), None);
-        assert_eq!(resolve_gemini_3x_flash_tiered("gemini-3.5-flash"), None);
-
-        // 已经带有后缀或非 flash 模型不命中
-        assert_eq!(
-            resolve_gemini_3x_flash_tiered("gemini-3.9-flash-high"),
-            None
-        );
-        assert_eq!(resolve_gemini_3x_flash_tiered("gemini-3.9-pro"), None);
-    }
-
-    #[test]
     fn test_normalize_client_thinking_level_snake_case() {
         // 支持下划线形态（如 extra_low, x_high 等）与连字符形态等价解析
         assert_eq!(normalize_client_thinking_level("extra_low"), Some("LOW"));
@@ -1208,12 +1148,12 @@ mod tests {
             Some("gemini-3.8-flash-low".to_string())
         );
         assert_eq!(
-            resolve_bare_tiered_model_route("claude-sonnet-5-5", Some("extra_low")),
-            Some("claude-sonnet-5-5-low".to_string())
+            resolve_bare_tiered_model_route("gemini-3.1-pro", Some("extra_low")),
+            Some("gemini-3.1-pro-low".to_string())
         );
         assert_eq!(
-            resolve_bare_tiered_model_route("claude-sonnet-5-5", Some("x_high")),
-            Some("claude-sonnet-5-5-high".to_string())
+            resolve_bare_tiered_model_route("gemini-3.1-pro", Some("x_high")),
+            Some("gemini-3.1-pro-high".to_string())
         );
     }
 }

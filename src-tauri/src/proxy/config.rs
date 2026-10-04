@@ -975,12 +975,7 @@ pub struct UpstreamProxyConfig {
 }
 
 pub fn default_custom_mapping() -> std::collections::HashMap<String, String> {
-    let mut m = std::collections::HashMap::new();
-    m.insert(
-        "gemini-3.x-flash".to_string(),
-        "3.x-flash-tiered".to_string(),
-    );
-    m
+    std::collections::HashMap::new()
 }
 
 impl Default for ProxyConfig {

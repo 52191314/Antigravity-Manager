@@ -82,10 +82,11 @@ pub fn infer_tier(budget_tokens: Option<u32>) -> VariantTier {
 
 /// Parse a supported Anthropic SDK output effort into a Gemini variant tier.
 pub fn tier_from_effort(effort: Option<&str>) -> Option<VariantTier> {
-    match effort.map(|s| s.trim().to_lowercase()).as_deref() {
-        Some("low") | Some("extra-low") => Some(VariantTier::Low),
-        Some("medium") | Some("default") => Some(VariantTier::Medium),
-        Some("high") | Some("max") | Some("xhigh") => Some(VariantTier::High),
+    let clean = effort.map(|s| s.trim().to_lowercase().replace('_', "-"))?;
+    match clean.as_str() {
+        "low" | "extra-low" | "minimal" | "lite" => Some(VariantTier::Low),
+        "medium" | "default" | "normal" => Some(VariantTier::Medium),
+        "high" | "max" | "xhigh" | "x-high" => Some(VariantTier::High),
         _ => None,
     }
 }

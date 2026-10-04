@@ -1084,14 +1084,16 @@ impl InboundThinkingPipeline {
                     // 核心铁律：坚决不填预算！忠实透传等级，并且必须带上 includeThoughts: true 核心开关！
                     if let Some(raw_effort) = client_effort.map(str::trim).filter(|s| !s.is_empty())
                     {
-                        let lower_effort = raw_effort.to_lowercase();
+                        let lower_effort = raw_effort.to_lowercase().replace('_', "-");
                         if lower_effort != "default"
                             && lower_effort != "none"
                             && lower_effort != "off"
                             && lower_effort != "disabled"
                         {
                             let final_level = match lower_effort.as_str() {
-                                "low" | "extra-low" | "min" | "minimal" => "LOW".to_string(),
+                                "low" | "extra-low" | "min" | "minimal" | "lite" => {
+                                    "LOW".to_string()
+                                }
                                 "medium" | "normal" | "standard" => {
                                     if target_model.to_lowercase().contains("pro") {
                                         "HIGH".to_string()
@@ -1099,7 +1101,9 @@ impl InboundThinkingPipeline {
                                         "MEDIUM".to_string()
                                     }
                                 }
-                                "high" | "xhigh" | "max" | "extreme" => "HIGH".to_string(),
+                                "high" | "xhigh" | "x-high" | "max" | "extreme" => {
+                                    "HIGH".to_string()
+                                }
                                 // 客户带了任何自定义等级，直接忠实透传，绝不硬编码限制！
                                 _ => raw_effort.to_uppercase(),
                             };

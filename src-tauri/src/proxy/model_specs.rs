@@ -422,13 +422,14 @@ pub fn is_bare_claude_tiered_model(model: &str) -> bool {
 /// 档位权重定义：
 /// lite / extra-low (0) < low (1) < default (2) < medium (3) < high (4) < xhigh (5) < max (6)
 pub fn tier_weight(tier: &str) -> i32 {
-    match tier.trim().to_lowercase().as_str() {
+    let clean = tier.trim().to_lowercase().replace('_', "-");
+    match clean.as_str() {
         "lite" | "flash-lite" | "extra-low" | "minimal" => 0,
         "low" => 1,
         "default" => 2,
         "medium" => 3,
         "high" => 4,
-        "xhigh" | "extreme" => 5,
+        "xhigh" | "x-high" | "extreme" => 5,
         "max" => 6,
         _ => 3, // 未知档位默认权重等同 medium
     }
@@ -609,12 +610,13 @@ pub fn resolve_gemini_3x_flash_tiered(model: &str) -> Option<String> {
 
 /// 依据系统 Thinking Budget 配置以及当前模型与请求参数，在协议归一化后统一解析应当发送到上游的思考预算。
 /// 返回：
-/// 归一化客户端上送的思考等级字段（包括 max, xhigh, high, medium, low, min, extra-low 等）
+/// 归一化客户端上送的思考等级字段（包括 max, xhigh, high, medium, low, min, extra-low, extra_low 等）
 pub fn normalize_client_thinking_level(effort: &str) -> Option<&'static str> {
-    match effort.trim().to_lowercase().as_str() {
-        "low" | "extra-low" | "min" => Some("LOW"),
-        "medium" => Some("MEDIUM"),
-        "high" | "xhigh" | "max" | "extreme" => Some("HIGH"),
+    let clean = effort.trim().to_lowercase().replace('_', "-");
+    match clean.as_str() {
+        "low" | "extra-low" | "min" | "minimal" | "lite" => Some("LOW"),
+        "medium" | "normal" | "standard" => Some("MEDIUM"),
+        "high" | "xhigh" | "x-high" | "max" | "extreme" => Some("HIGH"),
         _ => None,
     }
 }
@@ -688,15 +690,17 @@ pub fn resolve_custom_budget(
         if tb_config.claude_mode == ThinkingBudgetMode::Default {
             return None;
         }
-        let eff = client_effort.map(|s| s.trim().to_lowercase());
+        let eff = client_effort.map(|s| s.trim().to_lowercase().replace('_', "-"));
         let is_low = matches!(eff.as_deref(), Some("low") | Some("extra-low"))
             || lower.contains("-low")
             || lower.contains("haiku");
         let is_med = matches!(eff.as_deref(), Some("medium") | Some("default"))
             || lower.contains("-med")
             || lower.contains("-medium");
-        let is_high = matches!(eff.as_deref(), Some("high") | Some("max") | Some("xhigh"))
-            || lower.contains("-high")
+        let is_high = matches!(
+            eff.as_deref(),
+            Some("high") | Some("max") | Some("xhigh") | Some("x-high")
+        ) || lower.contains("-high")
             || lower.contains("-max");
 
         if is_low {
@@ -736,7 +740,7 @@ pub fn resolve_custom_budget(
         {
             return None;
         }
-        let eff = client_effort.map(|s| s.trim().to_lowercase());
+        let eff = client_effort.map(|s| s.trim().to_lowercase().replace('_', "-"));
         let is_low = lower.contains("-low")
             || lower.ends_with("-low")
             || matches!(eff.as_deref(), Some("low") | Some("extra-low"));
@@ -1176,5 +1180,40 @@ mod tests {
             None
         );
         assert_eq!(resolve_gemini_3x_flash_tiered("gemini-3.9-pro"), None);
+    }
+
+    #[test]
+    fn test_normalize_client_thinking_level_snake_case() {
+        // 支持下划线形态（如 extra_low, x_high 等）与连字符形态等价解析
+        assert_eq!(normalize_client_thinking_level("extra_low"), Some("LOW"));
+        assert_eq!(normalize_client_thinking_level("extra-low"), Some("LOW"));
+        assert_eq!(normalize_client_thinking_level("x_high"), Some("HIGH"));
+        assert_eq!(normalize_client_thinking_level("x-high"), Some("HIGH"));
+        assert_eq!(normalize_client_thinking_level("flash_lite"), Some("LOW"));
+        assert_eq!(normalize_client_thinking_level("lite"), Some("LOW"));
+        assert_eq!(normalize_client_thinking_level("medium"), Some("MEDIUM"));
+
+        // 权重梯队兼容下划线
+        assert_eq!(tier_weight("extra_low"), 0);
+        assert_eq!(tier_weight("extra-low"), 0);
+        assert_eq!(tier_weight("flash_lite"), 0);
+        assert_eq!(tier_weight("low"), 1);
+        assert_eq!(tier_weight("medium"), 3);
+        assert_eq!(tier_weight("x_high"), 5);
+        assert_eq!(tier_weight("high"), 4);
+
+        // 裸模型路由支持 extra_low 映射
+        assert_eq!(
+            resolve_bare_tiered_model_route("gemini-3.8-flash", Some("extra_low")),
+            Some("gemini-3.8-flash-low".to_string())
+        );
+        assert_eq!(
+            resolve_bare_tiered_model_route("claude-sonnet-5-5", Some("extra_low")),
+            Some("claude-sonnet-5-5-low".to_string())
+        );
+        assert_eq!(
+            resolve_bare_tiered_model_route("claude-sonnet-5-5", Some("x_high")),
+            Some("claude-sonnet-5-5-high".to_string())
+        );
     }
 }

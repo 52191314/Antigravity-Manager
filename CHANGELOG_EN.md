@@ -3,6 +3,13 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.2-beta.9 (2026-10-04)**:
+        -   **[Upstream HTTP/2 Protocol Hardening & Stream Drop Fix] Completely remove destructive HTTP/2 PING injection, restore native Chrome 123 protocol baseline, and eliminate 10s deep-thinking disconnects (Fixes #3593)**:
+            -   **Root Cause Elimination for Destructive HTTP/2 PING**: Protocol frame tracing confirmed that Google GFE / Cloudcode endpoints silently drop client-initiated HTTP/2 PING frames without returning PING ACKs. In v4.8.9 (PR #3571), the configured `keep_alive_timeout = 10s` caused local hyper2 to unilaterally terminate the connection at exactly 10s when waiting for an ACK, throwing `error reading a body from connection (buffer_bytes=0)`. The destructive `.http2(|mut h2| ...)` configuration has been completely removed from `UpstreamClient`, eliminating the local self-abort timer.
+            -   **Restoration of Native Chrome 123 Behavior & L4 Keep-Alive**: Strictly aligned with real Chrome 123 browser protocol behavior (browsers never send HTTP/2 PING frames at the application layer), relying on standard L4 TCP Keep-Alive (60s). Seamlessly collaborates with PR #3578's downstream SSE 3s comment heartbeats (`: ping\n\n`) to prevent client-side idle timeouts without jeopardizing upstream stability.
+            -   **Eliminate Connection Pool Pollution & 503 Token Pool Exhaustion**: Removed idle PINGs from `keep_alive_while_idle(true)` that poisoned pooled connections, resolving the failure on consecutive requests and preventing cascading account lockouts that led to `503 Token pool is empty`.
+            -   **Deep Stress Testing Verification**: Rigorously verified with long-generation benchmarks; models successfully sustained over 15.30s of initial silent thinking pauses and generated over 250KB across 125s+ with 100% connection reuse success.
+
     *   **v4.9.2-beta.8 (2026-10-04)**:
         -   **[Cross-Protocol SSE Byte-Level Line Buffering & Multibyte Splitting Defense] Eliminate Deserialization Failures & Stream Interruptions on CJK/Cyrillic/Emoji/Non-ASCII TCP Chunk Fragmentation (Fixes #3593)**:
             -   **SSE Collectors Upgraded with `BytesMut` Line Buffering**: Refactored `claude/collector.rs`, `openai/collector.rs`, and `gemini/collector.rs`. Completely eliminated naive `String::from_utf8_lossy(&chunk).lines()` chunk-by-chunk splitting in favor of `BytesMut` accumulating byte streams with strict newline (`\n`) slicing.

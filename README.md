@@ -487,7 +487,7 @@ In clients that support OpenAI protocol (e.g., Cherry Studio), you can configure
 
 ## 📝 Changelog
 
-> Latest version **v4.9.4** (2026-10-04): Introduced an adaptive thinking budget negotiation state machine with user-intent recognition, eliminating early return bypasses to fundamentally resolve Google 400 violations caused by `maxOutputTokens <= thinkingBudget`; pioneered 6x ratio fast & concise intent recognition (automatically compressing thinking budget when $t \ge 6 \times m$ to avoid lengthy reasoning on quick queries), while intelligently expanding output budgets during deep reasoning when official capacities allow to preserve model IQ, and clamping to 1024 output tokens as an ultimate physical ceiling fallback (PR #3599, thanks to @cubelikeplayDaniel); inherits 4.9.3's robust HTTP/2 architecture and native Chrome 123 baseline to end long-task dropouts.
+> Latest version **v4.9.4** (2026-10-04): Introduced an adaptive thinking budget negotiation state machine with user-intent recognition, eliminating early return bypasses to fundamentally resolve Google 400 violations caused by `maxOutputTokens <= thinkingBudget`; pioneered 6x ratio fast & concise intent recognition (automatically compressing thinking budget when `t >= 6 * m` to avoid lengthy reasoning on quick queries), while intelligently expanding output budgets during deep reasoning when official capacities allow to preserve model IQ, and clamping to 1024 output tokens as an ultimate physical ceiling fallback (PR #3599, thanks to @cubelikeplayDaniel); inherits 4.9.3's robust HTTP/2 architecture and native Chrome 123 baseline to end long-task dropouts.
 
 👉 **[View Full Changelog → CHANGELOG_EN.md](CHANGELOG_EN.md)**
 

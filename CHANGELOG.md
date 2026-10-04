@@ -3,6 +3,32 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.3 (2026-10-04)**:
+        -   **[上游底层 HTTP/2 协议栈重构与根治假死断流] 彻底移除破坏性 HTTP/2 PING 注入，回归真实 Chrome 123 原生协议基线，终结深度思考与长上下文 10s 自杀式断流 (Fixes #3593)**:
+            -   **根因溯源与彻底移除有毒 HTTP/2 PING**: 深入抓包与底层协议状态机实测证实，Google GFE / Cloudcode 生产端点对客户端主动发送的 HTTP/2 PING 帧静默丢弃、100% 不回复 PING ACK。v4.8.9 (PR #3571) 配置的 `keep_alive_timeout = 10s` 导致本地 hyper2 在思考静默期等不到 ACK 时于第 10 秒整准时在客户端本地主动杀死连接，抛出 `error reading a body from connection (buffer_bytes=0)`。现彻底移除 `UpstreamClient` 中破坏性的 `.http2(|mut h2| ...)` 配置，拔除本地等待 ACK 的自杀定时炸弹。
+            -   **回归 Chrome 123 原生协议行为与稳态 L4 保活**: 严格对齐真实 Chrome 123 浏览器的协议行为（真实浏览器在 HTTP/2 层从不发应用层 PING），完全依赖操作系统的标准 L4 TCP Keep-Alive (60s)；同时与 PR #3578 在下游 SSE 提供的 3s 纯文本注释心跳（`: ping\n\n`）形成完美协同，既防止下游客户端/IDE 空闲超时，又保证上游长思考连接绝不断流。
+            -   **消除空闲连接池污染与根除 503 Token pool is empty 雪崩**: 彻底清除后台 `keep_alive_while_idle(true)` 对连接池空闲连接乱发得不到 ACK 的 PING 所造成的连接坏死，消灭“连续请求两次就失败”的连接复用崩溃，避免网关因连接断开误触发重试熔断将可用账号锁死，彻底解决账号池雪崩问题。
+            -   **超长任务与长思考深度压测验证**: 经真实凭据长任务压测，模型在经历长达 15.30 秒的首包思考完全静默期依然稳如磐石，连续跑满 125 秒（25 万字节）大生成且多轮连接池复用 100% 成功，连接零断流。
+        -   **[三大协议 SSE 字节级行缓冲加固与多字节防撕裂] 彻底解决中文/俄语/Emoji 等非 ASCII 多字节字符与长工具输出跨 TCP Chunk 拆包导致反序列化崩溃与断流 (Fixes #3593)**:
+            -   **流收集器全量升级 `BytesMut` 字节级行缓冲区**: 重构 `claude/collector.rs`、`openai/collector.rs` 与 `gemini/collector.rs`。彻底废除旧版直接在单个原始数据块上调用 `String::from_utf8_lossy(&chunk).lines()` 的朴素切片逻辑，全面引入 `BytesMut` 字节流累积与 `\n` 定位切割。
+            -   **杜绝多语言 UTF-8 跨 Chunk 撕裂**: 无论是中日韩（3字节）、俄语/阿拉伯语（2字节）、Emoji/特殊符号（4字节）还是超长工具调用结果，当数据恰好落在 TCP MTU 拆包边界时，旧版切片会在边界产生无效替换符 `\u{FFFD}` 破坏 JSON 语法；新版保证必须在接收到完整换行后才进行 UTF-8 校验与分发。 (Thanks to @Hubitski)
+        -   **[官方 Claude 5.5 实机元数据全量入库、128k 解禁与动态能力调度] 动态能力探测、404/403 单模型熔断避让与换号重试**:
+            -   **官方 Claude 5.5 真实模型元数据全量入库**: 依据官方实机流量首次为 `official_models.json` 注入全部 6 款 Claude 5.5（`claude-sonnet-5-5-*` 与 `claude-opus-5-5-*`）权威内部代号（`MODEL_PLACEHOLDER_M400`~`M405`）、1M 上下文上限、128k 输出上限、`thinkingLevel` 1/2/3 档位与 `vertexModelId`。
+            -   **Pipeline 进站终审与各协议层 128k 限制解禁**: `InboundThinkingPipeline` 终审上限保护由旧版静态截断（64k）升级为优先遵循官方目录权威设定，并为 Claude 5.5 放宽至 128,000 输出 Token，彻底解决超长生成被网关终审截断的问题。
+            -   **未获权限 PRO 账号 404/403 单模型临时熔断与换号重试**: 在协议层与 `TokenManager` 落地 `mark_model_unsupported`。当未灰度到 Claude 5.5 的 PRO 账号报错 404/403 时，仅对该账号隔离特定模型（900s 临时避让），绝不连坐该账号调用其他正常模型，并在账号池有富余候选时自动换号重试。
+        -   **[纯数据驱动的通用 DynamicTierRouter 与可用档位扫描机制] 彻底清理假模型与硬编码，对齐官方真实可用模型**:
+            -   **纯数据驱动的动态裸模型衍生**: 严格以 Google 官方真实下发的可用模型为基准源，通过全自动通用后缀剥离扫描（`["-tiered", "-high", "-medium", "-low", "-extra-low"]`）动态派生裸模型。
+            -   **移除 Flash 强制 High 特判，严格遵循真实存在档位自适应决策链**: 重构 `pick_optimal_default_tier` 与显式 effort 匹配防御：优先匹配自适应 `tiered` -> 其次 `medium` -> 再次真实存在的最低档 -> 极端保底仅取上游实际存在的首个档位，绝不凭空捏造不存在的档位导致上游报错。
+        -   **[Claude Cowork 深度压缩 (Deep Compact) 与原子化补丁引擎] (PR #3580, PR #3582)**:
+            -   **深度上下文压缩机制**: 实现 opt-in 的 Claude Cowork 深度上下文压缩机制与解耦补丁工具，对齐官方 50% 阈值与延迟优化；
+            -   **跨版本生命周期与补丁锁安全**: 健全深度归档链路与原子补丁锁，防范死锁；补齐覆盖 21 个官方版本的跨版本实测证据文档。 (Thanks to @cubelikeplayDaniel)
+        -   **[迷你窗口多账号矩阵与单账号切换视图] (PR #3589, PR #3591)**:
+            -   **多账号池矩阵展示与一键切换**: 迷你窗口引入账号池多账号状态矩阵展示与单账号简洁视图切换，支持点击一键切换活跃账号；
+            -   **UI 视觉与交互体验优化**: 进度条低于 50% 自动降级为警示色，精简多国语言紧凑标签；修复 GroupedSelect 下拉菜单靠近视口底部时的溢出与滚动问题。 (Thanks to @EricZhou05, @zepeng-jin)
+        -   **[跨平台兼容性、网关安全与工具签名持久化治理] (PR #3590)**:
+            -   **跨平台显示修复**: 修复 Linux KDE Wayland 平台下 WebKit DMA-BUF 兼容性问题；
+            -   **工具签名数据库治理**: 加固工具签名数据库（`tool_signatures.db`）的行数硬上限与 TTL 清理机制，防范磁盘膨胀；严格隔离 Classic 客户端与 IDE 插件的进程与数据库路径。 (Thanks to @cubelikeplayDaniel)
+
     *   **v4.9.2-beta.9 (2026-10-04)**:
         -   **[上游底层 HTTP/2 协议栈重构与根治假死断流] 彻底移除破坏性 HTTP/2 PING 注入，回归真实 Chrome 123 原生协议基线，终结深度思考与长上下文 10s 自杀式断流 (Fixes #3593)**:
             -   **根因溯源与彻底移除有毒 HTTP/2 PING**: 深入抓包与底层协议状态机实测证实，Google GFE / Cloudcode 生产端点对客户端主动发送的 HTTP/2 PING 帧静默丢弃、100% 不回复 PING ACK。v4.8.9 (PR #3571) 配置的 `keep_alive_timeout = 10s` 导致本地 hyper2 在思考静默期等不到 ACK 时于第 10 秒整准时在客户端本地主动杀死连接，抛出 `error reading a body from connection (buffer_bytes=0)`。现彻底移除 `UpstreamClient` 中破坏性的 `.http2(|mut h2| ...)` 配置，拔除本地等待 ACK 的自杀定时炸弹。

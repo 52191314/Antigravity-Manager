@@ -1,5 +1,5 @@
 # Antigravity Tools 🚀
-> 专业级 AI 账号管理与协议代理系统 (v4.9.1)
+> 专业级 AI 账号管理与协议代理系统 (v4.9.3)
 
 <div align="center">
   <img src="public/icon.png" width="100" height="100" alt="Antigravity Tools Logo">
@@ -11,7 +11,7 @@
       <img src="https://img.shields.io/github/v/release/lbjlaq/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
     </a>
     <a href="https://github.com/lbjlaq/Antigravity-Manager">
-      <img src="https://img.shields.io/badge/Version-4.9.1-blue?style=flat-square" alt="Version">
+      <img src="https://img.shields.io/badge/Version-4.9.3-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square" alt="Tauri">
     <img src="https://img.shields.io/badge/Backend-Rust-red?style=flat-square" alt="Rust">
@@ -488,7 +488,7 @@ response = client.chat.completions.create(
 
 ## 📝 更新日志
 
-> 最新版本 **v4.9.1**（2026-10-02）：修复 `gemini-3.1-flash-lite` 误重定向至已故 2.5 系列导致 503 报错的严重问题并恢复健康直传，将后台摘要压缩任务重定向至存活轻量模型，从公开目录清理 2.5 全系列并平滑重定向至 `gemini-3.6-flash-medium`（Fixes #3577，感谢 @Xyloz3n）；收紧下游 SSE 流式思考心跳至 3 秒防止长推理提前断开连接（PR #3578，感谢 @EricZhou05）。
+> 最新版本 **v4.9.3**（2026-10-04）：重构上游底层网络协议栈，彻底移除破坏性 HTTP/2 PING 注入，回归真实 Chrome 123 原生协议基线，终结模型深度思考与长上下文 10s 自杀式断流与 503 账号池雪崩（Fixes #3593）；升级三大协议流收集器 `BytesMut` 字节级行缓冲区，彻底杜绝中文/俄语/Emoji 跨 TCP Chunk 拆包导致反序列化崩溃（Fixes #3593，感谢 @Hubitski）；注入官方 Claude 5.5 实机权威元数据，解禁全链路 128k 输出上限，引入动态能力探测与单模型熔断换号重试；重构纯数据驱动的通用 `DynamicTierRouter` 动态派生裸模型并移除 Flash 强制 High 特判；支持 Claude Cowork 深度上下文压缩机制（PR #3580 / #3582，感谢 @cubelikeplayDaniel）；迷你窗口新增多账号矩阵视图与交互优化（PR #3589 / #3591，感谢 @EricZhou05, @zepeng-jin）；加固工具签名库行数硬上限与 TTL 清理机制（PR #3590）。
 
 👉 **[查看完整更新日志 CHANGELOG.md →](CHANGELOG.md)**
 

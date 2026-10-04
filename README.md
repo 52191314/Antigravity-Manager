@@ -1,5 +1,5 @@
 # Antigravity Tools 🚀
-> Professional Account Management & Protocol Proxy System for AI Services (v4.9.1)
+> Professional Account Management & Protocol Proxy System for AI Services (v4.9.3)
 
 <div align="center">
   <img src="public/icon.png" width="100" height="100" alt="Antigravity Tools Logo">
@@ -11,7 +11,7 @@
       <img src="https://img.shields.io/github/v/release/lbjlaq/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
     </a>
     <a href="https://github.com/lbjlaq/Antigravity-Manager">
-      <img src="https://img.shields.io/badge/Version-4.9.1-blue?style=flat-square" alt="Version">
+      <img src="https://img.shields.io/badge/Version-4.9.3-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square" alt="Tauri">
     <img src="https://img.shields.io/badge/Backend-Rust-red?style=flat-square" alt="Rust">
@@ -487,7 +487,7 @@ In clients that support OpenAI protocol (e.g., Cherry Studio), you can configure
 
 ## 📝 Changelog
 
-> Latest version **v4.9.1** (2026-10-02): Fixed `gemini-3.1-flash-lite` misrouting to the retired 2.5 family to restore healthy 200 OK passthrough, revived Layer-3 background compression, purged dead 2.5 models from advertised catalogs while routing legacy requests to `gemini-3.6-flash-medium` (Fixes #3577, thanks to @Xyloz3n); tightened downstream SSE thinking heartbeats to 3s to prevent client disconnects during deep reasoning (PR #3578, thanks to @EricZhou05).
+> Latest version **v4.9.3** (2026-10-04): Hardened upstream HTTP/2 protocol architecture by removing destructive HTTP/2 PING injections, restoring native Chrome 123 baseline to eliminate 10s deep-thinking disconnects and 503 token pool exhaustions (Fixes #3593); upgraded cross-protocol stream collectors with `BytesMut` byte-level line buffering to prevent multibyte chunk-splitting corruption on CJK/Cyrillic/Emoji tokens (Fixes #3593, thanks to @Hubitski); injected authoritative Claude 5.5 live metadata, lifted pipeline ingress to 128k output tokens, and introduced dynamic capability detection with single-model circuit breakers; unified data-driven `DynamicTierRouter` for dynamic bare model derivation; integrated Claude Cowork opt-in deep context compaction (PR #3580 / #3582, thanks to @cubelikeplayDaniel); added account pool matrix view in Mini View with dropdown overflow fixes (PR #3589 / #3591, thanks to @EricZhou05, @zepeng-jin); enforced tool signature DB row bounds and TTL pruning (PR #3590).
 
 👉 **[View Full Changelog → CHANGELOG_EN.md](CHANGELOG_EN.md)**
 

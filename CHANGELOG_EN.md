@@ -3,6 +3,17 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.2-beta.5 (2026-10-04)**:
+        -   **[Dynamic Tier Router & Claude 5.5 Spec Architecture Upgrade] Data-Driven DynamicTierRouter, Automated Tier Scanning, and Full Claude 5.5 Support (Inspired by PR #3594, Thanks to @CarlitoDon)**:
+            -   **Pure Data-Driven Dynamic Tier Router (DynamicTierRouter)**: Fully decoupled from model-specific heuristics; implemented `collect_tiers_for_base` in `OfficialModelCatalog` to dynamically discover all available tier suffixes for any base model from the official upstream catalog. Whether for Gemini 3.x Flash, Claude 5.5, or future models, automatically strips suffixes to derive bare models and routes requests dynamically based on tier weight hierarchies (`lite < low < default < medium < high < xhigh < max`) and client effort hints.
+            -   **Claude 5.5 Model Specs & Factory**: Fully transitioned to dynamic `RealModelSpec` construction, dynamically fetching `maxOutputTokens` (128k) and thinking budgets from `OfficialModelCatalog` without static constant maintenance.
+            -   **Permission Gate & Soft-Sorting**: Enforced semver-based subscription gating in `TokenManager` (Claude >= 5.0) to filter out Free accounts, giving scheduling priority to PRO/ULTRA accounts that have synchronized the model catalog.
+            -   **Thinking Level Normalization**: Added support for snake_case levels such as `extra_low`, `x_high`, and `flash_lite`, seamlessly normalizing them with kebab-case counterparts.
+            -   **Unified Thinking Budget & Default Alignment**: Unified Gemini and Claude thinking configuration, aligning the default budget to -1 (representing native adaptive defaults) and simplifying settings panels.
+        -   **[Long-Generation & Deep-Thinking Stream Interruption Fix] Relax HTTP/2 Keep-Alive Timeout to 90s and Fix Claude Peek Error Detection (Fixes #3593, Thanks to @Hubitski)**:
+            -   **HTTP/2 Keep-Alive Timeout Relaxed**: Extended `keep_alive_timeout` in `UpstreamClient` to 90s (aligned with `pool_idle_timeout`) and adjusted probe interval to 5s, completely resolving 10s client connection drops during deep thinking or long generation pauses (`Stream interrupted before completion` / `error reading a body from connection`).
+            -   **Claude Streaming Peek Error Detection**: Completed error event detection (`claude_stream_chunk_has_error_event`) during the peek pre-read phase in `claude.rs`, preventing stream head errors from being mistaken for valid responses and bypassing account pool rotation.
+
     *   **v4.9.2-beta.4 (2026-10-04)**:
         -   **[Mini View Multi-Account Pool & Toggle Improvements] Support Account Pool Matrix vs. Single View Toggle and UI Polish (Thanks to @EricZhou05)**:
             -   **Single View vs. Pool Matrix Toggle**: Mini window now supports seamlessly toggling between single account details and the full account pool matrix view.

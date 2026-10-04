@@ -3,6 +3,17 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.2-beta.5 (2026-10-04)**:
+        -   **[通用分档路由器与 Claude 5.5 动态规格架构升级] 纯数据驱动的通用 DynamicTierRouter、可用档位自动扫描与 Claude 5.5 全链路接入 (PR #3594 启发推进, Thanks to @CarlitoDon)**:
+            -   **纯数据驱动通用分档路由器 (DynamicTierRouter)**: 从硬编码特判中彻底解耦，在 `OfficialModelCatalog` 中实现 `collect_tiers_for_base`，支持从官方目录动态探测任意模型的所有可用分档后缀（available_tiers 列表）。无论是 Gemini 3.x Flash 还是 Claude 5.5 或未来的新模型，自动剥离后缀派生裸模型并根据权重梯队（`lite < low < default < medium < high < xhigh < max`）与客户端 effort 动态智能路由。
+            -   **Claude 5.5 模型规格与动态工厂**: 全面对接 `RealModelSpec` 动态构建，优先从 `OfficialModelCatalog` 动态挂载 `maxOutputTokens`（128k）与思考预算，彻底告别静态常量维护。
+            -   **权限门禁与优先调度**: 在 `TokenManager` 中基于语义版本（Claude >= 5.0）自动拦截 Free 账号，优先调度已同步该模型目录的 PRO/ULTRA 账号。
+            -   **思考等级归一化扩展**: 支持 `extra_low`、`x_high`、`flash_lite` 等下划线蛇形命名，与连字符形态无缝兼容归一化。
+            -   **思考预算统一精简与默认值对齐**: 统合 Gemini 与 Claude 思考配置，默认预算统一为 -1（语义为遵循官方默认自适应档位预算），精简冗余分区。
+        -   **[长生成与深度思考断流根治及流式错误识别] 放宽 HTTP/2 PING 超时至 90s 并修复 Claude Peek 错误检测 (Fixes #3593, Thanks to @Hubitski)**:
+            -   **HTTP/2 保持长连接与超时放宽**: 将 `UpstreamClient` 中底层 HTTP/2 `keep_alive_timeout` 放宽至 90s（与 `pool_idle_timeout` 对齐），探测间隔优化为 5s，彻底根除模型在深度思考或超长生成静默期时底层连接在 10s 被主动掐断断流的报错（`Stream interrupted before completion` / `error reading a body from connection`）。
+            -   **Claude 流式 Peek 错误检测补齐**: 补齐 `claude.rs` 的 Peek 预读阶段错误事件识别逻辑（`claude_stream_chunk_has_error_event`），防止流式首包错误被误判为合法正文而绕过账号池轮换重试机制。
+
     *   **v4.9.2-beta.4 (2026-10-04)**:
         -   **[迷你悬浮窗多账号池交互与视图切换] 支持悬浮窗单账号与账号池矩阵视图切换及 UI 细节优化 (Thanks to @EricZhou05)**:
             -   **单账号与账号池视图无缝切换**: 迷你悬浮窗支持在单账号卡片与多账号池矩阵视图之间灵活切换，方便快速掌控全局号池状态。

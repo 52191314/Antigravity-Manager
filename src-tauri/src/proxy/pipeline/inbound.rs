@@ -1043,6 +1043,20 @@ impl InboundThinkingPipeline {
             return None;
         }
 
+        // 统一从官方模型结构体中读取权威默认值
+        let official_info = crate::models::OfficialModelCatalog::get(target_model);
+
+        // 如果官方模型结构体明确不支持思考（如纯图片生成模型），则不注入 thinkingConfig
+        if let Some(ref info) = official_info {
+            if info.supports_thinking == Some(false) {
+                if let Some(obj) = generation_config.as_object_mut() {
+                    obj.remove("thinkingConfig");
+                    obj.remove("thinking_config");
+                }
+                return None;
+            }
+        }
+
         let tb_config = crate::proxy::config::get_thinking_budget_config();
 
         // ════════════════════════════════════════════════════════════════════
@@ -1077,13 +1091,11 @@ impl InboundThinkingPipeline {
                             generation_config["maxOutputTokens"] =
                                 json!(budget as i64 + min_overhead);
                         }
-                        return Some(budget as i64);
-                    }
-
-                    // 2.2 预算缺省，但客户端携带了思考等级（包括 low / medium / high 以及任何客户自定义的思考等级）：
-                    // 核心铁律：坚决不填预算！忠实透传等级，并且必须带上 includeThoughts: true 核心开关！
-                    if let Some(raw_effort) = client_effort.map(str::trim).filter(|s| !s.is_empty())
+                    } else if let Some(raw_effort) =
+                        client_effort.map(str::trim).filter(|s| !s.is_empty())
                     {
+                        // 2.2 预算缺省，但客户端携带了思考等级（包括 low / medium / high 以及任何客户自定义的思考等级）：
+                        // 核心铁律：坚决不填预算！忠实透传等级，并且必须带上 includeThoughts: true 核心开关！
                         let lower_effort = raw_effort.to_lowercase().replace('_', "-");
                         if lower_effort != "default"
                             && lower_effort != "none"
@@ -1111,110 +1123,90 @@ impl InboundThinkingPipeline {
                                 "includeThoughts": true,
                                 "thinkingLevel": final_level
                             });
-                            return None;
                         }
-                    }
-
-                    // 2.3 等级与预算均缺省（或 default）：全部预算不传递，默认上游处理（上游自适应）
-                    // ★ 绝对不塞 4000/Medium 预算，仅带 includeThoughts: true
-                    generation_config["thinkingConfig"] = json!({
-                        "includeThoughts": true
-                    });
-                    return None;
-                }
-            }
-        }
-
-        // ════════════════════════════════════════════════════════════════════
-        // 模式分流 2: 网关权威控制模式（Gateway Authority，99% 用户）
-        // 100% 保持原有权威逻辑不变：档位锁死、flash_low/med/high 映射、防 429 注入
-        // ════════════════════════════════════════════════════════════════════
-        let resolved_budget = crate::proxy::model_specs::resolve_custom_budget(
-            target_model,
-            client_effort,
-            client_budget,
-            &tb_config,
-            token,
-        );
-
-        let is_tiered = crate::proxy::model_specs::is_tiered_flash_model(target_model)
-            || target_model.to_lowercase().contains("tiered");
-
-        let mut tc = json!({
-            "includeThoughts": true
-        });
-
-        // 统一从官方模型结构体中读取权威默认值
-        let official_info = crate::models::OfficialModelCatalog::get(target_model);
-
-        // 如果官方模型结构体明确不支持思考（如纯图片生成模型），则不注入 thinkingConfig
-        if let Some(ref info) = official_info {
-            if info.supports_thinking == Some(false) {
-                if let Some(obj) = generation_config.as_object_mut() {
-                    obj.remove("thinkingConfig");
-                    obj.remove("thinking_config");
-                }
-                return None;
-            }
-        }
-
-        // 用户核心要求：
-        // "如果我网关模式的思考预算填-1 我的策略是不填模型预算。其实是不对的
-        // 应该是如果网关模式都填了-1 应该默认走官方模型结构体的默认值"
-        let final_budget = match resolved_budget {
-            Some(b) => Some(b),
-            None => {
-                // 网关模式下未显式配置自定义预算（Default 默认模式）：
-                // 默认走官方模型结构体的默认值 (official_model.thinking_budget)；
-                // 若官方模型结构体无记录（如非官方目录或旧版别名），Claude 思考模型回落到标准限额
-                official_info
-                    .as_ref()
-                    .and_then(|info| info.thinking_budget)
-                    .or_else(|| {
-                        if target_model.to_lowercase().contains("claude") {
-                            Some(
-                                crate::proxy::model_specs::get_thinking_budget(target_model, token)
-                                    as i64,
-                            )
-                        } else {
-                            None
-                        }
-                    })
-            }
-        };
-
-        if let Some(budget) = final_budget {
-            if budget == 0 {
-                tc = json!({
-                    "thinkingBudget": 0
-                });
-            } else {
-                tc["thinkingBudget"] = json!(budget);
-
-                // 确保 maxOutputTokens 大于 thinkingBudget 避免 400 (仅当 budget > 0 时)
-                if budget > 0 {
-                    let min_overhead = 8192;
-                    let current_max = generation_config
-                        .get("maxOutputTokens")
-                        .and_then(Value::as_i64)
-                        .unwrap_or(65536);
-                    if current_max <= budget {
-                        generation_config["maxOutputTokens"] = json!(budget + min_overhead);
+                    } else {
+                        // 2.3 等级与预算均缺省（或 default）：全部预算不传递，默认上游处理（上游自适应）
+                        // ★ 绝对不塞 4000/Medium 预算，仅带 includeThoughts: true
+                        generation_config["thinkingConfig"] = json!({
+                            "includeThoughts": true
+                        });
                     }
                 }
             }
-            generation_config["thinkingConfig"] = tc;
-            return Some(budget);
-        } else if is_tiered {
-            // Tiered 模型未指定具体数字 budget 且官方结构体无 thinking_budget 时：纯自适应模式
-            tc = json!({
+        } else {
+            // ════════════════════════════════════════════════════════════════════
+            // 模式分流 2: 网关权威控制模式（Gateway Authority，99% 用户）
+            // 100% 保持原有权威逻辑不变：档位锁死、flash_low/med/high 映射、防 429 注入
+            // ════════════════════════════════════════════════════════════════════
+            let resolved_budget = crate::proxy::model_specs::resolve_custom_budget(
+                target_model,
+                client_effort,
+                client_budget,
+                &tb_config,
+                token,
+            );
+
+            let is_tiered = crate::proxy::model_specs::is_tiered_flash_model(target_model)
+                || target_model.to_lowercase().contains("tiered");
+
+            let mut tc = json!({
                 "includeThoughts": true
             });
-            generation_config["thinkingConfig"] = tc;
-            return None;
-        }
 
-        generation_config["thinkingConfig"] = tc;
+            // 用户核心要求：
+            // "如果我网关模式的思考预算填-1 我的策略是不填模型预算。其实是不对的
+            // 应该是如果网关模式都填了-1 应该默认走官方模型结构体的默认值"
+            let final_budget = match resolved_budget {
+                Some(b) => Some(b),
+                None => {
+                    // 网关模式下未显式配置自定义预算（Default 默认模式）：
+                    // 默认走官方模型结构体的默认值 (official_model.thinking_budget)；
+                    // 若官方模型结构体无记录（如非官方目录或旧版别名），Claude 思考模型回落到标准限额
+                    official_info
+                        .as_ref()
+                        .and_then(|info| info.thinking_budget)
+                        .or_else(|| {
+                            if target_model.to_lowercase().contains("claude") {
+                                Some(crate::proxy::model_specs::get_thinking_budget(
+                                    target_model,
+                                    token,
+                                ) as i64)
+                            } else {
+                                None
+                            }
+                        })
+                }
+            };
+
+            if let Some(budget) = final_budget {
+                if budget == 0 {
+                    tc = json!({
+                        "thinkingBudget": 0
+                    });
+                } else {
+                    tc["thinkingBudget"] = json!(budget);
+
+                    // 确保 maxOutputTokens 大于 thinkingBudget 避免 400 (仅当 budget > 0 时)
+                    if budget > 0 {
+                        let min_overhead = 8192;
+                        let current_max = generation_config
+                            .get("maxOutputTokens")
+                            .and_then(Value::as_i64)
+                            .unwrap_or(65536);
+                        if current_max <= budget {
+                            generation_config["maxOutputTokens"] = json!(budget + min_overhead);
+                        }
+                    }
+                }
+            } else if is_tiered {
+                // Tiered 模型未指定具体数字 budget 且官方结构体无 thinking_budget 时：纯自适应模式
+                tc = json!({
+                    "includeThoughts": true
+                });
+            }
+
+            generation_config["thinkingConfig"] = tc;
+        }
 
         // 终审上限保护：优先遵循官方模型目录结构体权威设定
         let safe_limit = official_info
@@ -1238,7 +1230,38 @@ impl InboundThinkingPipeline {
             }
         }
 
-        resolved_budget
+        // 确保终审上限截断后依然满足 Google 协议硬约束：maxOutputTokens > thinkingBudget
+        let effective_max = generation_config
+            .get("maxOutputTokens")
+            .and_then(Value::as_i64);
+        if let (Some(max_tokens), Some(tc)) = (
+            effective_max,
+            generation_config
+                .get_mut("thinkingConfig")
+                .and_then(Value::as_object_mut),
+        ) {
+            if let Some(budget) = tc.get("thinkingBudget").and_then(Value::as_i64) {
+                if budget > 0 && budget >= max_tokens {
+                    let safe_budget = if max_tokens > 1024 {
+                        max_tokens - 1024
+                    } else if max_tokens > 1 {
+                        max_tokens - 1
+                    } else {
+                        0
+                    };
+                    tracing::info!(
+                        "[Pipeline-Inbound] Scaled down thinkingBudget from {} to {} to satisfy maxOutputTokens ({}) > thinkingBudget",
+                        budget, safe_budget, max_tokens
+                    );
+                    tc.insert("thinkingBudget".to_string(), json!(safe_budget));
+                }
+            }
+        }
+
+        generation_config
+            .get("thinkingConfig")
+            .and_then(|t| t.get("thinkingBudget"))
+            .and_then(Value::as_i64)
     }
 
     /// 统一规范化与对齐四大协议转译后的 Google Request 内部拓扑（Pipeline First 核心归一节点）

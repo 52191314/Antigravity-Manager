@@ -572,6 +572,36 @@ pub fn wrap_request_v2(
                 gen_config.insert("maxOutputTokens".to_string(), serde_json::json!(final_cap));
             }
         }
+
+        // 确保模型限额截断后依然满足 Google v1internal 硬约束：maxOutputTokens > thinkingBudget
+        let effective_max = gen_config.get("maxOutputTokens").and_then(|v| v.as_u64());
+        if let (Some(max_tokens), Some(tc)) = (
+            effective_max,
+            gen_config
+                .get_mut("thinkingConfig")
+                .and_then(|v| v.as_object_mut()),
+        ) {
+            if let Some(budget) = tc.get("thinkingBudget").and_then(|v| v.as_i64()) {
+                if budget > 0 && budget as u64 >= max_tokens {
+                    let safe_budget = if max_tokens > 1024 {
+                        max_tokens - 1024
+                    } else if max_tokens > 1 {
+                        max_tokens - 1
+                    } else {
+                        0
+                    };
+                    tracing::info!(
+                        "[Gemini-Wrap] Scaled down thinkingBudget from {} to {} to satisfy maxOutputTokens ({}) > thinkingBudget for model {}",
+                        budget,
+                        safe_budget,
+                        max_tokens,
+                        final_model_name
+                    );
+                    tc.insert("thinkingBudget".to_string(), serde_json::json!(safe_budget));
+                }
+            }
+        }
+
         if is_under_v3 {
             gen_config.remove("thinkingConfig");
         }

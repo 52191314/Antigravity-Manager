@@ -3,6 +3,28 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.5-beta.0 (2026-10-05)**:
+        -   **[Claude Cowork Compaction Lifecycle Hardening & Tool Schema Overhead Alignment] Eliminate Negative-Gap Deadlocks, Close Immunity Lease Leaks & Add State Pool Governance (PR #3604)**:
+            -   **Account for Tool Schema & Description in Overhead**: Fully incorporate tool `description` and `input_schema` token costs in `calculate_claude_fixed_overhead`, ensuring dynamic `target_limit` maintains solvable margins and eliminating client-side `compactionImpossible` crashes or infinite retry deadlocks under complex MCP tools.
+            -   **Strict Expiration of Compaction Immunity Leases**: Strictly return `false` once a lease expires, closing the permanent immunity loophole caused by falling back to weak continuation matching and ensuring subsequent context spikes trigger future compaction cycles normally.
+            -   **Remove Premature Message Count Condition**: Removed the simplistic `num_msgs < 50` completion rule from manual compaction, strictly requiring real context token drops (below 85%) or summary completion signals to avoid spoofed 200 OK responses on initial large prompts.
+            -   **Cross-Turn Session Correlation & Capacity Pruning**: Introduced `PENDING_COMPACT_SESSIONS` (120s TTL) to align divergent session hashes during summary requests; enforced a 1000-entry capacity limit and 300s TTL eviction on the manual compact state map. (Thanks to @cubelikeplayDaniel)
+        -   **[macOS Patch Signing Safety Rollback & Official Cert Preservation] Eliminate AMFI SIGKILL 137 Crashes & Retain Official Signatures on Revert (PR #3603)**:
+            -   **Automatic Atomic Rollback on Codesign Failure**: When patching the Claude binary on macOS, automatically restore the `.bak` backup and set `0o755` permissions if codesign or deep bundle signing fails, preventing corrupt unsigned binaries on disk from triggering kernel-level AMFI SIGKILL (137) crashes.
+            -   **Preserve Official Developer Certificates on Revert**: Replaced destructive ad-hoc re-signing on restore with non-destructive `codesign --verify --verbose=2` verification, retaining Anthropic's official developer certificate and Keychain authorization. (Thanks to @cubelikeplayDaniel)
+        -   **[Account Pool Lock Governance & Project ID Probe Isolation] Release invalid_grant Shard Lock, Isolate Probe Locks & Add Negative Cache (PR #3602)**:
+            -   **Release Shard Lock to Prevent Deadlocks**: Explicitly drop DashMap shard locks before invoking `disable_account`, eliminating self-deadlocks on re-entrant shard access.
+            -   **Isolate Project ID Probes & 5-Minute Negative Cache**: Separated project ID probes into dedicated per-account locks to avoid blocking background OAuth token refreshes, and introduced a 5-minute negative cache for failed or timed-out probes with cleanup on account removal. (Thanks to @cubelikeplayDaniel)
+        -   **[Gemini Upstream Stream Error Propagation & Synthetic 200 Prevention] Propagate Upstream Status Codes, Block Empty STOP Candidates & Prevent Cache Poisoning (PR #3601)**:
+            -   **Real-Time Upstream Error Propagation**: Parse incoming SSE error payloads (such as 504 Deadline Exceeded, 503 Unavailable, 429 Rate Limit) and pass through true HTTP status codes and structured Gemini error JSON, preventing artificial 200 OK responses with empty candidates.
+            -   **Guard Against Premature Stream Interruption**: Prevent aborted streams from generating synthetic `STOP` candidate responses, protecting the thinking cache from poisoned empty entries. (Thanks to @cubelikeplayDaniel)
+        -   **[Kernel-Level Client Process Detection & Isolated Storage Path] Prevent Wrapper Script Misidentification, Path Panics & Isolate state.vscdb (PR #3600, Fixes #3598)**:
+            -   **Kernel Process Identification Over argv[0]**: Identify processes using kernel-reported binary paths rather than user-mutable `argv[0]`, preventing script-wrapped Antigravity IDE instances from being misidentified as Classic.
+            -   **Safe Directory Traversal for .app Bundles**: Replaced byte-sliced `.find(".app")` with parent path traversal, preventing panics on non-ASCII paths or command-line parameters.
+            -   **Strictly Isolate state.vscdb Path**: Target `state.vscdb` alongside the active `storage_path`, preventing IDE account switching from polluting Classic's database. (Thanks to @cubelikeplayDaniel)
+        -   **[Project Specification Update & Pre-Flight Scope Clarification]**:
+            -   Refined `AGENTS.md` into full English with neutral wording, specifying that pre-flight checks are run on demand only when tagging final releases, and excluded during daily tasks, code reviews, and minor fixes.
+
     *   **v4.9.4 (2026-10-04)**:
         -   **[Adaptive Thinking Budget Negotiation & User-Intent Recognition Machine] Eliminate Google 400 Invariant Violations, 6x Ratio Fast-Response Compression & Smart Budget Expansion (PR #3599)**:
             -   **Bypass Elimination & Ingress Invariant Ingress**: Removed legacy early `return Some(budget)` exits in `InboundThinkingPipeline`, ensuring all client and gateway mode requests uniformly traverse authoritative `safe_limit` checks from official model catalogs.

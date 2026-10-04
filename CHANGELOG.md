@@ -3,6 +3,28 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.5-beta.0 (2026-10-05)**:
+        -   **[Claude Cowork 压缩生命周期加固与工具 Schema 开销对齐] 解决负 Gap 压缩死锁、封死永久免死漏洞与状态池防泄漏 (PR #3604)**:
+            -   **纳入工具 Schema 与 Description 核算开销**: 固定开销估算（`calculate_claude_fixed_overhead`）完整核算各工具 `description` 与 `input_schema` 的 Token 消耗，确保计算出的动态 `target_limit` 预留充足裕量，彻底根治复杂 MCP 工具下客户端因负/零 `initialTokenGap` 抛出 `compactionImpossible` 异常或无限卡死。
+            -   **严格核销免死租约防失效穿透**: 租约过期后严格返回 `false`，彻底封死因接续弱匹配回退导致的永久免死漏洞，确保会话后续超限时能正常进入下一轮自愈压缩。
+            -   **剔除易误触的消息计数假完成判定**: 移除手动压缩中轻率的 `num_msgs < 50` 规则，严格以真实上下文显著回落（降至 85% 以下）或摘要完成信号判定压缩成功，防范大上下文初次请求伪造 200 OK。
+            -   **跨轮次会话关联与容量修剪**: 引入 `PENDING_COMPACT_SESSIONS`（120s TTL）对齐客户端摘要请求时的 session hash 偏移；为手动压缩池增加 1000 阈值容量防护与 300s TTL 淘汰清理。 (Thanks to @cubelikeplayDaniel)
+        -   **[macOS 补丁签名容灾回滚与官方证书信任链保全] 根治 AMFI SIGKILL 137 闪退，还原无损保全官方签名 (PR #3603)**:
+            -   **重签名失败自动原子回滚**: 为 Claude 二进制注入补丁时，若 codesign 或 App Bundle deep 签名失败，立即原子将 `.bak` 备份文件覆盖回原路径并恢复 `0o755` 权限，彻底杜绝磁盘残留签名损坏的二进制导致系统 AMFI 内核级杀进程（SIGKILL 137）。
+            -   **还原原生保全官方证书链**: 移除一键还原时破坏性的 ad-hoc 覆盖签名逻辑，改为非破坏性 `codesign --verify --verbose=2` 校验，保全 Anthropic 官方开发者证书与系统 Keychain 授权。 (Thanks to @cubelikeplayDaniel)
+        -   **[账号池锁治理与 Project ID 探测隔离] 释放 invalid_grant 分片锁防死锁，引入负缓存与独立探测锁 (PR #3602)**:
+            -   **释放 DashMap 分片锁根除死锁**: 在调用 `disable_account` 前立即显式释放 `invalid_grant` 分片锁，彻底消灭重入导致的死锁假死。
+            -   **Project ID 探测独立加锁与 5 分钟负缓存**: 将项目 ID 探测隔离至独立锁，避免被后台 OAuth 刷新阻塞；为探测失败引入 5 分钟负缓存，并在移除账号时代偿清理。 (Thanks to @cubelikeplayDaniel)
+        -   **[Gemini 上游流错误透传与防伪造 200] 实时透传上游状态码，杜绝空候选 STOP 响应与缓存污染 (PR #3601)**:
+            -   **实时透传进站错误事件**: 深度解析 SSE 事件中的 504/503/429 等错误负载，真实透传上游 HTTP 状态码与结构化错误 JSON，杜绝生成人造的 200 OK 空候选。
+            -   **防范异常流早断终止**: 杜绝异常流中断时伪造 `STOP` 终止响应，防止思考缓存数据库被脏数据污染。 (Thanks to @cubelikeplayDaniel)
+        -   **[客户端内核级进程识别与数据库精准隔离] 根除包装脚本误判与路径 Panic，隔离 state.vscdb (PR #3600, Fixes #3598)**:
+            -   **内核路径识别替代 argv[0]**: 基于内核报告的可执行文件路径识别进程，防止脚本调用 IDE 时被误判为 Classic。
+            -   **安全目录遍历提取 .app Bundle**: 移除基于字节切片的 `.find(".app")`，改用父级路径遍历，彻底杜绝非 ASCII 路径与特殊参数下的 Panic 崩溃。
+            -   **精准隔离 state.vscdb 写入路径**: 严格限定在当前写入的 `storage_path` 同级，防止 IDE 账号切换污染 Classic 数据库。 (Thanks to @cubelikeplayDaniel)
+        -   **[项目规范更新与 Pre-flight 时机收敛]**:
+            -   将 `AGENTS.md` 规范调整为全英文中性表述，明确 Pre-flight 检查仅在最终发版打 Tag 时执行，日常任务、代码审查与简单调试均不触发。
+
     *   **v4.9.4 (2026-10-04)**:
         -   **[自适应思考预算协商状态机与意图识别架构] 彻底杜绝 maxOutputTokens <= thinkingBudget 引发 Google 400，科学识别 6 倍反差极速意图并智能扩充总预算保全推理智商 (PR #3599)**:
             -   **废除提前 return 旁路与全链路贯穿终审校验**: 彻底移除 `InboundThinkingPipeline` 中 Client 模式与 Gateway 模式的过早 `return Some(budget)` 旁路，统一贯穿官方模型目录权威 `safe_limit` 物理硬顶终审校验。

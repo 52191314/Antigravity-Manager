@@ -1,5 +1,5 @@
 # Antigravity Tools 🚀
-> 专业级 AI 账号管理与协议代理系统 (v4.9.3)
+> 专业级 AI 账号管理与协议代理系统 (v4.9.4)
 
 <div align="center">
   <img src="public/icon.png" width="100" height="100" alt="Antigravity Tools Logo">
@@ -11,7 +11,7 @@
       <img src="https://img.shields.io/github/v/release/lbjlaq/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
     </a>
     <a href="https://github.com/lbjlaq/Antigravity-Manager">
-      <img src="https://img.shields.io/badge/Version-4.9.3-blue?style=flat-square" alt="Version">
+      <img src="https://img.shields.io/badge/Version-4.9.4-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square" alt="Tauri">
     <img src="https://img.shields.io/badge/Backend-Rust-red?style=flat-square" alt="Rust">
@@ -488,7 +488,7 @@ response = client.chat.completions.create(
 
 ## 📝 更新日志
 
-> 最新版本 **v4.9.3**（2026-10-04）：重构上游底层网络协议栈，彻底移除破坏性 HTTP/2 PING 注入，回归真实 Chrome 123 原生协议基线，终结模型深度思考与长上下文 10s 自杀式断流与 503 账号池雪崩（Fixes #3593）；升级三大协议流收集器 `BytesMut` 字节级行缓冲区，彻底杜绝中文/俄语/Emoji 跨 TCP Chunk 拆包导致反序列化崩溃（Fixes #3593，感谢 @Hubitski）；注入官方 Claude 5.5 实机权威元数据，解禁全链路 128k 输出上限，引入动态能力探测与单模型熔断换号重试；重构纯数据驱动的通用 `DynamicTierRouter` 动态派生裸模型并移除 Flash 强制 High 特判；支持 Claude Cowork 深度上下文压缩机制（PR #3580 / #3582，感谢 @cubelikeplayDaniel）；迷你窗口新增多账号矩阵视图与交互优化（PR #3589 / #3591，感谢 @EricZhou05, @zepeng-jin）；加固工具签名库行数硬上限与 TTL 清理机制（PR #3590）。
+> 最新版本 **v4.9.4**（2026-10-04）：引入自适应思考预算协商状态机与意图识别架构，废除过早 return 旁路，从协议根源上彻底解决 `maxOutputTokens <= thinkingBudget` 引发的 Google 400 违背报错；首创 6 倍反差极速意图识别（当思考预算 $t \ge 6 \times m$ 时自动压缩预算秒回，杜绝轻量问答被深度思考拖慢），常规深度推理在官方容量足够时优先智能扩充总输出预算以保全用户思考智商，超大预算触顶时收敛留出 1024 正文空间兜底（PR #3599，感谢 @cubelikeplayDaniel）；全面继承 4.9.3 底层 HTTP/2 稳态重构与 Chrome 123 基线回归，终结长任务自杀断流。
 
 👉 **[查看完整更新日志 CHANGELOG.md →](CHANGELOG.md)**
 

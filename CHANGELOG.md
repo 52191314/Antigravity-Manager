@@ -3,6 +3,14 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.4 (2026-10-04)**:
+        -   **[自适应思考预算协商状态机与意图识别架构] 彻底杜绝 maxOutputTokens <= thinkingBudget 引发 Google 400，科学识别 6 倍反差极速意图并智能扩充总预算保全推理智商 (PR #3599)**:
+            -   **废除提前 return 旁路与全链路贯穿终审校验**: 彻底移除 `InboundThinkingPipeline` 中 Client 模式与 Gateway 模式的过早 `return Some(budget)` 旁路，统一贯穿官方模型目录权威 `safe_limit` 物理硬顶终审校验。
+            -   **6 倍反差极速意图识别 (Fast & Concise Intent)**: 针对客户端传了明确总输出 $m$ 的场景，当思考预算 $t \ge 6 \times m$ 时（例如用户传 $m = 1024, t = 8192$），精准识别用户强烈希望一句话简明直接回答、不希望被漫长思考拖慢的诉求，自动压缩思考预算至 $\max(0, m - 1024)$（$m \le 1024$ 时自动归零关闭思考，实现模型秒回吐字）。
+            -   **常规深度推理智能自动扩充 (保全思考智商)**: 未触发极速意图时，若客户端传入的 $m$ 较小但官方物理容量能容纳思考预算（$t + 1024 \le max$），网关坚决不阉割用户的思考能力，自动提升总输出预算至 $m = t + 1024$（且不超过官方上限），100% 完整保留用户的深度思考推导能力！
+            -   **物理天花板硬顶终审兜底**: 仅当思考预算极大超限突破官方物理天花板时（$t + 1024 > max$），终审兜底将总预算锚定官方上限 $max$，思考预算收敛至 $max - 1024$（留出 1024 正文空间），从数学与协议层 100% 杜绝 Google `HTTP 400 INVALID_ARGUMENT` 报错。
+            -   **Gemini Adapter Wrapper 终审兜底与单测覆盖**: 在 `gemini/wrapper.rs` 增加同等协商保护，在 `official_alignment_tests.rs` 补充 6 倍反差压缩、自动扩充与物理兜底全套单测。 (Thanks to @cubelikeplayDaniel)
+
     *   **v4.9.3 (2026-10-04)**:
         -   **[上游底层 HTTP/2 协议栈重构与根治假死断流] 彻底移除破坏性 HTTP/2 PING 注入，回归真实 Chrome 123 原生协议基线，终结深度思考与长上下文 10s 自杀式断流 (Fixes #3593)**:
             -   **根因溯源与彻底移除有毒 HTTP/2 PING**: 深入抓包与底层协议状态机实测证实，Google GFE / Cloudcode 生产端点对客户端主动发送的 HTTP/2 PING 帧静默丢弃、100% 不回复 PING ACK。v4.8.9 (PR #3571) 配置的 `keep_alive_timeout = 10s` 导致本地 hyper2 在思考静默期等不到 ACK 时于第 10 秒整准时在客户端本地主动杀死连接，抛出 `error reading a body from connection (buffer_bytes=0)`。现彻底移除 `UpstreamClient` 中破坏性的 `.http2(|mut h2| ...)` 配置，拔除本地等待 ACK 的自杀定时炸弹。

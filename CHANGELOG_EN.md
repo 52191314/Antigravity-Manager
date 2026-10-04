@@ -3,6 +3,14 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.4 (2026-10-04)**:
+        -   **[Adaptive Thinking Budget Negotiation & User-Intent Recognition Machine] Eliminate Google 400 Invariant Violations, 6x Ratio Fast-Response Compression & Smart Budget Expansion (PR #3599)**:
+            -   **Bypass Elimination & Ingress Invariant Ingress**: Removed legacy early `return Some(budget)` exits in `InboundThinkingPipeline`, ensuring all client and gateway mode requests uniformly traverse authoritative `safe_limit` checks from official model catalogs.
+            -   **6x Ratio Fast & Concise Intent Recognition**: When a client explicitly specifies $m$ and $t \ge 6 \times m$ (e.g. $m=1024, t=8192$), gateway intelligently detects the intent for an instant, concise reply without lengthy deliberation, compressing thinking budget to $\max(0, m - 1024)$ ($t=0$ when $m \le 1024$ for instant output).
+            -   **Smart Budget Expansion for Deep Reasoning (Preserve Model IQ)**: When official physical capacity allows ($t + 1024 \le max$), gateway refuses to truncate user reasoning, automatically expanding $m = t + 1024$ to preserve 100% of the thinking budget within official limits.
+            -   **Physical Ceiling Clamping Fallback**: Only when thinking budget genuinely breaches the model's physical limit ($t + 1024 > max$), $m$ is anchored to $max$ with thinking budget clamped to $max - 1024$ (leaving 1024 tokens for completion), strictly satisfying $m > t$ and eliminating Google `400 INVALID_ARGUMENT`.
+            -   **Gemini Adapter Wrapper Invariant & Test Suite**: Mirrored invariant enforcement in `gemini/wrapper.rs` and added full test suites in `official_alignment_tests.rs`. (Thanks to @cubelikeplayDaniel)
+
     *   **v4.9.3 (2026-10-04)**:
         -   **[Upstream HTTP/2 Protocol Hardening & Stream Drop Fix] Completely remove destructive HTTP/2 PING injection, restore native Chrome 123 protocol baseline, and eliminate 10s deep-thinking disconnects (Fixes #3593)**:
             -   **Root Cause Elimination for Destructive HTTP/2 PING**: Protocol frame tracing confirmed that Google GFE / Cloudcode endpoints silently drop client-initiated HTTP/2 PING frames without returning PING ACKs. In v4.8.9 (PR #3571), the configured `keep_alive_timeout = 10s` caused local hyper2 to unilaterally terminate the connection at exactly 10s when waiting for an ACK, throwing `error reading a body from connection (buffer_bytes=0)`. The destructive `.http2(|mut h2| ...)` configuration has been completely removed from `UpstreamClient`, eliminating the local self-abort timer.

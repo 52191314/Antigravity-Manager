@@ -1208,7 +1208,8 @@ impl InboundThinkingPipeline {
             generation_config["thinkingConfig"] = tc;
         }
 
-        // 终审上限保护：优先遵循官方模型目录结构体权威设定
+        // 终审上限保护与不变量协调状态机：
+        // 1. 获取官方模型结构体的物理最大输出硬顶 (safe_limit)
         let safe_limit = official_info
             .as_ref()
             .and_then(|info| info.max_output_tokens)
@@ -1224,36 +1225,83 @@ impl InboundThinkingPipeline {
                     65536
                 }
             });
-        if let Some(val) = generation_config["maxOutputTokens"].as_i64() {
-            if val > safe_limit {
-                generation_config["maxOutputTokens"] = json!(safe_limit);
-            }
-        }
 
-        // 确保终审上限截断后依然满足 Google 协议硬约束：maxOutputTokens > thinkingBudget
-        let effective_max = generation_config
+        // 客户端/用户当前传入的 maxOutputTokens（若缺省则默认按官方 safe_limit 填齐）
+        let user_provided_max = generation_config
             .get("maxOutputTokens")
             .and_then(Value::as_i64);
-        if let (Some(max_tokens), Some(tc)) = (
-            effective_max,
-            generation_config
-                .get_mut("thinkingConfig")
-                .and_then(Value::as_object_mut),
-        ) {
-            if let Some(budget) = tc.get("thinkingBudget").and_then(Value::as_i64) {
-                if budget > 0 && budget >= max_tokens {
-                    let safe_budget = if max_tokens > 1024 {
-                        max_tokens - 1024
-                    } else if max_tokens > 1 {
-                        max_tokens - 1
+        let mut current_max = user_provided_max.unwrap_or(safe_limit);
+
+        // 如果用户传入的 max 越过了官方物理硬顶，先收敛到 safe_limit
+        if current_max > safe_limit {
+            current_max = safe_limit;
+            generation_config["maxOutputTokens"] = json!(safe_limit);
+        }
+
+        // 2. 检查 Google 协议硬约束：maxOutputTokens > thinkingBudget
+        let raw_budget = generation_config
+            .get("thinkingConfig")
+            .and_then(|tc| tc.get("thinkingBudget"))
+            .and_then(Value::as_i64);
+
+        if let Some(budget) = raw_budget {
+            if budget > 0 {
+                // 仅针对客户端/用户传了明确思考预算 (> 0) 的情况进行科学意图协商：
+                let mut final_budget = budget;
+                let mut final_max = current_max;
+
+                // 【分支 1: 6 倍反差极速意图识别】
+                // 如果用户提供了明确的总输出预算 m，且思考预算 t >= 6 * m（例如 m=1024, t=8192）：
+                // 证明用户/客户端强烈希望短平快直接回答，不希望被高思考拖慢！
+                // 此时压缩思考预算为 max(0, m - 1024)。若 m <= 1024 则预算为 0！
+                if let Some(user_m) = user_provided_max {
+                    if budget >= 6 * user_m {
+                        let fast_budget = if user_m > 1024 { user_m - 1024 } else { 0 };
+                        final_budget = fast_budget;
+                        tracing::info!(
+                            "[Pipeline-Inbound] 6x Intent detected (budget={} >= 6*max={}): compressed thinkingBudget to {} for fast response",
+                            budget, user_m, fast_budget
+                        );
+                    }
+                }
+
+                // 如果未触发 6 倍极速压缩 (或者极速压缩后仍然有非零思考预算)：
+                if final_budget > 0 {
+                    // 【分支 2: 常规深度推理 - 官方容量能包住时优先自动扩充 m】
+                    // 如果 final_budget + 1024 <= safe_limit：
+                    if final_budget + 1024 <= safe_limit {
+                        if final_max <= final_budget {
+                            final_max = final_budget + 1024;
+                            tracing::info!(
+                                "[Pipeline-Inbound] Auto-expanded maxOutputTokens from {} to {} to preserve thinkingBudget ({}) within official safe_limit ({})",
+                                current_max, final_max, final_budget, safe_limit
+                            );
+                        }
                     } else {
-                        0
-                    };
-                    tracing::info!(
-                        "[Pipeline-Inbound] Scaled down thinkingBudget from {} to {} to satisfy maxOutputTokens ({}) > thinkingBudget",
-                        budget, safe_budget, max_tokens
-                    );
-                    tc.insert("thinkingBudget".to_string(), json!(safe_budget));
+                        // 【分支 3: 官方物理天花板硬顶兜底】
+                        // 思考预算实在太大，连官方物理天花板都撑爆了 (final_budget + 1024 > safe_limit)：
+                        final_max = safe_limit;
+                        final_budget = if safe_limit > 1024 {
+                            safe_limit - 1024
+                        } else if safe_limit > 1 {
+                            safe_limit - 1
+                        } else {
+                            0
+                        };
+                        tracing::info!(
+                            "[Pipeline-Inbound] Budget exceeded official ceiling: clamped maxOutputTokens to {} and thinkingBudget to {}",
+                            final_max, final_budget
+                        );
+                    }
+                }
+
+                // 写回协商后的确定结果
+                generation_config["maxOutputTokens"] = json!(final_max);
+                if let Some(tc) = generation_config
+                    .get_mut("thinkingConfig")
+                    .and_then(Value::as_object_mut)
+                {
+                    tc.insert("thinkingBudget".to_string(), json!(final_budget));
                 }
             }
         }

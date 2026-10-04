@@ -277,6 +277,23 @@ mod tests {
         assert!(gpt.is_non_gemini());
         assert_eq!(gpt.max_output_tokens, Some(32768));
 
+        // 6.1 Claude 5.5 系列官方模型权威元数据测试 (Sonnet & Opus 5.5)
+        let sonnet55 = OfficialModelCatalog::get("claude-sonnet-5-5-high").unwrap();
+        assert_eq!(sonnet55.model, "MODEL_PLACEHOLDER_M405");
+        assert!(sonnet55.is_claude());
+        assert!(sonnet55.is_non_gemini());
+        assert_eq!(sonnet55.max_output_tokens, Some(128000));
+        assert_eq!(sonnet55.max_tokens, Some(1000000));
+        assert_eq!(sonnet55.thinking_level.as_deref(), Some("3"));
+
+        let opus55 = OfficialModelCatalog::get("claude-opus-5-5-low").unwrap();
+        assert_eq!(opus55.model, "MODEL_PLACEHOLDER_M400");
+        assert!(opus55.is_claude());
+        assert!(opus55.is_non_gemini());
+        assert_eq!(opus55.max_output_tokens, Some(128000));
+        assert_eq!(opus55.max_tokens, Some(1000000));
+        assert_eq!(opus55.thinking_level.as_deref(), Some("1"));
+
         // 大小写不同的精确名仍然命中同一条
         let g38_case = OfficialModelCatalog::get("Gemini-3.8-Flash-High").unwrap();
         assert_eq!(g38_case.model, "MODEL_PLACEHOLDER_M318");
@@ -395,7 +412,7 @@ mod tests {
         );
         assert_eq!(
             resolve_model_route_with_effort("gemini-3.8-flash", &empty_mapping, None),
-            "gemini-3.8-flash-high"
+            "gemini-3.8-flash-tiered"
         );
         assert_eq!(
             resolve_model_route_with_effort("gemini-3.8-flash", &empty_mapping, Some("low")),
@@ -413,7 +430,7 @@ mod tests {
         );
         assert_eq!(
             resolve_model_route_with_effort("gemini-3.7-flash", &empty_mapping, None),
-            "gemini-3.7-flash-high"
+            "gemini-3.7-flash-tiered"
         );
         assert_eq!(
             resolve_model_route_with_effort("gemini-3.6-flash", &empty_mapping, Some("medium")),

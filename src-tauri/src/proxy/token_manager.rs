@@ -160,6 +160,10 @@ pub struct TokenManager {
     proactive_refresh_handle: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
     cancel_token: CancellationToken,
     image_scheduler: std::sync::RwLock<Option<Weak<ImageScheduler>>>,
+
+    /// [NEW] 模型级临时避让/熔断记录: (account_id, base_model_family) -> 冷却结束时间戳 (Unix秒)
+    /// 当某账号调用高级模型（如 Claude 5.5）返回 404/403 时，仅将该特定模型打入冷却，绝不连坐其他模型
+    unsupported_models: Arc<DashMap<(String, String), i64>>,
 }
 
 impl TokenManager {
@@ -194,6 +198,7 @@ impl TokenManager {
             proactive_refresh_handle: Arc::new(tokio::sync::Mutex::new(None)),
             cancel_token: CancellationToken::new(),
             image_scheduler: std::sync::RwLock::new(None),
+            unsupported_models: Arc::new(DashMap::new()),
         }
     }
 
@@ -1649,6 +1654,64 @@ impl TokenManager {
         Ok(false)
     }
 
+    /// 动态检测账号是否支持指定的高阶模型（如 Claude >= 5.0 系列）。
+    ///
+    /// 匹配策略：
+    /// 1. 命中 raw model_limits（由官方配额 API 下发并缓存，包含如 `claude-sonnet-5-5-high` 等具体变体或基底名）；
+    /// 2. 命中 model_quotas（归一化标准桶 ID）；
+    /// 3. 大小写无关与前后缀模糊匹配（兼容带有 -high, -low, -medium, -thought 或 @default 后缀的变体）。
+    pub fn token_supports_advanced_model(token: &ProxyToken, target_model: &str) -> bool {
+        let target_lower = target_model.trim().to_lowercase();
+        if target_lower.is_empty() {
+            return false;
+        }
+
+        // 1. 精确匹配 model_limits
+        if token.model_limits.contains_key(target_model)
+            || token
+                .model_limits
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case(target_model))
+        {
+            return true;
+        }
+
+        // 2. 提取去除前后缀的基础模型前缀（例如 claude-sonnet-5-5-high -> claude-sonnet-5-5）
+        let base_pattern = target_lower
+            .replace("-extra-low", "")
+            .replace("-low", "")
+            .replace("-medium", "")
+            .replace("-high", "")
+            .replace("-xhigh", "")
+            .replace("-thinking", "")
+            .replace("-tiered", "")
+            .replace("@default", "");
+
+        // 3. 检查 model_limits 中是否有同属该模型系列的条目
+        if token.model_limits.keys().any(|k| {
+            let k_lower = k.to_lowercase();
+            k_lower == target_lower
+                || k_lower == base_pattern
+                || (!base_pattern.is_empty() && k_lower.contains(&base_pattern))
+                || (!target_lower.is_empty() && k_lower.contains(&target_lower))
+        }) {
+            return true;
+        }
+
+        // 4. 检查 model_quotas（如果标准化匹配成功）
+        let normalized =
+            crate::proxy::common::model_mapping::normalize_to_standard_id(target_model)
+                .unwrap_or_else(|| target_model.to_string());
+        if token.model_quotas.contains_key(&normalized) && !base_pattern.is_empty() {
+            // 如果归一化后是标准组（如 "claude"），仅当 model_limits 同样存在该高阶模型痕迹或完全未拉取到 limits 时作为辅助参考
+            if normalized != "claude" {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// P2C 算法的候选池大小 - 从前 N 个最优候选中随机选择
     const P2C_POOL_SIZE: usize = 5;
 
@@ -1939,10 +2002,15 @@ impl TokenManager {
 
         // [NEW] 1. 动态能力过滤 (Capability Filter)
 
-        // 针对 Claude >= 5.0 系列高级模型（Google 官方仅向 PRO / ULTRA 订阅开放，Free 账号无权限）：
+        // 针对 Claude >= 5.0 系列高级模型（例如 5.5 Sonnet / 5.5 Opus 等）：
+        // 优先使用账号上游下发的配额模型目录 (model_limits / model_quotas) 进行动态能力判断；
+        // 当存在明确具备该模型能力的账号时，严格只保留具备能力的账号。
+        // 若所有账号皆尚未拉取到明确的模型目录（例如冷启动或离线），则平滑降级为 PRO / ULTRA 订阅层门禁兜底。
         let is_advanced_claude = crate::proxy::model_specs::is_claude_v5_or_above(target_model);
         if is_advanced_claude {
             let before_tier = tokens_snapshot.len();
+
+            // 1.1 先行保留符合基本高级订阅资质的账号 (PRO / ULTRA)
             tokens_snapshot.retain(|t| {
                 matches!(
                     t.subscription_tier
@@ -1963,6 +2031,40 @@ impl TokenManager {
                     );
                 }
                 return Err("Token pool is empty".to_string());
+            }
+
+            // 1.2 动态能力过滤：检测是否有账号已通过定时刷新/在线同步获得了该 5.x 模型的实际可用配额
+            // 同时必须排除因历史 404/403 处于临时单模型熔断期的账号
+            let accounts_with_capability: Vec<_> = tokens_snapshot
+                .iter()
+                .filter(|t| {
+                    !self.is_model_unsupported(&t.account_id, target_model)
+                        && Self::token_supports_advanced_model(t, target_model)
+                })
+                .cloned()
+                .collect();
+
+            if !accounts_with_capability.is_empty() {
+                // 池中已有明确支持该模型的账号，精准收敛候选池至具备能力的账号集合
+                tokens_snapshot = accounts_with_capability;
+            } else {
+                // 池中所有账号的 model_limits 均未显式出现该模型（可能冷启动尚未完成配额刷新或上游合并至统一番号）
+                // 此时依然严格排除处于该模型临时熔断期的账号
+                tokens_snapshot.retain(|t| !self.is_model_unsupported(&t.account_id, target_model));
+                if tokens_snapshot.is_empty() {
+                    tracing::warn!(
+                        "所有 PRO/ULTRA 账号针对模型 {} 均处于临时熔断期或无配额权限",
+                        target_model
+                    );
+                    return Err(format!(
+                        "All candidate accounts temporarily suspended for model: {}",
+                        target_model
+                    ));
+                }
+                tracing::debug!(
+                    "No accounts explicitly reported '{}' in model_limits yet; falling back to PRO/ULTRA subscription tier pool (excluding model-circuit-broken)",
+                    target_model
+                );
             }
         }
 
@@ -2000,6 +2102,15 @@ impl TokenManager {
                 return priority_cmp;
             }
 
+            // 对于 Claude >= 5.0：明确包含该具体模型（由定时刷新下发）的账号获得最高调度优先级
+            if is_advanced_claude {
+                let has_cap_a = Self::token_supports_advanced_model(a, target_model);
+                let has_cap_b = Self::token_supports_advanced_model(b, target_model);
+                if has_cap_a != has_cap_b {
+                    return has_cap_b.cmp(&has_cap_a);
+                }
+            }
+
             // Priority 0: 严格的订阅等级排序 (ULTRA > PRO > FREE)
             // 用户要求：轮询应当遵循 Ultra -> Pro -> Free
             // 既然已经过滤掉了不支持该模型的账号，剩下的都是支持的
@@ -2014,15 +2125,6 @@ impl TokenManager {
                 tier_priority(&a.subscription_tier).cmp(&tier_priority(&b.subscription_tier));
             if tier_cmp != std::cmp::Ordering::Equal {
                 return tier_cmp;
-            }
-
-            // 对于 Claude >= 5.0，如果账号实际在配额中包含该模型（如刚从上游刷新过目录），具有更高优先级
-            if is_advanced_claude {
-                let has_model_a = a.model_limits.contains_key(target_model);
-                let has_model_b = b.model_limits.contains_key(target_model);
-                if has_model_a != has_model_b {
-                    return has_model_b.cmp(&has_model_a);
-                }
             }
 
             // Priority 1: 目标模型的 quota (higher is better) -> 保护低配额账号
@@ -2865,6 +2967,64 @@ impl TokenManager {
     #[allow(dead_code)]
     pub fn clean_expired_rate_limits(&self) {
         self.rate_limit_tracker.cleanup_expired();
+    }
+
+    /// 将指定账号的特定高阶模型标记为临时不支持（例如调用 Claude 5.5 返回 404/403）
+    /// 默认冷却 15 分钟 (900s)，期间仅该模型跳过此账号，其他模型 100% 正常调用。
+    pub fn mark_model_unsupported(
+        &self,
+        account_id: &str,
+        model: &str,
+        cooldown_secs: Option<i64>,
+    ) {
+        let base_key = model
+            .trim()
+            .to_lowercase()
+            .replace("-extra-low", "")
+            .replace("-low", "")
+            .replace("-medium", "")
+            .replace("-high", "")
+            .replace("-xhigh", "")
+            .replace("-thinking", "")
+            .replace("-tiered", "")
+            .replace("@default", "");
+        let cooldown = cooldown_secs.unwrap_or(900);
+        let until = chrono::Utc::now().timestamp() + cooldown;
+        tracing::warn!(
+            "账号 {} 对模型 {} ({}) 标记临时不可用/熔断 {} 秒 (至 {})",
+            account_id,
+            model,
+            base_key,
+            cooldown,
+            until
+        );
+        self.unsupported_models
+            .insert((account_id.to_string(), base_key), until);
+    }
+
+    /// 检查指定账号对特定模型是否处于临时熔断状态
+    pub fn is_model_unsupported(&self, account_id: &str, model: &str) -> bool {
+        let base_key = model
+            .trim()
+            .to_lowercase()
+            .replace("-extra-low", "")
+            .replace("-low", "")
+            .replace("-medium", "")
+            .replace("-high", "")
+            .replace("-xhigh", "")
+            .replace("-thinking", "")
+            .replace("-tiered", "")
+            .replace("@default", "");
+        let now = chrono::Utc::now().timestamp();
+        if let Some(entry) = self
+            .unsupported_models
+            .get(&(account_id.to_string(), base_key.clone()))
+        {
+            if now < *entry {
+                return true;
+            }
+        }
+        false
     }
 
     /// 【替代方案】通过 email 查找对应的 account_id
@@ -6004,5 +6164,125 @@ mod tests {
         assert!(!manager
             .rate_limit_tracker
             .is_rate_limited("acc1", Some("claude-sonnet-4-6")));
+    }
+
+    #[tokio::test]
+    async fn test_claude_5_5_dynamic_capability_filtering_and_priority() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let manager = TokenManager::new(temp_dir.path().to_path_buf());
+
+        // 账号 1: PRO 订阅，尚未拉取到 5.5 模型配额 (model_limits 中仅有普通模型)
+        let mut quotas1 = HashMap::new();
+        quotas1.insert("claude".to_string(), 100);
+        let mut limits1 = HashMap::new();
+        limits1.insert("claude-sonnet-4-6".to_string(), 64000);
+        let token1 = ProxyToken {
+            account_id: "acc_pro_no_55".to_string(),
+            access_token: "token1".to_string(),
+            refresh_token: "refresh1".to_string(),
+            expires_in: 3600,
+            timestamp: chrono::Utc::now().timestamp() + 3600,
+            email: "pro_no_55@example.com".to_string(),
+            account_path: temp_dir.path().join("acc1.json"),
+            project_id: None,
+            subscription_tier: Some("PRO".to_string()),
+            remaining_quota: Some(100),
+            priority: 0,
+            protected_models: HashSet::new(),
+            health_score: 1.0,
+            reset_time: None,
+            validation_blocked: false,
+            validation_blocked_until: 0,
+            validation_url: None,
+            model_quotas: quotas1,
+            model_limits: limits1,
+        };
+
+        // 账号 2: PRO 订阅，经定时刷新成功上报 Claude 5.5 模型配额
+        let mut quotas2 = HashMap::new();
+        quotas2.insert("claude".to_string(), 80);
+        let mut limits2 = HashMap::new();
+        limits2.insert("claude-sonnet-5-5-high".to_string(), 128000);
+        let token2 = ProxyToken {
+            account_id: "acc_pro_has_55".to_string(),
+            access_token: "token2".to_string(),
+            refresh_token: "refresh2".to_string(),
+            expires_in: 3600,
+            timestamp: chrono::Utc::now().timestamp() + 3600,
+            email: "pro_has_55@example.com".to_string(),
+            account_path: temp_dir.path().join("acc2.json"),
+            project_id: None,
+            subscription_tier: Some("PRO".to_string()),
+            remaining_quota: Some(80),
+            priority: 0,
+            protected_models: HashSet::new(),
+            health_score: 1.0,
+            reset_time: None,
+            validation_blocked: false,
+            validation_blocked_until: 0,
+            validation_url: None,
+            model_quotas: quotas2,
+            model_limits: limits2,
+        };
+
+        // 验证辅助函数检测
+        assert!(!TokenManager::token_supports_advanced_model(
+            &token1,
+            "claude-sonnet-5-5-high"
+        ));
+        assert!(TokenManager::token_supports_advanced_model(
+            &token2,
+            "claude-sonnet-5-5-high"
+        ));
+        // 对裸模型或带后缀模型具有模糊识别
+        assert!(TokenManager::token_supports_advanced_model(
+            &token2,
+            "claude-sonnet-5-5"
+        ));
+
+        // 写入虚拟的 account json 文件以防磁盘检查失败
+        std::fs::write(
+            &token1.account_path,
+            serde_json::json!({"disabled": false}).to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            &token2.account_path,
+            serde_json::json!({"disabled": false}).to_string(),
+        )
+        .unwrap();
+
+        let account_id_2 = token2.account_id.clone();
+
+        // 插入账号池
+        manager.tokens.insert(token1.account_id.clone(), token1);
+        manager.tokens.insert(token2.account_id.clone(), token2);
+
+        // 发起 Claude 5.5 请求：应收敛并优先调度具备实际能力的账号 2 (即使账号 1 剩余 quota 100% 更高)
+        let (chosen_token, _, _, _, _) = manager
+            .get_token("claude", false, None, "claude-sonnet-5-5-high")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            chosen_token, "token2",
+            "账号 2 具备 Claude 5.5 真实能力，应当突破普通配额排序被优先调度"
+        );
+
+        // [NEW 测试] 模拟账号 2 遭遇 404/403 并被标记单模型临时熔断
+        manager.mark_model_unsupported(&account_id_2, "claude-sonnet-5-5-high", Some(900));
+        assert!(manager.is_model_unsupported(&account_id_2, "claude-sonnet-5-5-high"));
+        // 关键断言：该账号调用其他正常模型（如 claude-sonnet-4-6）绝对不受熔断影响！
+        assert!(!manager.is_model_unsupported(&account_id_2, "claude-sonnet-4-6"));
+
+        // 关键调度断言：账号 2 被临时熔断后，再次请求 5.5 必须精准避开账号 2 并回退至账号 1
+        let (fallback_token, _, _, _, _) = manager
+            .get_token("claude", false, None, "claude-sonnet-5-5-high")
+            .await
+            .unwrap();
+        assert_eq!(
+            fallback_token, "token1",
+            "账号 2 发生单模型临时熔断后，调度器必须自动避开账号 2"
+        );
     }
 }

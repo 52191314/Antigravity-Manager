@@ -1880,8 +1880,13 @@ fn build_generation_config(
     }
 
     if let Some(val) = final_max_tokens {
-        // [FIX] Cap maxOutputTokens to safe upper limit (65535 for Pro, 65536 for Flash) to avoid INVALID_ARGUMENT (Cherry Studio sends 128000)
-        let safe_limit = if mapped_model.to_lowercase().contains("pro") {
+        // [FIX] Cap maxOutputTokens to safe upper limit (128000 for Claude 5.5, 65535 for Pro, 65536 for Flash, 64000 for Claude 4.6)
+        let mapped_lower = mapped_model.to_lowercase();
+        let safe_limit = if mapped_lower.contains("5-5") || mapped_lower.contains("5.5") {
+            128000
+        } else if mapped_lower.contains("claude") {
+            64000
+        } else if mapped_lower.contains("pro") {
             65535
         } else {
             65536

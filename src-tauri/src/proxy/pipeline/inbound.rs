@@ -1216,15 +1216,22 @@ impl InboundThinkingPipeline {
 
         generation_config["thinkingConfig"] = tc;
 
-        // 终审上限保护
-        let target_lower = target_model.to_lowercase();
-        let safe_limit = if target_lower.contains("claude") {
-            64000
-        } else if target_lower.contains("pro") {
-            65535
-        } else {
-            65536
-        };
+        // 终审上限保护：优先遵循官方模型目录结构体权威设定
+        let safe_limit = official_info
+            .as_ref()
+            .and_then(|info| info.max_output_tokens)
+            .unwrap_or_else(|| {
+                let target_lower = target_model.to_lowercase();
+                if target_lower.contains("5-5") || target_lower.contains("5.5") {
+                    128000
+                } else if target_lower.contains("claude") {
+                    64000
+                } else if target_lower.contains("pro") {
+                    65535
+                } else {
+                    65536
+                }
+            });
         if let Some(val) = generation_config["maxOutputTokens"].as_i64() {
             if val > safe_limit {
                 generation_config["maxOutputTokens"] = json!(safe_limit);

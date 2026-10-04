@@ -288,6 +288,61 @@ pub fn resolve_with_tier(
         });
     }
 
+    // 4. Claude >= 5.0 / Claude Tiered 通用动态解析 (治本):
+    // 针对任何 Claude 具备档位后缀（-high, -medium, -low）或 >= 5.0 的模型（如 claude-sonnet-5-5-high, claude-opus-5-5），
+    // 动态生成 RealModelSpec，彻底告别静态常量维护：
+    // - max_output_tokens: 优先从 OfficialModelCatalog 取，若无则 Claude >= 5.0 默认为 128_000
+    // - thinking_budget: 优先从 OfficialModelCatalog 取，缺省 1024
+    // - preserve_client_budget: true（尊重客户端自定义思考预算）
+    let is_claude_family = lower.contains("claude")
+        && (name_tier.is_some()
+            || explicit_tier.is_some()
+            || crate::proxy::model_specs::is_bare_claude_tiered_model(canonical));
+    if is_claude_family {
+        let dynamic_tier = if let Some(nt) = name_tier {
+            nt
+        } else if let Some(et) = explicit_tier {
+            et
+        } else {
+            VariantTier::Medium // Claude 默认 Medium 档位
+        };
+
+        // 如果是裸模型，动态解析出带档位后缀的真实 ID
+        let resolved_id = if crate::proxy::model_specs::is_bare_claude_tiered_model(canonical) {
+            let eff_str = match dynamic_tier {
+                VariantTier::High => Some("high"),
+                VariantTier::Low => Some("low"),
+                VariantTier::Medium => Some("medium"),
+            };
+            crate::proxy::model_specs::resolve_bare_tiered_model_route(canonical, eff_str)
+                .unwrap_or_else(|| canonical.to_string())
+        } else {
+            crate::proxy::common::model_mapping::canonicalize_claude_client_model_id(canonical)
+        };
+
+        let official_info = crate::models::OfficialModelCatalog::get(&resolved_id)
+            .or_else(|| crate::models::OfficialModelCatalog::get(canonical));
+        let max_output_tokens = official_info
+            .as_ref()
+            .and_then(|info| info.max_output_tokens)
+            .map(|v| v as u32)
+            .unwrap_or(128_000);
+        let thinking_budget = official_info
+            .as_ref()
+            .and_then(|info| info.thinking_budget)
+            .map(|v| v as u32)
+            .unwrap_or(1024);
+
+        let id: &'static str = Box::leak(resolved_id.into_boxed_str());
+        return Some(RealModelSpec {
+            id,
+            thinking_budget,
+            max_output_tokens,
+            include_thoughts: true,
+            preserve_client_budget: true,
+        });
+    }
+
     None
 }
 
@@ -300,6 +355,9 @@ pub fn resolve(canonical: &str, budget_tokens: Option<u32>) -> Option<RealModelS
 /// 请求路由不能再把它映回客户端公开名，否则上游会收到无法生成的别名。
 pub fn is_physical_upstream_id(model: &str) -> bool {
     let key = model.trim();
+    if key.ends_with("-high") || key.ends_with("-medium") || key.ends_with("-low") {
+        return true;
+    }
     GEMINI_FAMILIES.iter().any(|family| {
         family
             .tiers
@@ -704,6 +762,34 @@ mod tests {
         assert_eq!(s.id, "claude-sonnet-4-6");
         assert_eq!(s.thinking_budget, 1024);
         assert_eq!(s.max_output_tokens, 64000);
+
+        // Claude >= 5.0 动态变体解析（通用动态生成，无静态常量硬编码）
+        let s = resolve("claude-sonnet-5-5-low", None).unwrap();
+        assert_eq!(s.id, "claude-sonnet-5-5-low");
+        assert_eq!(s.max_output_tokens, 128000);
+        assert!(s.preserve_client_budget);
+
+        let s = resolve("claude-sonnet-5-5-medium", None).unwrap();
+        assert_eq!(s.id, "claude-sonnet-5-5-medium");
+        assert_eq!(s.max_output_tokens, 128000);
+
+        let s = resolve("claude-sonnet-5-5-high", None).unwrap();
+        assert_eq!(s.id, "claude-sonnet-5-5-high");
+        assert_eq!(s.max_output_tokens, 128000);
+
+        let s = resolve("claude-opus-5-5-high", None).unwrap();
+        assert_eq!(s.id, "claude-opus-5-5-high");
+        assert_eq!(s.max_output_tokens, 128000);
+
+        // 裸模型解析（默认 Medium 档位）
+        let s = resolve("claude-sonnet-5-5", None).unwrap();
+        assert_eq!(s.id, "claude-sonnet-5-5-medium");
+        assert_eq!(s.max_output_tokens, 128000);
+
+        // 裸模型带显式档位解析
+        let s = resolve_with_tier("claude-sonnet-5-5", Some(VariantTier::High), None).unwrap();
+        assert_eq!(s.id, "claude-sonnet-5-5-high");
+        assert_eq!(s.max_output_tokens, 128000);
     }
 
     #[test]

@@ -377,50 +377,148 @@ pub fn is_bare_gemini_v36_or_above_flash(model: &str) -> bool {
     is_bare_gemini_v3_flash(model)
 }
 
-/// 将 3.x Flash 裸模型（如 gemini-3.8-flash, gemini-3.7-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-3-flash 等）
-/// 依据客户端思考档位解析为具名模型：
-/// - high 或未指定档位（默认）：路由到 {base}-high（如 gemini-3.8-flash-high）
-/// - low：路由到 {base}-low（如 gemini-3.8-flash-low）
-/// - medium：路由到 {base}-medium（如 gemini-3.8-flash-medium）
-pub fn resolve_bare_flash_route(model: &str, client_effort: Option<&str>) -> Option<String> {
-    if !is_bare_gemini_v3_flash(model) {
-        return None;
+/// 检查是否为 Claude >= 5.0 版本模型（含裸模型与档位变体）
+pub fn is_claude_v5_or_above(model: &str) -> bool {
+    let lower = model.to_lowercase();
+    if !lower.contains("claude") {
+        return false;
+    }
+    if let Some(pos) = lower.find("claude") {
+        let rest = &lower[pos..];
+        let tokens: Vec<&str> = rest
+            .split(|c: char| c == '-' || c == '_' || c == '.')
+            .collect();
+        for window in tokens.windows(2) {
+            if let (Ok(major), Ok(minor)) = (window[0].parse::<u32>(), window[1].parse::<u32>()) {
+                if major < 1000 && minor < 1000 {
+                    return (major, minor) >= (5, 0);
+                }
+            }
+        }
+        if let Some(ver) = crate::proxy::common::model_mapping::parse_version_tuple(rest) {
+            return ver >= (5, 0);
+        }
+    }
+    false
+}
+
+/// 检查是否为 Claude >= 5.0 的裸模型（无 -low, -medium, -high 等档位或特性后缀）
+pub fn is_bare_claude_tiered_model(model: &str) -> bool {
+    let lower = model.to_lowercase();
+    if !is_claude_v5_or_above(model) {
+        return false;
+    }
+    !(lower.ends_with("-high")
+        || lower.ends_with("-medium")
+        || lower.ends_with("-low")
+        || lower.ends_with("-extra-low")
+        || lower.ends_with("-thinking")
+        || lower.ends_with("-tiered")
+        || lower.contains("-high-")
+        || lower.contains("-medium-")
+        || lower.contains("-low-"))
+}
+
+/// 通用裸模型档位路由器 (Unified Bare Model Tier Router)
+/// 统一处理 Gemini 3.x Flash 与 Claude >= 5.0（以及上游官方目录具备 -high/-medium/-low 的任意模型家族）
+/// 依据客户端思考档位解析为具名档位模型：
+/// - client_effort 为 LOW -> {base}-low
+/// - client_effort 为 HIGH -> {base}-high
+/// - client_effort 为 MEDIUM 或未指定：
+///   - Claude 系列：默认 medium ({base}-medium)
+///   - Gemini 系列：默认 high ({base}-high)，3.5 Flash 默认标准名
+pub fn resolve_bare_tiered_model_route(model: &str, client_effort: Option<&str>) -> Option<String> {
+    let eff = client_effort.and_then(normalize_client_thinking_level);
+
+    // 1. 处理 Gemini 3.x Flash 家族
+    if is_bare_gemini_v3_flash(model) {
+        let lower = model.to_lowercase();
+        let base_model = if lower == "gemini-3-flash" {
+            "gemini-3.8-flash"
+        } else {
+            lower.as_str()
+        };
+
+        let routed = match eff {
+            Some("LOW") => {
+                if base_model.contains("3.5") {
+                    "gemini-3.5-flash-low".to_string()
+                } else {
+                    format!("{}-low", base_model)
+                }
+            }
+            Some("MEDIUM") => {
+                if base_model.contains("3.5") {
+                    "gemini-3.5-flash".to_string()
+                } else {
+                    format!("{}-medium", base_model)
+                }
+            }
+            _ => {
+                // HIGH 或未指定档位（默认 high）
+                if base_model.contains("3.5") {
+                    "gemini-3.5-flash".to_string()
+                } else {
+                    format!("{}-high", base_model)
+                }
+            }
+        };
+        return Some(routed);
     }
 
-    let lower = model.to_lowercase();
-    let base_model = if lower == "gemini-3-flash" {
-        "gemini-3.8-flash"
-    } else {
-        lower.as_str()
-    };
+    // 2. 处理 Claude >= 5.0 家族
+    if is_bare_claude_tiered_model(model) {
+        let canonical =
+            crate::proxy::common::model_mapping::canonicalize_claude_client_model_id(model);
+        let tier = match eff {
+            Some("LOW") => "low",
+            Some("HIGH") => "high",
+            _ => "medium", // Claude 官方默认 Medium
+        };
+        return Some(format!("{}-{}", canonical, tier));
+    }
 
-    let eff = client_effort.and_then(normalize_client_thinking_level);
-    let routed = match eff {
-        Some("LOW") => {
-            if base_model.contains("3.5") {
-                "gemini-3.5-flash-low".to_string()
-            } else {
-                format!("{}-low", base_model)
-            }
+    // 3. 通用动态回退：若上游目录中存在以该模型为前缀的 -high / -medium / -low 变体
+    let clean = model.trim().to_lowercase();
+    if !clean.ends_with("-high") && !clean.ends_with("-medium") && !clean.ends_with("-low") {
+        let has_high =
+            crate::models::OfficialModelCatalog::get(&format!("{}-high", clean)).is_some();
+        let has_med =
+            crate::models::OfficialModelCatalog::get(&format!("{}-medium", clean)).is_some();
+        let has_low = crate::models::OfficialModelCatalog::get(&format!("{}-low", clean)).is_some();
+        if has_high || has_med || has_low {
+            let tier = match eff {
+                Some("LOW") if has_low => "low",
+                Some("HIGH") if has_high => "high",
+                Some("MEDIUM") if has_med => "medium",
+                _ => {
+                    if clean.contains("claude") {
+                        if has_med {
+                            "medium"
+                        } else if has_high {
+                            "high"
+                        } else {
+                            "low"
+                        }
+                    } else if has_high {
+                        "high"
+                    } else if has_med {
+                        "medium"
+                    } else {
+                        "low"
+                    }
+                }
+            };
+            return Some(format!("{}-{}", clean, tier));
         }
-        Some("MEDIUM") => {
-            if base_model.contains("3.5") {
-                "gemini-3.5-flash".to_string()
-            } else {
-                format!("{}-medium", base_model)
-            }
-        }
-        _ => {
-            // HIGH 或未指定档位（默认 high）
-            if base_model.contains("3.5") {
-                "gemini-3.5-flash".to_string()
-            } else {
-                format!("{}-high", base_model)
-            }
-        }
-    };
+    }
 
-    Some(routed)
+    None
+}
+
+/// 将 3.x Flash 裸模型（如 gemini-3.8-flash, gemini-3.7-flash 等）依据客户端思考档位解析为具名模型（兼容封装）
+pub fn resolve_bare_flash_route(model: &str, client_effort: Option<&str>) -> Option<String> {
+    resolve_bare_tiered_model_route(model, client_effort)
 }
 
 /// 检查模型是否匹配 `gemini-3.x-flash` 通配符且 x > 8（例如 gemini-3.9-flash, gemini-3.10-flash 等）。
@@ -564,8 +662,10 @@ pub fn resolve_custom_budget(
             }
         }
     } else if is_pro {
-        // 3.2 Gemini Pro 系列（Google 官方体系仅提供 Low 与 High 两个档位）
-        if tb_config.pro_mode == ThinkingBudgetMode::Default {
+        // 3.2 Gemini Pro 系列（与 Gemini 系列统一配置，继承 Low 与 High 档位）
+        if tb_config.pro_mode == ThinkingBudgetMode::Default
+            || tb_config.flash_mode == ThinkingBudgetMode::Default
+        {
             return None;
         }
         let eff = client_effort.map(|s| s.trim().to_lowercase());
@@ -576,6 +676,8 @@ pub fn resolve_custom_budget(
         if is_low {
             if tb_config.pro_low > 0 {
                 Some(tb_config.pro_low as i64)
+            } else if tb_config.flash_low > 0 {
+                Some(tb_config.flash_low as i64)
             } else {
                 None
             }
@@ -583,6 +685,8 @@ pub fn resolve_custom_budget(
             // High 档位（包含未指定 effort、medium 等，均由 High 档位接管保证 Pro 深度推理）
             if tb_config.pro_high > 0 {
                 Some(tb_config.pro_high as i64)
+            } else if tb_config.flash_high > 0 {
+                Some(tb_config.flash_high as i64)
             } else {
                 None
             }

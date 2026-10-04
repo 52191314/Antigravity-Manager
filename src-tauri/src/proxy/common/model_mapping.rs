@@ -96,7 +96,7 @@ static CLAUDE_TO_GEMINI: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
 /// 旧客户端仍在请求带点号的 Claude 版本（`claude-opus-4.6`、`claude-sonnet-4.5`、
 /// `claude-open-4.x`）。服务端目录只认连字符形态（`claude-opus-4-6` 等）。
 /// 这里只改写 Claude ID：去掉供应商标前缀，把短版本号里的点换成连字符。
-fn canonicalize_claude_client_model_id(input: &str) -> String {
+pub fn canonicalize_claude_client_model_id(input: &str) -> String {
     let mut id = input.trim().to_lowercase();
     for prefix in ["anthropic/", "models/"] {
         if let Some(rest) = id.strip_prefix(prefix) {
@@ -463,6 +463,9 @@ pub fn get_supported_models() -> Vec<String> {
         "claude-sonnet-4-6-thinking",
         "claude-opus-4-6",
         "claude-opus-4-6-thinking",
+        // Claude 5.5 系列 (裸模型)
+        "claude-sonnet-5-5",
+        "claude-opus-5-5",
         // OpenAI 系列 (以官方为准)
         "gpt-oss-120b-medium",
     ]
@@ -486,6 +489,25 @@ pub async fn get_all_dynamic_models(
         for dynamic_model in tm.get_all_collected_models() {
             model_ids.insert(dynamic_model);
         }
+    }
+
+    // 1.5 动态档位后缀剥离与裸模型派生：
+    // 若上游模型包含 -high / -medium / -low / -extra-low（如 claude-sonnet-5-5-high、gemini-3.8-flash-high 等），
+    // 自动剥离后缀并衍生对应的裸模型名（如 claude-sonnet-5-5），确保下游无感知按裸模型调用时能被正确发现与路由。
+    let mut derived_bare_models = HashSet::new();
+    for id in &model_ids {
+        for suffix in &["-high", "-medium", "-low", "-extra-low"] {
+            if let Some(base) = id.strip_suffix(suffix) {
+                if !base.is_empty()
+                    && (base.contains("claude") || base.contains("flash") || base.contains("pro"))
+                {
+                    derived_bare_models.insert(base.to_string());
+                }
+            }
+        }
+    }
+    for bare in derived_bare_models {
+        model_ids.insert(bare);
     }
 
     // 如果未开启 only_raw_quota_models，则追加 custom_mapping 与内置标准公开模型
@@ -685,16 +707,15 @@ pub fn resolve_model_route_with_effort(
         return original_model.to_string();
     }
 
-    // [NEW] 3.x Flash 裸模型依据客户端思考档位路由：
-    // - high（或未传档位）：默认路由至对应的 3.x-flash-high（例如 gemini-3.8-flash-high）
-    // - low：直接路由至对应的 3.x-flash-low（例如 gemini-3.8-flash-low）
-    // - medium：直接路由至对应的 3.x-flash-medium（例如 gemini-3.8-flash-medium）
-    // 而显式指定的 *-tiered 模型由后续逻辑原样保留，不动模型名！
+    // [NEW] 裸模型依据客户端思考档位通用路由（覆盖 3.x Flash 与 Claude >= 5.0）：
+    // - 对于 Flash：默认 high，支持 low / medium
+    // - 对于 Claude：默认 medium，支持 low / high
+    // 而显式指定了档位后缀的模型已被前置规则/CLAUDE_TO_GEMINI 原样保留
     if let Some(routed) =
-        crate::proxy::model_specs::resolve_bare_flash_route(original_model, client_effort)
+        crate::proxy::model_specs::resolve_bare_tiered_model_route(original_model, client_effort)
     {
         crate::modules::logger::log_info(&format!(
-            "[Router] 3.x Flash 裸模型依据思考档位路由: {} (effort={:?}) -> {}",
+            "[Router] 裸模型依据思考档位通用路由: {} (effort={:?}) -> {}",
             original_model, client_effort, routed
         ));
         return routed;
@@ -1223,5 +1244,80 @@ mod tests {
         assert!(!is_model_compliant_with_baseline("chat_23310"));
         assert!(!is_model_compliant_with_baseline("gemini-pro-agent"));
         assert!(!is_model_compliant_with_baseline("gemini-3-flash-agent"));
+
+        // Claude >= 5.0 (含裸模型与档位变体)
+        assert!(is_model_compliant_with_baseline("claude-sonnet-5-5"));
+        assert!(is_model_compliant_with_baseline("claude-sonnet-5-5-low"));
+        assert!(is_model_compliant_with_baseline("claude-sonnet-5-5-medium"));
+        assert!(is_model_compliant_with_baseline("claude-sonnet-5-5-high"));
+        assert!(is_model_compliant_with_baseline("claude-opus-5-5"));
+        assert!(is_model_compliant_with_baseline("claude-opus-5-5-low"));
+        assert!(is_model_compliant_with_baseline("claude-opus-5-5-medium"));
+        assert!(is_model_compliant_with_baseline("claude-opus-5-5-high"));
+    }
+
+    #[test]
+    fn test_claude_tiered_bare_routing() {
+        let empty = HashMap::new();
+
+        // 1. 裸模型显式传递 effort
+        assert_eq!(
+            resolve_model_route_with_effort("claude-sonnet-5-5", &empty, Some("low")),
+            "claude-sonnet-5-5-low"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("claude-sonnet-5-5", &empty, Some("high")),
+            "claude-sonnet-5-5-high"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("claude-opus-5-5", &empty, Some("low")),
+            "claude-opus-5-5-low"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("claude-opus-5-5", &empty, Some("high")),
+            "claude-opus-5-5-high"
+        );
+
+        // 2. 裸模型点号命名兼容与 Effort 映射
+        assert_eq!(
+            resolve_model_route_with_effort("claude-sonnet-5.5", &empty, Some("high")),
+            "claude-sonnet-5-5-high"
+        );
+
+        // 3. 裸模型缺省 effort 默认走 medium
+        assert_eq!(
+            resolve_model_route_with_effort("claude-sonnet-5-5", &empty, None),
+            "claude-sonnet-5-5-medium"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("claude-opus-5-5", &empty, None),
+            "claude-opus-5-5-medium"
+        );
+
+        // 4. 显式档位变体原样透传
+        assert_eq!(
+            resolve_model_route_with_effort("claude-sonnet-5-5-low", &empty, None),
+            "claude-sonnet-5-5-low"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("claude-sonnet-5-5-medium", &empty, None),
+            "claude-sonnet-5-5-medium"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("claude-sonnet-5-5-high", &empty, None),
+            "claude-sonnet-5-5-high"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("claude-opus-5-5-low", &empty, None),
+            "claude-opus-5-5-low"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("claude-opus-5-5-medium", &empty, None),
+            "claude-opus-5-5-medium"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort("claude-opus-5-5-high", &empty, None),
+            "claude-opus-5-5-high"
+        );
     }
 }

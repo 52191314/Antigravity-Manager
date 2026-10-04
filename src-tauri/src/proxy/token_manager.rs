@@ -1939,6 +1939,33 @@ impl TokenManager {
 
         // [NEW] 1. 动态能力过滤 (Capability Filter)
 
+        // 针对 Claude >= 5.0 系列高级模型（Google 官方仅向 PRO / ULTRA 订阅开放，Free 账号无权限）：
+        let is_advanced_claude = crate::proxy::model_specs::is_claude_v5_or_above(target_model);
+        if is_advanced_claude {
+            let before_tier = tokens_snapshot.len();
+            tokens_snapshot.retain(|t| {
+                matches!(
+                    t.subscription_tier
+                        .as_deref()
+                        .map(str::to_uppercase)
+                        .as_deref(),
+                    Some("PRO") | Some("ULTRA")
+                )
+            });
+            if tokens_snapshot.is_empty() {
+                if before_tier > 0 {
+                    tracing::warn!(
+                        "Claude >= 5.0 requires PRO or ULTRA subscription, but no PRO/ULTRA accounts available in pool"
+                    );
+                    return Err(
+                        "Claude >= 5.0 requires PRO or ULTRA subscription, but no PRO/ULTRA accounts are available"
+                            .to_string(),
+                    );
+                }
+                return Err("Token pool is empty".to_string());
+            }
+        }
+
         // 归一化目标模型名为标准 ID
         let normalized_target =
             crate::proxy::common::model_mapping::normalize_to_standard_id(target_model)
@@ -1987,6 +2014,15 @@ impl TokenManager {
                 tier_priority(&a.subscription_tier).cmp(&tier_priority(&b.subscription_tier));
             if tier_cmp != std::cmp::Ordering::Equal {
                 return tier_cmp;
+            }
+
+            // 对于 Claude >= 5.0，如果账号实际在配额中包含该模型（如刚从上游刷新过目录），具有更高优先级
+            if is_advanced_claude {
+                let has_model_a = a.model_limits.contains_key(target_model);
+                let has_model_b = b.model_limits.contains_key(target_model);
+                if has_model_a != has_model_b {
+                    return has_model_b.cmp(&has_model_a);
+                }
             }
 
             // Priority 1: 目标模型的 quota (higher is better) -> 保护低配额账号

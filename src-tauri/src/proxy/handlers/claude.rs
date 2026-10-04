@@ -640,6 +640,33 @@ fn apply_variant(
     Some(spec)
 }
 
+/// [FIX #3593] 检查 Claude 流数据块是否包含错误事件
+/// 在 Peek 预读阶段识别流错误（如上游断连、错误帧），触发账号轮换重试，避免将错误误判为合法首包导致 500
+fn claude_stream_chunk_has_error_event(bytes: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(bytes);
+    let mut saw_error_event = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed == "event: error" {
+            saw_error_event = true;
+        } else if let Some(data) = trimmed.strip_prefix("data:") {
+            if saw_error_event {
+                return true;
+            }
+            if let Ok(payload) = serde_json::from_str::<Value>(data.trim()) {
+                if payload.get("type").and_then(Value::as_str) == Some("error")
+                    || payload.get("error").is_some_and(|e| !e.is_null())
+                {
+                    return true;
+                }
+            }
+        } else if trimmed.is_empty() {
+            saw_error_event = false;
+        }
+    }
+    false
+}
+
 /// 处理 Claude messages 请求
 ///
 /// 处理 Chat 消息请求流程
@@ -1814,6 +1841,18 @@ pub async fn handle_messages(
                             if text.trim().starts_with(":") {
                                 debug!("[{}] Skipping peek heartbeat: {}", trace_id, text.trim());
                                 continue;
+                            }
+
+                            // [FIX #3593] 识别 Peek 阶段的错误事件，触发账号轮换重试而非误判为首包
+                            if claude_stream_chunk_has_error_event(&bytes) {
+                                tracing::warn!(
+                                    "[{}] Error event detected during peek: {}, retrying...",
+                                    trace_id,
+                                    text.trim()
+                                );
+                                last_error = format!("Error event during peek: {}", text.trim());
+                                retry_this_account = true;
+                                break;
                             }
 
                             // We found real data!
@@ -3510,5 +3549,28 @@ mod warmup_tests {
             !COMPACTION_IMMUNITY_LEASES.contains_key(&session_key),
             "Expired lease must be removed"
         );
+    }
+
+    #[test]
+    fn test_claude_stream_chunk_has_error_event() {
+        // Normal text chunk
+        let normal = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\n";
+        assert!(!claude_stream_chunk_has_error_event(normal));
+
+        // Normal text delta containing word 'error' in user text
+        let delta = b"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"there is an error in code\"}}\n\n";
+        assert!(!claude_stream_chunk_has_error_event(delta));
+
+        // Error event from create_claude_sse_stream
+        let error_chunk = b"event: error\ndata: {\"error\":{\"call_site\":\"src/proxy/mappers/claude/mod.rs:98\",\"function\":\"create_claude_sse_stream\",\"message\":\"Stream interrupted\",\"params\":\"trace=xxx\",\"type\":\"stream_error\"},\"type\":\"error\"}\n\n";
+        assert!(claude_stream_chunk_has_error_event(error_chunk));
+
+        // Bare error event
+        let bare_error = b"data: {\"type\":\"error\",\"error\":{\"message\":\"fail\"}}\n\n";
+        assert!(claude_stream_chunk_has_error_event(bare_error));
+
+        // Heartbeat ping
+        let heartbeat = b": ping\n\n";
+        assert!(!claude_stream_chunk_has_error_event(heartbeat));
     }
 }

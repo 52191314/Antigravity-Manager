@@ -178,10 +178,13 @@ impl UpstreamClient {
             .pool_max_idle_per_host(20) // 每主机最多 20 个空闲连接 (对齐官方指纹)
             .pool_idle_timeout(Duration::from_secs(90)) // 空闲连接保持 90 秒
             .tcp_keepalive(Duration::from_secs(3)) // TCP 保活探测 (3秒)
-            // 穿透配置 HTTP/2 PING：部分代理环境在长思考静默期（>10s）会触发 L7 空闲截断，造成流式腰斩和 Token 浪费
+            // [FIX #3593] 穿透配置 HTTP/2 PING 保活：
+            // 1. 保活探测间隔为 5s，在模型深度思考/长生成静默期持续重置中间代理 L7 空闲读计时器（防 10~15s 切断）；
+            // 2. 超时容忍时间放宽至 90s（对齐 pool_idle_timeout），杜绝因上游思考静默或偶发网络抖动导致客户端在 10s 主动掐断连接；
+            // 3. 空闲期保持 PING，保障连接池复用与长流稳定性。
             .http2(|mut h2| {
-                h2.keep_alive_interval(Duration::from_secs(3))
-                    .keep_alive_timeout(Duration::from_secs(10))
+                h2.keep_alive_interval(Duration::from_secs(5))
+                    .keep_alive_timeout(Duration::from_secs(90))
                     .keep_alive_while_idle(true);
             })
             // 强制开启 HTTP/2 协议，并支持在 SOCKS/HTTPS 代理下通过 ALPN 强制降级/协商

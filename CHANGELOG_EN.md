@@ -3,6 +3,15 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.2-beta.8 (2026-10-04)**:
+        -   **[Cross-Protocol SSE Byte-Level Line Buffering & Multibyte Splitting Defense] Eliminate Deserialization Failures & Stream Interruptions on CJK/Cyrillic/Emoji/Non-ASCII TCP Chunk Fragmentation (Fixes #3593)**:
+            -   **SSE Collectors Upgraded with `BytesMut` Line Buffering**: Refactored `claude/collector.rs`, `openai/collector.rs`, and `gemini/collector.rs`. Completely eliminated naive `String::from_utf8_lossy(&chunk).lines()` chunk-by-chunk splitting in favor of `BytesMut` accumulating byte streams with strict newline (`\n`) slicing.
+            -   **Multilingual UTF-8 Boundary Splitting Protected**: When CJK (3-byte), Cyrillic/Arabic (2-byte), Emoji/special symbols (4-byte), or oversized tool outputs are fragmented across TCP MTU boundaries, legacy chunk slicing produced corrupt `\u{FFFD}` replacement bytes that broke JSON parsing; the new architecture guarantees UTF-8 parsing only takes place on fully assembled lines.
+            -   **Streaming Protocol Transcoder Hardening & Residual Flushing**: Hardened SSE line processing in `gemini.rs`, `claude/mod.rs`, and `openai/streaming.rs` with `String::from_utf8_lossy` against upstream malformed bytes, and reliably flush unconsumed buffer tails on stream termination.
+            -   **Cross-Chunk Cyrillic Splitting Regression Test**: Introduced a unit test in `claude/collector.rs` (`test_collect_multibyte_chunk_split_with_cyrillic`) explicitly slicing Cyrillic words mid-character across arbitrary chunks, verifying 100% lossless assembly. (Thanks to @Hubitski)
+        -   **[Google AI Pro Family Sharing Entitlement Support] Access Latest Claude Models via Family Sharing**:
+            -   **Family Plan Member Account Recognition**: Verified and supported Google AI Pro quota sharing via Google One Family Sharing. Family member accounts added to the gateway token pool now inherit model capabilities and can seamlessly invoke the latest Claude models.
+
     *   **v4.9.2-beta.7 (2026-10-04)**:
         -   **[Official Claude 5.5 Metadata Injection & 128k Pipeline Ceiling Lift] Inject Full Claude 5.5 Live Traffic Metadata, Dynamic Inbound Pipeline & Cross-Protocol 128k Limit**:
             -   **Authoritative Claude 5.5 Metadata Populated**: Captured live traffic from Antigravity Hub to populate `official_models.json` with all 6 Claude 5.5 models (`claude-sonnet-5-5-low/medium/high`, `claude-opus-5-5-low/medium/high`), including internal IDs (`MODEL_PLACEHOLDER_M400`~`M405`), 1M context, 128k output limit, `thinkingLevel` 1/2/3, and `vertexModelId` — establishing a verified catalog baseline for tier routing.

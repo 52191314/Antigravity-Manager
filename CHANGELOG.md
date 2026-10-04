@@ -3,6 +3,15 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.2-beta.8 (2026-10-04)**:
+        -   **[三大协议 SSE 字节级行缓冲加固与多字节防撕裂] 彻底解决中文/俄语/Emoji 等非 ASCII 多字节字符与长工具输出跨 TCP Chunk 拆包导致反序列化崩溃与断流 (Fixes #3593)**:
+            -   **流收集器全量升级 `BytesMut` 字节级行缓冲区**: 重构 `claude/collector.rs`、`openai/collector.rs` 与 `gemini/collector.rs`。彻底废除旧版直接在单个原始数据块上调用 `String::from_utf8_lossy(&chunk).lines()` 的朴素切片逻辑，全面引入 `BytesMut` 字节流累积与 `\n` 定位切割。
+            -   **杜绝多语言 UTF-8 跨 Chunk 撕裂**: 无论是中日韩（3字节）、俄语/阿拉伯语（2字节）、Emoji/特殊符号（4字节）还是超长工具调用结果，当数据恰好落在 TCP MTU 拆包边界时，旧版切片会在边界产生无效替换符 `\u{FFFD}` 破坏 JSON 语法；新版保证必须在接收到完整换行后才进行 UTF-8 校验与分发。
+            -   **流式转译层严密容错与残余清空**: 加固 `gemini.rs`、`claude/mod.rs` 与 `openai/streaming.rs` 的行解析逻辑，改用 `String::from_utf8_lossy` 防范上游偶发非 UTF-8 字节，并在流正常终止时完整清空末尾缓冲区残余行，杜绝末行丢失。
+            -   **新增跨 Chunk 切割单元测试**: 在 `claude/collector.rs` 增加刻意在多字节字符中间进行切片的严苛单元测试（`test_collect_multibyte_chunk_split_with_cyrillic`），确保任意碎片化 TCP 流均可 100% 无损组装。 (Thanks to @Hubitski)
+        -   **[Google AI Pro 家庭共享权益互通说明与支持] 支持通过家庭组共享获取最新 Claude 模式**:
+            -   **家庭共享账号权限识别**: 确认并支持 Google AI Pro 账号通过 Google One 家庭组（Family Sharing）共享获得高级模型配额，家庭成员账号加入网关号池后亦可顺畅识别并调用最新的 Claude 模型模式。
+
     *   **v4.9.2-beta.7 (2026-10-04)**:
         -   **[官方 Claude 5.5 实机元数据注入与全链路 128k 解禁] 对接官方 Antigravity Hub 最新抓包流量，打通 Inbound 进站终审与各协议层 128k 动态上限**:
             -   **官方 Claude 5.5 真实模型元数据全量入库**: 依据官方实机流量首次为 `official_models.json` 注入全部 6 款 Claude 5.5（`claude-sonnet-5-5-low/medium/high` 与 `claude-opus-5-5-low/medium/high`）权威内部代号（`MODEL_PLACEHOLDER_M400`~`M405`）、1M 上下文上限、128k 输出上限、`thinkingLevel` 1/2/3 档位与 `vertexModelId`，为分档路由器提供真实的官方数据基准。

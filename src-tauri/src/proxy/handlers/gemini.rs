@@ -680,9 +680,9 @@ pub async fn handle_generate(
                         buffer.extend_from_slice(&bytes);
                         while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
                             let line_raw = buffer.split_to(pos + 1);
-                            if let Ok(line_str) = std::str::from_utf8(&line_raw) {
-                                let line = line_str.trim();
-                                if line.is_empty() { continue; }
+                            let line_str = String::from_utf8_lossy(&line_raw);
+                            let line = line_str.trim();
+                            if line.is_empty() { continue; }
 
                                 if line.starts_with("data: ") {
                                     let json_part = line.trim_start_matches("data: ").trim();
@@ -763,11 +763,6 @@ pub async fn handle_generate(
                                     // Non-data lines (comments, etc.)
                                     yield Ok::<Bytes, String>(Bytes::from(format!("{}\n\n", line)));
                                 }
-                            } else {
-                                // Non-UTF8 data? Just pass it through or skip
-                                debug!("[Gemini-SSE] Non-UTF8 line encountered");
-                                yield Ok::<Bytes, String>(line_raw.freeze());
-                            }
                         }
                     }
 

@@ -288,58 +288,93 @@ pub fn resolve_with_tier(
         });
     }
 
-    // 4. Claude >= 5.0 / Claude Tiered 通用动态解析 (治本):
-    // 针对任何 Claude 具备档位后缀（-high, -medium, -low）或 >= 5.0 的模型（如 claude-sonnet-5-5-high, claude-opus-5-5），
-    // 动态生成 RealModelSpec，彻底告别静态常量维护：
-    // - max_output_tokens: 优先从 OfficialModelCatalog 取，若无则 Claude >= 5.0 默认为 128_000
-    // - thinking_budget: 优先从 OfficialModelCatalog 取，缺省 1024
-    // - preserve_client_budget: true（尊重客户端自定义思考预算）
-    let is_claude_family = lower.contains("claude")
-        && (name_tier.is_some()
-            || explicit_tier.is_some()
-            || crate::proxy::model_specs::is_bare_claude_tiered_model(canonical));
-    if is_claude_family {
+    // 4. 纯通用分档模型动态规格解析 (Dynamic RealModelSpec Factory):
+    // 针对任何具备档位后缀（-high, -medium, -low, -tiered）或可从官方目录解析为分档的任意品牌模型，
+    // 动态生成 RealModelSpec，彻底告别静态 SPEC 常量维护：
+    let has_available_tiers = !crate::models::OfficialModelCatalog::collect_tiers_for_base(&lower)
+        .is_empty()
+        || crate::proxy::model_specs::is_claude_v5_or_above(&lower);
+
+    let is_tiered_model = name_tier.is_some() || explicit_tier.is_some() || has_available_tiers;
+    if is_tiered_model {
         let dynamic_tier = if let Some(nt) = name_tier {
             nt
         } else if let Some(et) = explicit_tier {
             et
         } else {
-            VariantTier::Medium // Claude 默认 Medium 档位
+            // Claude 默认 Medium，其余按阶梯默认
+            if lower.contains("claude") {
+                VariantTier::Medium
+            } else {
+                VariantTier::High
+            }
         };
 
         // 如果是裸模型，动态解析出带档位后缀的真实 ID
-        let resolved_id = if crate::proxy::model_specs::is_bare_claude_tiered_model(canonical) {
-            let eff_str = match dynamic_tier {
-                VariantTier::High => Some("high"),
-                VariantTier::Low => Some("low"),
-                VariantTier::Medium => Some("medium"),
-            };
-            crate::proxy::model_specs::resolve_bare_tiered_model_route(canonical, eff_str)
-                .unwrap_or_else(|| canonical.to_string())
-        } else {
-            crate::proxy::common::model_mapping::canonicalize_claude_client_model_id(canonical)
+        let eff_str = match dynamic_tier {
+            VariantTier::High => Some("high"),
+            VariantTier::Low => Some("low"),
+            VariantTier::Medium => Some("medium"),
         };
+
+        let resolved_id =
+            crate::proxy::model_specs::resolve_bare_tiered_model_route(canonical, eff_str)
+                .unwrap_or_else(|| {
+                    if lower.contains("claude") {
+                        crate::proxy::common::model_mapping::canonicalize_claude_client_model_id(
+                            canonical,
+                        )
+                    } else {
+                        canonical.to_string()
+                    }
+                });
 
         let official_info = crate::models::OfficialModelCatalog::get(&resolved_id)
             .or_else(|| crate::models::OfficialModelCatalog::get(canonical));
+
         let max_output_tokens = official_info
             .as_ref()
             .and_then(|info| info.max_output_tokens)
             .map(|v| v as u32)
-            .unwrap_or(128_000);
+            .unwrap_or_else(|| {
+                if lower.contains("claude") {
+                    128_000
+                } else if lower.contains("pro") {
+                    65535
+                } else {
+                    65536
+                }
+            });
+
         let thinking_budget = official_info
             .as_ref()
             .and_then(|info| info.thinking_budget)
             .map(|v| v as u32)
-            .unwrap_or(1024);
+            .unwrap_or_else(|| {
+                if lower.contains("claude") {
+                    1024
+                } else {
+                    match dynamic_tier {
+                        VariantTier::High => 10000,
+                        VariantTier::Medium => 4000,
+                        VariantTier::Low => 1000,
+                    }
+                }
+            });
 
+        let supports_thinking = official_info
+            .as_ref()
+            .and_then(|info| info.supports_thinking)
+            .unwrap_or(true);
+
+        let is_claude = lower.contains("claude");
         let id: &'static str = Box::leak(resolved_id.into_boxed_str());
         return Some(RealModelSpec {
             id,
             thinking_budget,
             max_output_tokens,
-            include_thoughts: true,
-            preserve_client_budget: true,
+            include_thoughts: supports_thinking,
+            preserve_client_budget: is_claude,
         });
     }
 

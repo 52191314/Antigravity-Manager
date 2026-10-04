@@ -419,106 +419,174 @@ pub fn is_bare_claude_tiered_model(model: &str) -> bool {
         || lower.contains("-low-"))
 }
 
-/// 通用裸模型档位路由器 (Unified Bare Model Tier Router)
-/// 统一处理 Gemini 3.x Flash 与 Claude >= 5.0（以及上游官方目录具备 -high/-medium/-low 的任意模型家族）
-/// 依据客户端思考档位解析为具名档位模型：
-/// - client_effort 为 LOW -> {base}-low
-/// - client_effort 为 HIGH -> {base}-high
-/// - client_effort 为 MEDIUM 或未指定：
-///   - Claude 系列：默认 medium ({base}-medium)
-///   - Gemini 系列：默认 high ({base}-high)，3.5 Flash 默认标准名
-pub fn resolve_bare_tiered_model_route(model: &str, client_effort: Option<&str>) -> Option<String> {
-    let eff = client_effort.and_then(normalize_client_thinking_level);
+/// 档位权重定义：
+/// lite / extra-low (0) < low (1) < default (2) < medium (3) < high (4) < xhigh (5) < max (6)
+pub fn tier_weight(tier: &str) -> i32 {
+    match tier.trim().to_lowercase().as_str() {
+        "lite" | "flash-lite" | "extra-low" | "minimal" => 0,
+        "low" => 1,
+        "default" => 2,
+        "medium" => 3,
+        "high" => 4,
+        "xhigh" | "extreme" => 5,
+        "max" => 6,
+        _ => 3, // 未知档位默认权重等同 medium
+    }
+}
 
-    // 1. 处理 Gemini 3.x Flash 家族
-    if is_bare_gemini_v3_flash(model) {
-        let lower = model.to_lowercase();
-        let base_model = if lower == "gemini-3-flash" {
-            "gemini-3.8-flash"
-        } else {
-            lower.as_str()
-        };
-
-        let routed = match eff {
-            Some("LOW") => {
-                if base_model.contains("3.5") {
-                    "gemini-3.5-flash-low".to_string()
-                } else {
-                    format!("{}-low", base_model)
-                }
-            }
-            Some("MEDIUM") => {
-                if base_model.contains("3.5") {
-                    "gemini-3.5-flash".to_string()
-                } else {
-                    format!("{}-medium", base_model)
-                }
-            }
-            _ => {
-                // HIGH 或未指定档位（默认 high）
-                if base_model.contains("3.5") {
-                    "gemini-3.5-flash".to_string()
-                } else {
-                    format!("{}-high", base_model)
-                }
-            }
-        };
-        return Some(routed);
+/// 根据默认档位决策原则，从可用档位数组中自适应选取默认档位：
+/// 1. 优先找 tiered 模型（如存在 -tiered，走自适应思考）
+/// 2. 其次找 medium
+/// 3. 再次找大于 low 的最低等级（如在 ["low", "high"] 中命中 high）
+/// 4. 否则若有等于 low 的取 low，再否则取数组中第一个
+pub fn pick_optimal_default_tier(available_tiers: &[String]) -> String {
+    if available_tiers.is_empty() {
+        return "medium".to_string();
     }
 
-    // 2. 处理 Claude >= 5.0 家族
-    if is_bare_claude_tiered_model(model) {
-        let canonical =
-            crate::proxy::common::model_mapping::canonicalize_claude_client_model_id(model);
-        let tier = match eff {
-            Some("LOW") => "low",
-            Some("HIGH") => "high",
-            _ => "medium", // Claude 官方默认 Medium
-        };
-        return Some(format!("{}-{}", canonical, tier));
+    // 1. 优先找 tiered 模型
+    if let Some(t) = available_tiers
+        .iter()
+        .find(|t| t.eq_ignore_ascii_case("tiered"))
+    {
+        return t.clone();
     }
 
-    // 3. 通用动态回退：若上游目录中存在以该模型为前缀的 -high / -medium / -low 变体
-    let clean = model.trim().to_lowercase();
-    if !clean.ends_with("-high") && !clean.ends_with("-medium") && !clean.ends_with("-low") {
-        let has_high =
-            crate::models::OfficialModelCatalog::get(&format!("{}-high", clean)).is_some();
-        let has_med =
-            crate::models::OfficialModelCatalog::get(&format!("{}-medium", clean)).is_some();
-        let has_low = crate::models::OfficialModelCatalog::get(&format!("{}-low", clean)).is_some();
-        if has_high || has_med || has_low {
-            let tier = match eff {
-                Some("LOW") if has_low => "low",
-                Some("HIGH") if has_high => "high",
-                Some("MEDIUM") if has_med => "medium",
-                _ => {
-                    if clean.contains("claude") {
-                        if has_med {
-                            "medium"
-                        } else if has_high {
-                            "high"
-                        } else {
-                            "low"
-                        }
-                    } else if has_high {
-                        "high"
-                    } else if has_med {
-                        "medium"
-                    } else {
-                        "low"
-                    }
-                }
-            };
-            return Some(format!("{}-{}", clean, tier));
+    // 2. 其次找 medium
+    if let Some(t) = available_tiers
+        .iter()
+        .find(|t| t.eq_ignore_ascii_case("medium"))
+    {
+        return t.clone();
+    }
+
+    // 3. 再次找权重严格大于 low (weight > 1) 的最低等级
+    let low_weight = tier_weight("low");
+    let mut candidates_above_low: Vec<(&String, i32)> = available_tiers
+        .iter()
+        .map(|t| (t, tier_weight(t)))
+        .filter(|(_, w)| *w > low_weight)
+        .collect();
+
+    if !candidates_above_low.is_empty() {
+        // 取大于 low 的最低权重项（例如 high 权重为 4）
+        candidates_above_low.sort_by_key(|(_, w)| *w);
+        return candidates_above_low[0].0.clone();
+    }
+
+    // 4. 若无大于 low 的等级，找 low
+    if let Some(t) = available_tiers
+        .iter()
+        .find(|t| t.eq_ignore_ascii_case("low"))
+    {
+        return t.clone();
+    }
+
+    // 5. 极端保底：取数组中第一个
+    available_tiers[0].clone()
+}
+
+/// 纯通用裸模型分档路由器 (Dynamic Tier Router)
+/// 彻底消除品牌特判分支，完全由上游 OfficialModelCatalog 的可用档位数组与权重梯队驱动
+pub struct DynamicTierRouter;
+
+impl DynamicTierRouter {
+    pub fn resolve(model: &str, client_effort: Option<&str>) -> Option<String> {
+        let clean = model.trim().to_lowercase();
+
+        // 1. 若当前模型名本身已经带有档位后缀（如 -high, -low, -tiered 等），说明已经是指向具名变体，不在此解析
+        if clean.ends_with("-high")
+            || clean.ends_with("-medium")
+            || clean.ends_with("-low")
+            || clean.ends_with("-extra-low")
+            || clean.ends_with("-tiered")
+            || clean.ends_with("-lite")
+            || clean.ends_with("-agent")
+        {
+            return None;
         }
-    }
 
-    None
+        // 规范化 base 名称（例如对于 claude-sonnet-5.5 规范化为 claude-sonnet-5-5）
+        let base = if clean.contains("claude") {
+            crate::proxy::common::model_mapping::canonicalize_claude_client_model_id(&clean)
+        } else if clean == "gemini-3-flash" {
+            "gemini-3.8-flash".to_string()
+        } else {
+            clean.clone()
+        };
+
+        // 2. 动态收集属于该 base 模型的所有可用档位后缀
+        let mut available_tiers =
+            crate::models::OfficialModelCatalog::collect_tiers_for_base(&base);
+
+        // 如果目录尚未收录该 base 的具体档位，但属于高版本 Claude，保底补充标准三档
+        if available_tiers.is_empty() && is_claude_v5_or_above(&base) {
+            available_tiers = vec!["low".to_string(), "medium".to_string(), "high".to_string()];
+        }
+
+        if available_tiers.is_empty() {
+            return None;
+        }
+
+        // 3. 客户端显式指定了思考强度：
+        if let Some(eff_str) = client_effort.and_then(normalize_client_thinking_level) {
+            let target_tier = eff_str.to_lowercase();
+            // 若可用档位中精确包含该档位，直接命中
+            if let Some(matched) = available_tiers
+                .iter()
+                .find(|t| t.eq_ignore_ascii_case(&target_tier))
+            {
+                if base.contains("3.5") && matched == "medium" {
+                    return Some("gemini-3.5-flash".to_string());
+                }
+                return Some(format!("{}-{}", base, matched));
+            }
+
+            // 若客户端传了 high 但无 high，或传了 medium 但无 medium：
+            // 按权重就近在 available_tiers 中匹配最接近的档位
+            let target_w = tier_weight(&target_tier);
+            let closest = available_tiers
+                .iter()
+                .min_by_key(|t| (tier_weight(t) - target_w).abs())
+                .unwrap_or(&target_tier);
+
+            if base.contains("3.5") && closest == "medium" {
+                return Some("gemini-3.5-flash".to_string());
+            }
+            return Some(format!("{}-{}", base, closest));
+        }
+
+        // 4. 客户端未指定思考强度：按默认档位决策原则自动选取
+        // 对于 3.x Flash，未指定 effort 时按照既有规则保持 high
+        let default_tier = if is_bare_gemini_v3_flash(&base) {
+            if available_tiers
+                .iter()
+                .any(|t| t.eq_ignore_ascii_case("high"))
+            {
+                "high".to_string()
+            } else {
+                pick_optimal_default_tier(&available_tiers)
+            }
+        } else {
+            pick_optimal_default_tier(&available_tiers)
+        };
+
+        if base.contains("3.5") && (default_tier == "medium" || default_tier == "high") {
+            return Some("gemini-3.5-flash".to_string());
+        }
+
+        Some(format!("{}-{}", base, default_tier))
+    }
+}
+
+/// 通用裸模型档位路由器 (Unified Bare Model Tier Router)
+pub fn resolve_bare_tiered_model_route(model: &str, client_effort: Option<&str>) -> Option<String> {
+    DynamicTierRouter::resolve(model, client_effort)
 }
 
 /// 将 3.x Flash 裸模型（如 gemini-3.8-flash, gemini-3.7-flash 等）依据客户端思考档位解析为具名模型（兼容封装）
 pub fn resolve_bare_flash_route(model: &str, client_effort: Option<&str>) -> Option<String> {
-    resolve_bare_tiered_model_route(model, client_effort)
+    DynamicTierRouter::resolve(model, client_effort)
 }
 
 /// 检查模型是否匹配 `gemini-3.x-flash` 通配符且 x > 8（例如 gemini-3.9-flash, gemini-3.10-flash 等）。

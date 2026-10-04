@@ -491,16 +491,14 @@ pub async fn get_all_dynamic_models(
         }
     }
 
-    // 1.5 动态档位后缀剥离与裸模型派生：
-    // 若上游模型包含 -high / -medium / -low / -extra-low（如 claude-sonnet-5-5-high、gemini-3.8-flash-high 等），
-    // 自动剥离后缀并衍生对应的裸模型名（如 claude-sonnet-5-5），确保下游无感知按裸模型调用时能被正确发现与路由。
+    // 1.5 动态档位后缀剥离与裸模型派生（纯通用数据驱动）：
+    // 若上游模型包含分档后缀（如 -high / -medium / -low / -extra-low 等），
+    // 自动剥离后缀并衍生对应的裸模型名，只要符合官方基准线，任何品牌家族均可自动派生。
     let mut derived_bare_models = HashSet::new();
     for id in &model_ids {
         for suffix in &["-high", "-medium", "-low", "-extra-low"] {
             if let Some(base) = id.strip_suffix(suffix) {
-                if !base.is_empty()
-                    && (base.contains("claude") || base.contains("flash") || base.contains("pro"))
-                {
+                if !base.is_empty() && is_model_compliant_with_baseline(base) {
                     derived_bare_models.insert(base.to_string());
                 }
             }

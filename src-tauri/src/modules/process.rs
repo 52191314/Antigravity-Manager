@@ -1538,7 +1538,7 @@ pub fn get_antigravity_executable_path(target_ide: Option<&str>) -> Option<std::
 /// Check standard installation locations and system PATH
 fn check_standard_locations(target_ide: Option<&str>) -> Option<std::path::PathBuf> {
     let folder_names: &[&str] = if target_ide == Some("ide") {
-        &["Antigravity IDE"]
+        &["Antigravity IDE", "antigravity-ide", "antigravity_ide"]
     } else {
         &["Antigravity"]
     };
@@ -1595,10 +1595,11 @@ fn check_standard_locations(target_ide: Option<&str>) -> Option<std::path::PathB
         let program_w6432 = env::var("ProgramW6432").ok();
 
         for folder_name in folder_names {
-            let exe_names: &[&str] = if *folder_name == "Antigravity IDE" {
+            let exe_names: &[&str] = if is_antigravity_ide_str(folder_name) {
                 &[
                     "Antigravity IDE.exe",
                     "antigravity-ide.exe",
+                    "antigravity_ide.exe",
                     "Antigravity.exe",
                 ]
             } else {
@@ -1683,7 +1684,7 @@ fn check_standard_locations(target_ide: Option<&str>) -> Option<std::path::PathB
     #[cfg(target_os = "linux")]
     {
         for folder_name in folder_names {
-            let exe_names = if *folder_name == "Antigravity IDE" {
+            let exe_names = if is_antigravity_ide_str(folder_name) {
                 vec!["antigravity-ide", "antigravity_ide", "Antigravity IDE"]
             } else {
                 vec!["antigravity", "Antigravity"]

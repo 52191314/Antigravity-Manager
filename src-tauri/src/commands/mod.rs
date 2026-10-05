@@ -720,7 +720,7 @@ pub async fn sync_account_from_db(
     // 4. For the CLI, reconcile only the matching managed account; importing
     // all local sources could select an unrelated IDE account if refresh fails.
     let mut account = if is_agy {
-        find_agy_account(modules::account::list_accounts()?, &db_refresh_token)?
+        modules::account::find_agy_account(modules::account::list_accounts()?, &db_refresh_token)?
     } else {
         modules::migration::import_from_db(current_target).await?
     };
@@ -1537,20 +1537,10 @@ pub async fn query_transit_info(url: String, key: String) -> Result<String, Stri
     }
 }
 
-/// Resolve persisted CLI credentials without changing any client's login state.
-fn find_agy_account(accounts: Vec<Account>, refresh_token: &str) -> Result<Account, String> {
-    accounts
-        .into_iter()
-        .find(|account| !refresh_token.is_empty() && account.token.refresh_token == refresh_token)
-        .ok_or_else(|| {
-            "The agy keyring credentials do not match a managed account; import the current login before syncing.".into()
-        })
-}
-
 #[cfg(test)]
 mod agy_account_sync_tests {
-    use super::find_agy_account;
     use crate::models::{Account, TokenData};
+    use crate::modules::account::find_agy_account;
 
     fn account(id: &str, refresh_token: &str) -> Account {
         Account::new(

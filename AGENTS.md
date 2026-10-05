@@ -49,6 +49,13 @@
   - **Self-Contained & Individually Revertable**: A PR may contain multiple commits, but each commit must represent an independent, self-contained functional unit that is individually revertable, avoiding messy or tangled changesets.
   - **Local Convergence & Final-State Commits**: Commit freely during local debugging on development branches; however, before opening or merging a PR, audit and consolidate scattered iterative attempts into clean, high-quality units. Each consolidated commit must describe only its successful final state and rationale, eliminating intermediate trial-and-error noise.
   - **Review & Template Alignment**: Route every PR through peer review and complete `.github/PULL_REQUEST_TEMPLATE.md` (problem classification, behavior alterations, unverified paths, and rollback strategy).
+- **Commit & Attribution Discipline (提交信息与致谢纪律)**:
+  - **Issue/PR Linkage in Commit Messages**: Every commit message must explicitly state and link the relevant Issue and PR numbers involved or resolved (e.g. `Fixes #xxx`, `Resolves #xxx`, `Ref #xxx`, `PR #xxx`). Vague, unreferenced commits are strictly prohibited.
+  - **Strictly Scoped Attribution (致谢范围约束)**: Gratitude, inline attribution, and co-authorship are strictly limited to:
+    1. The current active developer/author;
+    2. The contributor/author of the referenced PR;
+    3. User-defined co-creators (e.g., `Co-Authored-By: JeikCode <code@jeikcode.top>`).
+    Never emit indiscriminate, unverified, or irrelevant thanks/attributions to arbitrary third parties.
 - **Contributor Respect & Attribution**:
   - Preserve authorship by preferring the contributor's own PR for squash commits, or attaching explicit `Co-authored-by:` trailers on merge commits and proxy PRs.
   - Disclose costs before merging: highlight affected existing behaviors and unverified paths alongside improvements.

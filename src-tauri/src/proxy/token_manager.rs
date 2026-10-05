@@ -3172,7 +3172,10 @@ impl TokenManager {
     /// 在请求成功完成后调用，将该账号的失败计数归零，
     /// 下次失败时从最短的锁定时间开始（智能限流）。
     pub fn mark_account_success(&self, account_id: &str) {
-        self.rate_limit_tracker.mark_success(account_id);
+        let resolved_id = self
+            .email_to_account_id(account_id)
+            .unwrap_or_else(|| account_id.to_string());
+        self.rate_limit_tracker.mark_success(&resolved_id);
     }
 
     /// 检查是否有可用的 Google 账号
@@ -6507,5 +6510,100 @@ mod tests {
         );
         let (token_str, _, _, _, _) = res.unwrap();
         assert_eq!(token_str, "token1");
+    }
+
+    #[tokio::test]
+    async fn test_mark_account_success_resolves_email_and_resets_tracker() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let manager = TokenManager::new(temp_dir.path().to_path_buf());
+
+        let token = ProxyToken {
+            account_id: "acc_tracked_1".to_string(),
+            access_token: "token1".to_string(),
+            refresh_token: "refresh1".to_string(),
+            expires_in: 3600,
+            timestamp: chrono::Utc::now().timestamp() + 3600,
+            email: "dev@example.com".to_string(),
+            account_path: temp_dir.path().join("acc.json"),
+            project_id: None,
+            subscription_tier: Some("PRO".to_string()),
+            remaining_quota: Some(100),
+            priority: 0,
+            protected_models: HashSet::new(),
+            health_score: 1.0,
+            reset_time: None,
+            validation_blocked: false,
+            validation_blocked_until: 0,
+            validation_url: None,
+            model_quotas: HashMap::new(),
+            model_limits: HashMap::new(),
+        };
+
+        manager.tokens.insert(token.account_id.clone(), token);
+
+        // 记录失败导致锁定与递增 failure_counts
+        manager.rate_limit_tracker.parse_from_error(
+            "acc_tracked_1",
+            429,
+            None,
+            r#"{"error":{"code":429,"message":"Resource exhausted"}}"#,
+            None,
+            &[60, 300],
+        );
+
+        assert!(manager
+            .rate_limit_tracker
+            .is_rate_limited("acc_tracked_1", None));
+
+        // 关键断言：即使上游调用者传入的是 email，mark_account_success 也必须能将其防御性解析为 account_id 并清除限制
+        manager.mark_account_success("dev@example.com");
+
+        assert!(
+            !manager.rate_limit_tracker.is_rate_limited("acc_tracked_1", None),
+            "Calling mark_account_success with email must resolve to account_id and clear tracker limit"
+        );
+    }
+
+    #[test]
+    fn test_sticky_session_failover_abandon_and_commit() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let manager = TokenManager::new(temp_dir.path().to_path_buf());
+
+        let session_id = "test-session-123";
+        let acc1 = "acc_failing";
+        let acc2 = "acc_healthy";
+
+        // 初始绑定到 acc1
+        manager.commit_session(session_id, acc1);
+        assert_eq!(
+            manager.session_accounts.get(session_id).unwrap().as_str(),
+            acc1
+        );
+
+        // CAS 放弃会话：如果不是 acc1，不能被误解绑
+        let abandoned_wrong = manager.abandon_session(session_id, "different_acc");
+        assert!(
+            !abandoned_wrong,
+            "CAS check must reject mismatching account"
+        );
+        assert_eq!(
+            manager.session_accounts.get(session_id).unwrap().as_str(),
+            acc1
+        );
+
+        // 匹配 acc1 时正常解除粘性
+        let abandoned_correct = manager.abandon_session(session_id, acc1);
+        assert!(
+            abandoned_correct,
+            "CAS check must succeed and unbind matching account"
+        );
+        assert!(manager.session_accounts.get(session_id).is_none());
+
+        // 故障转移到 acc2 成功后 commit
+        manager.commit_session(session_id, acc2);
+        assert_eq!(
+            manager.session_accounts.get(session_id).unwrap().as_str(),
+            acc2
+        );
     }
 }

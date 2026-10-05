@@ -490,6 +490,8 @@ pub async fn handle_generate(
 
         if status.is_success() {
             token_manager.commit_session(&affinity_key, &account_id);
+            // [智能限流] 请求成功，重置该账号的连续失败计数
+            token_manager.mark_account_success(&account_id);
             // 6. 响应处理
             if is_stream {
                 use axum::body::Body;

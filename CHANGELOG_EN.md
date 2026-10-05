@@ -3,6 +3,16 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.5-beta.3 (2026-10-05)**:
+        -   **[Cowork 8k Deep Archive & Unified Dual-Track Compaction State Machine] 60%+ Compaction Ratio, Dynamic Headroom Anti-Thrashing & Multi-Block Continuation Penetration (PR #3609, Ref #3604)**:
+            -   **8k Deep Archival Budget**: Lowered the binary pruning message accumulation threshold from 35k to 8k tokens, reducing post-compaction context from ~71k to 40k~45k tokens and raising compaction ratios past 60%, eliminating rapid re-trigger thrashing for users configured around 80k~90k limits.
+            -   **Unified Compaction State Machine**: Merged separate manual (`./compact`) and automated gateway tracking maps into a single global `COWORK_COMPACT_SESSIONS` map with 300s TTL eviction and mutual exclusion, preventing concurrent preemption and false 400 alerts.
+            -   **Dynamic Headroom Anti-Thrashing Guarantee**: Implemented `calculate_effective_auto_compact_threshold`, guaranteeing a minimum 25k token margin above residual targets (`effective_threshold = user_threshold.max(50_000).max(target_limit + 25_000)`) to stop immediate re-compaction cycles.
+            -   **Multi-Block Continuation Penetration**: Traversed all text blocks across the first 3 messages to ensure leading system reminder blocks do not obscure continuation detection tokens. (Thanks to @cubelikeplayDaniel)
+        -   **[Claude Desktop Process Lifecycle Management & Smooth In-Place Patch Upgrade] Active Process Detection, Graceful Restart & Legacy Patch Warnings (PR #3609, Ref #3604)**:
+            -   **Graceful Exit and Auto-Restart**: Added `is_claude_desktop_running`, `close_claude_desktop`, and `launch_claude_desktop` commands; one-click patching detects running Claude instances, prompts for graceful AppleScript shutdown, safely injects the patch, and automatically reopens Claude, eliminating file-lock write failures.
+            -   **Legacy Patch Detection & Warning Badges**: Distinguish between 8k and legacy 35k patches in status checks, displaying an amber warning badge for older patches and allowing direct in-place re-patching from `.bak` backups; polished settings button padding to prevent text clipping. (Thanks to @cubelikeplayDaniel)
+
     *   **v4.9.5-beta.2 (2026-10-05)**:
         -   **[Gateway Cascading Failover Resilience & Account Pool Lockout Prevention] Cap Single-Request 429 Pool Traversal, Tiered Backoff & Layer 2 Optimistic Reset (PR #3608, Fixes #3506)**:
             -   **Single-Request 429 Pool Traversal Cap**: Strictly capped single-request account traversal on non-delayed 429 errors to `min(pool_size, 2)`, preventing bursts of quota exhaustion on a single model from traversing the entire pool and locking out healthy accounts with false 503 circuit-breaker failures.

@@ -3,6 +3,22 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.5-beta.1 (2026-10-05)**:
+        -   **[Linux Wayland Rendering Freezes & Transparent Window Root Fix] Recognize GNOME Wayland Native Backend, Auto-Inject DMA-BUF Protection & Fix Visual Inversion (Fixes #3605, ref #3581)**:
+            -   **Recognize GNOME Under Native Wayland**: Added `desktop_is_gnome` to `linux_graphics.rs`, keeping native Wayland alongside KDE and wlroots rather than erroneously forcing `GDK_BACKEND=x11` when an Xwayland DISPLAY is detected, eliminating WebKitGTK 2.44+ frame freezes and invisible surfaces on GNOME Wayland.
+            -   **Auto-Inject WebKit DMA-BUF Protection**: Extended `should_disable_webkit_dmabuf` to encompass GNOME sessions, automatically setting `WEBKIT_DISABLE_DMABUF_RENDERER=1` on Wayland to prevent driver buffer allocation conflicts and assertion failures between WebKitGTK and Mesa/GPU drivers.
+            -   **Fix Inverted Transparent Window Workaround**: Corrected the check in `lib.rs` to inspect the effective GDK backend (`running_x11`), reliably stripping the window alpha channel under X11/Xwayland while preserving native Wayland compositing. (Thanks to @jeikl, Co-Authored-By: JeikCode)
+        -   **[agy CLI Keyring State Synchronization & End-to-End Account Verification] Fix Secret Service Collection Path, Prevent False Switches & Unify Web/Headless API (PR #3607)**:
+            -   **Fix Linux secret-tool Collection Path**: Corrected `Some("login")` to the full D-Bus path `Some("/org/freedesktop/secrets/collection/login")`, complying with libsecret specifications and resolving persistent stale credential reads by agy.
+            -   **Enforce Keyring Verification Without Fallback**: Strictly verified stored credentials via `read_from_system_keyring_only` after switching, preventing outdated file credentials from falsely confirming switches, and clarifying CLI session credential persistence hints.
+            -   **Parity in Web/Headless Account Synchronization**: Enabled `read_from_system_keyring_only` matching for `agy` targets across both IPC and the `/api/accounts/sync/db` HTTP endpoint in `server.rs`, eliminating discrepancies between desktop GUI and Web/Headless modes. (Thanks to @chenty2333, @jeikl, Co-Authored-By: JeikCode)
+        -   **[Unified Proxy Quota Protection Groups, Custom Routing & Gemini Schema Normalization] Align Claude Quota Groups, Fix Custom Routing & Sanitize Non-Standard Schemas (PR #3606, Fixes #3506, Ref #2041, #1798)**:
+            -   **Unified Claude Quota Protection**: Aligned Claude model quota protection into corresponding groups, preventing inaccurate quota decisions during multi-model routing.
+            -   **Fix Custom Routing Engine**: Enhanced model mapping and custom route mechanisms, ensuring user-defined routes resolve accurately.
+            -   **Gemini JSON Schema Normalization**: Thoroughly cleaned and normalized JSON Schemas passed to Gemini endpoints, filtering incompatible non-standard keywords to prevent upstream 400 schema validation errors. (Thanks to @cubelikeplayDaniel)
+        -   **[Specification & Attribution Discipline Enforcement] Link Issues/PRs and Strictly Scope Attributions**:
+            -   Updated `AGENTS.md` to require explicit Issue/PR linkages on every commit and strictly scope acknowledgments and co-authorship to active developers, PR contributors, and configured co-creators (`Co-Authored-By: JeikCode <code@jeikcode.top>`).
+
     *   **v4.9.5-beta.0 (2026-10-05)**:
         -   **[Claude Cowork Compaction Lifecycle Hardening & Tool Schema Overhead Alignment] Eliminate Negative-Gap Deadlocks, Close Immunity Lease Leaks & Add State Pool Governance (PR #3604)**:
             -   **Account for Tool Schema & Description in Overhead**: Fully incorporate tool `description` and `input_schema` token costs in `calculate_claude_fixed_overhead`, ensuring dynamic `target_limit` maintains solvable margins and eliminating client-side `compactionImpossible` crashes or infinite retry deadlocks under complex MCP tools.

@@ -3,6 +3,22 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.5-beta.1 (2026-10-05)**:
+        -   **[Linux Wayland 渲染冻结与透明窗口根治] 识别 GNOME Wayland 避免强制 X11 降级，自动注入 DMA-BUF 防护并修复透明窗口反向判定 (Fixes #3605, ref #3581)**:
+            -   **GNOME Wayland 纳入原生渲染判定**: 在 `linux_graphics.rs` 增加 `desktop_is_gnome`，在 Wayland 会话下与 KDE、wlroots 一同保持原生 Wayland 后端，不再因检测到 Xwayland DISPLAY 就强制降级为 `GDK_BACKEND=x11`，根除 GNOME 桌面下 WebKitGTK 2.44+ 的丢帧与透明异常。
+            -   **自动注入 WebKit DMA-BUF 保护**: 在 `should_disable_webkit_dmabuf` 中将 GNOME 纳入纳管范围，Wayland 会话下自动设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`，彻底避免 WebKitGTK 与 Mesa/GPU 驱动在缓冲区分配上的冲突与断言崩溃。
+            -   **修复透明窗口规避反向判定**: 修正 `lib.rs` 中的规避逻辑，依据实际生效的 GDK 后端判断，确保在 X11 / Xwayland 模式下正确剥离窗口 Alpha 通道，而在原生 Wayland 下保持现代 Wayland 表面正常渲染。 (Thanks to @jeikl, Co-Authored-By: JeikCode)
+        -   **[agy CLI 钥匙环状态同步与全链路切号强一致性校验] 修正 Secret Service 集合路径，杜绝伪切号并打通 Web/Headless API (PR #3607)**:
+            -   **修正 Linux secret-tool 集合路径**: 将 `Some("login")` 修正为完整 D-Bus 路径 `Some("/org/freedesktop/secrets/collection/login")`，符合 libsecret 规范，根除写入失败导致 agy 持续读取旧账号的问题。
+            -   **钥匙环强校验与禁止降级回退**: 切号后立即回读系统钥匙环并强制校验 Refresh Token，禁止以本地回退文件凭据误判切号成功；诚实提示运行中的 agy 进程可能持有旧凭据。
+            -   **自动同步与 Web/Headless 接口对齐**: 在目标为 `agy` 时通过 `read_from_system_keyring_only` 精确匹配 Manager 已管账号；在 `server.rs` 的 `/api/accounts/sync/db` 中同步打通该逻辑，消除桌面 IPC 与 Web 接口的行为割裂。 (Thanks to @chenty2333, @jeikl, Co-Authored-By: JeikCode)
+        -   **[代理配额保护组统一、自定义路由修复与 Gemini Schema 规范化] 统一 Claude 配额保护、修复自定义路由与非标 Schema 过滤 (PR #3606, Fixes #3506, Ref #2041, #1798)**:
+            -   **统一 Claude 模型配额保护组**: 将 Claude 模型的配额保护统一归入对应组别，防止多模型混用时配额判定失准。
+            -   **修复自定义模型路由**: 优化模型映射与自定义路由机制，确保用户自定义映射精准生效。
+            -   **Gemini Schema 规范化与过滤**: 深度净化并规范化传入 Gemini 的 JSON Schema，过滤不兼容的非标字段，杜绝上游 400 校验报错。 (Thanks to @cubelikeplayDaniel)
+        -   **[项目规范与致谢纪律强化] 提交信息强制关联 Issue/PR 编号并严格约束致谢范围**:
+            -   在 `AGENTS.md` 中新增提交信息与致谢纪律，强制要求每条 Commit 必须显式链接关联的 Issue/PR 编号，致谢与署名严格限制在当前开发者、PR 贡献者和用户定义的共创者（`Co-Authored-By: JeikCode <code@jeikcode.top>`）。
+
     *   **v4.9.5-beta.0 (2026-10-05)**:
         -   **[Claude Cowork 压缩生命周期加固与工具 Schema 开销对齐] 解决负 Gap 压缩死锁、封死永久免死漏洞与状态池防泄漏 (PR #3604)**:
             -   **纳入工具 Schema 与 Description 核算开销**: 固定开销估算（`calculate_claude_fixed_overhead`）完整核算各工具 `description` 与 `input_schema` 的 Token 消耗，确保计算出的动态 `target_limit` 预留充足裕量，彻底根治复杂 MCP 工具下客户端因负/零 `initialTokenGap` 抛出 `compactionImpossible` 异常或无限卡死。

@@ -3,6 +3,10 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.6 (2026-10-06)**:
+        -   **[Release Re-run] Full Republish of v4.9.5 Content (v4.9.5 produced no Release assets due to hosted runner starvation)**:
+            -   **Re-run Notice**: The v4.9.5 release pipeline (tag `v4.9.5`, commit `56513c7f`) was interrupted and cancelled because GitHub hosted runners stayed unavailable for an extended period, so `publish-release` never executed and no Release assets were produced; the in-app `latest` update channel is still on v4.9.4. This v4.9.6 release republishes the identical codebase (**same commit `56513c7f`**); see the v4.9.5 section below for the detailed change entries.
+
     *   **v4.9.5 (2026-10-06)**:
         -   **[Thinking Budget Root-Cause Fix & Model Suffix Absolute Priority] Eliminate 32768 Overwrite, Enforce Named Suffix Priority & Migrate Legacy Configs (PR #3611, Fixes #3610)**:
             -   **Enforce Named Model Suffix Absolute Priority**: Established absolute priority for explicit suffixes (`-low`, `-medium`, `-high`) in `resolve_custom_budget`, restricting client `effort` mapping strictly to bare models (`is_bare`), preventing named models (such as `gemini-3.8-flash-medium` 4000, `gemini-3.8-flash-low` 1000) from being overridden to inflated 32768 budgets by client `client_effort: high`. (Thanks to @cubelikeplayDaniel)

@@ -3,6 +3,10 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.6 (2026-10-06)**:
+        -   **[发布重跑] 完整重新发布 v4.9.5 全部内容（v4.9.5 因托管 Runner 资源不足未产出任何 Release 资产）**:
+            -   **重发说明**: v4.9.5 的发布流水线（tag `v4.9.5`，commit `56513c7f`）因 GitHub 托管 Runner 长时间无可用机器，矩阵构建中断并被取消，`publish-release` 从未执行，未生成任何 Release 资产，应用内 `latest` 更新通道仍停留在 v4.9.4。本次以 v4.9.6 重新完整发布，**代码内容与 v4.9.5 完全一致**（同一 commit `56513c7f`），详细变更条目见下方 v4.9.5 段落。
+
     *   **v4.9.5 (2026-10-06)**:
         -   **[网关思考预算根治与模型具名后缀绝对优先级保障] 根治思考预算无差别覆盖 32768、确立具名后缀最高优先级并平滑迁移旧版配置 (PR #3611, Fixes #3610)**:
             -   **确立模型后缀绝对最高优先级**: 在 `resolve_custom_budget` 中建立显式后缀（`-low`、`-medium`、`-high`）绝对优先级判定，仅当纯净无后缀裸模型（`is_bare`）时才允许客户端 `effort` 映射，彻底阻断具名中低档位模型（如 `gemini-3.8-flash-medium` 4000、`gemini-3.8-flash-low` 1000）被客户端 `client_effort: high` 越权覆盖为 32768 满血预算。 (Thanks to @cubelikeplayDaniel)

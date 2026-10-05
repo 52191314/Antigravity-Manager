@@ -3,6 +3,14 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.5-beta.4 (2026-10-06)**:
+        -   **[Thinking Budget Root-Cause Fix & Model Suffix Absolute Priority] Eliminate 32768 Overwrite, Enforce Named Suffix Priority & Migrate Legacy Configs (PR #3611, Fixes #3610)**:
+            -   **Enforce Named Model Suffix Absolute Priority**: Established absolute priority for explicit suffixes (`-low`, `-medium`, `-high`) in `resolve_custom_budget`, restricting client `effort` mapping strictly to bare models (`is_bare`), preventing named models (such as `gemini-3.8-flash-medium` 4000, `gemini-3.8-flash-low` 1000) from being overridden to inflated 32768 budgets by client `client_effort: high`. (Thanks to @cubelikeplayDaniel)
+            -   **Restore Default Mode Fallback Branch**: Added missing `flash_mode == ThinkingBudgetMode::Default` interception for named non-tiered models, allowing gateway default mode to seamlessly fall back to official catalog preset values (Medium 4000, Low 1000, High -1). (Thanks to @cubelikeplayDaniel)
+            -   **Decouple Claude Adapter (Pipeline First)**: Removed `.or_else(|| tb_config.effort.as_ref())` global fallback from the Claude protocol adapter, ensuring adapters purely pass through client parameters and leaving arbitration entirely to the pipeline. (Thanks to @cubelikeplayDaniel)
+            -   **Converge Inbound Capacity Expansion**: Eliminated two premature and redundant `min_overhead` (+8192) expansions from early branching, converging all headroom coordination into the single-point terminal invariant state machine. (Thanks to @cubelikeplayDaniel)
+            -   **Smooth Legacy 32k Config Migration**: Introduced `thinking_budget_32k_legacy_migrated` startup migration to reset legacy default values (32768/16384) back to official adaptive `-1` without affecting custom configurations. (Thanks to @cubelikeplayDaniel)
+
     *   **v4.9.5-beta.3 (2026-10-05)**:
         -   **[Cowork 8k Deep Archive & Unified Dual-Track Compaction State Machine] 60%+ Compaction Ratio, Dynamic Headroom Anti-Thrashing & Multi-Block Continuation Penetration (PR #3609, Ref #3604)**:
             -   **8k Deep Archival Budget**: Lowered the binary pruning message accumulation threshold from 35k to 8k tokens, reducing post-compaction context from ~71k to 40k~45k tokens and raising compaction ratios past 60%, eliminating rapid re-trigger thrashing for users configured around 80k~90k limits.

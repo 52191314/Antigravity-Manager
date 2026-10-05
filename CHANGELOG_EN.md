@@ -3,6 +3,17 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.5-beta.2 (2026-10-05)**:
+        -   **[Gateway Cascading Failover Resilience & Account Pool Lockout Prevention] Cap Single-Request 429 Pool Traversal, Tiered Backoff & Layer 2 Optimistic Reset (PR #3608, Fixes #3506)**:
+            -   **Single-Request 429 Pool Traversal Cap**: Strictly capped single-request account traversal on non-delayed 429 errors to `min(pool_size, 2)`, preventing bursts of quota exhaustion on a single model from traversing the entire pool and locking out healthy accounts with false 503 circuit-breaker failures.
+            -   **Tiered Backoff & Layer 2 Optimistic Reset**: Introduced tiered lockout delays (`5s -> 15s -> 30s`) for repeated 429s, and implemented Layer 2 optimistic reset when candidate pools are exhausted, avoiding false penalties on healthy accounts during transient concurrency spikes. (Thanks to @cubelikeplayDaniel)
+        -   **[Long-Lived Session 404/429 Failover & Error Recovery Alignment] Protocol-Agnostic Session Unbinding & Accurate Success Counters (PR #3608, Fixes #3517, #3509)**:
+            -   **Unified Sticky Session Unbinding**: Unified unbinding rules in `UpstreamClassification` to treat 401, 403, 404, 429, and 529 as immediate unbind triggers (`abandons_sticky_account`), preventing long-lived sessions from deadlocking on missing models or rate-limited accounts.
+            -   **Cross-Protocol Success Counter Reset**: Added adaptive email-to-id resolution in `mark_account_success` and wired calls across Claude, Gemini, and OpenAI success paths, ensuring transient error tallies promptly reset on successful completions. (Thanks to @cubelikeplayDaniel)
+        -   **[IDE Credential Isolation & Naming Variant Detection] Support antigravity-ide Naming Variants & Block Keyring Leakage (PR #3608, Fixes #3598)**:
+            -   **IDE Naming Variant Detection**: Added support for `antigravity-ide` and `antigravity_ide` binary names in `db.rs` and `process.rs`, enhancing IDE process detection on Linux and Windows.
+            -   **Isolate IDE Target Credential Discovery**: Strictly disabled system keyring scanning when `target_ide` is an IDE in `migration.rs`, preventing background synchronization loops from overwriting IDE database credentials with host-level desktop accounts. (Thanks to @cubelikeplayDaniel)
+
     *   **v4.9.5-beta.1 (2026-10-05)**:
         -   **[Linux Wayland Rendering Freezes & Transparent Window Root Fix] Recognize GNOME Wayland Native Backend, Auto-Inject DMA-BUF Protection & Fix Visual Inversion (Fixes #3605, ref #3581)**:
             -   **Recognize GNOME Under Native Wayland**: Added `desktop_is_gnome` to `linux_graphics.rs`, keeping native Wayland alongside KDE and wlroots rather than erroneously forcing `GDK_BACKEND=x11` when an Xwayland DISPLAY is detected, eliminating WebKitGTK 2.44+ frame freezes and invisible surfaces on GNOME Wayland.

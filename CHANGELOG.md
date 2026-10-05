@@ -3,6 +3,17 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.5-beta.2 (2026-10-05)**:
+        -   **[网关级联故障转移重试韧性与防全池锁定熔断] 限制单请求 429 遍历上限、分级阶梯退避与 Layer 2 乐观重试重置 (PR #3608, Fixes #3506)**:
+            -   **单请求 429 遍历池防击穿保护**: 将非延迟 429 的单请求池遍历上限严格限制为 `min(pool_size, 2)`，杜绝单次模型限流遍历轮询整个账号池并迅速累加失败计数，彻底消除瞬间击穿全池健康账号引发的全局 503 虚假熔断。
+            -   **分级阶梯退避与乐观重试重置**: 针对频繁 429 引入 `5s -> 15s -> 30s` 梯度阶梯退避；在候选池枯竭时实施 Layer 2 乐观重试重置，防止偶发并发拥塞误杀健康账号。 (Thanks to @cubelikeplayDaniel)
+        -   **[长连接会话 404/429 故障转移与成功计数自愈] 统一协议无关会话解绑与跨协议成功状态重置 (PR #3608, Fixes #3517, #3509)**:
+            -   **统一粘性会话解绑策略**: 在 `UpstreamClassification` 中统一纳管解绑逻辑，将 401、403、404、429、529 均判定为立即解除粘性绑定（`abandons_sticky_account`），杜绝因上游模型缺失或限流导致长连接会话死循环打到同一不可用账号。
+            -   **跨协议成功计数准确定位与自愈**: 在 `mark_account_success` 中引入从邮箱到账号 ID 的自适应反查解析，并在 Claude、Gemini、OpenAI 全协议成功响应分支统一补齐触发，确保瞬时偶发错误计数在后续请求成功时及时清零。 (Thanks to @cubelikeplayDaniel)
+        -   **[IDE 凭据隔离与命名变体支持] 补齐 antigravity-ide 变体探测并阻断 Keyring 逆向污染 (PR #3608, Fixes #3598)**:
+            -   **补齐 IDE 命名变体检测**: 在 `db.rs` 与 `process.rs` 中全面支持 `antigravity-ide` 与 `antigravity_ide` 命名变体，增强 Linux/Windows 下 IDE 客户端的探测与定位能力。
+            -   **隔离 IDE 目标凭据探测**: 在 `migration.rs` 中严格限制 IDE 模式禁止探测宿主机系统 Keyring，彻底消除后台定时同步任务将系统级原生账号误覆盖回 IDE 数据库的问题。 (Thanks to @cubelikeplayDaniel)
+
     *   **v4.9.5-beta.1 (2026-10-05)**:
         -   **[Linux Wayland 渲染冻结与透明窗口根治] 识别 GNOME Wayland 避免强制 X11 降级，自动注入 DMA-BUF 防护并修复透明窗口反向判定 (Fixes #3605, ref #3581)**:
             -   **GNOME Wayland 纳入原生渲染判定**: 在 `linux_graphics.rs` 增加 `desktop_is_gnome`，在 Wayland 会话下与 KDE、wlroots 一同保持原生 Wayland 后端，不再因检测到 Xwayland DISPLAY 就强制降级为 `GDK_BACKEND=x11`，根除 GNOME 桌面下 WebKitGTK 2.44+ 的丢帧与透明异常。

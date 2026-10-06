@@ -19,7 +19,7 @@
         "height": 700,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "transparent": true,
+        "transparent": false,
         "visible": false
       }
     ],

@@ -108,7 +108,7 @@ where
                             let error_json = serde_json::json!({
                                 "type": "error",
                                 "error": {
-                                    "type": report.classified.error_type,
+                                    "type": "overloaded_error",
                                     "message": report.client_message(),
                                     "function": report.function,
                                     "call_site": report.call_site(),
@@ -146,7 +146,7 @@ where
                         let error_json = serde_json::json!({
                             "type": "error",
                             "error": {
-                                "type": report.classified.error_type,
+                                "type": "overloaded_error",
                                 "message": report.client_message(),
                                 "function": report.function,
                                 "call_site": report.call_site(),
@@ -655,5 +655,58 @@ mod tests {
         // 必须包含模拟的 Usage
         assert!(output.contains("\"usage\":"));
         assert!(output.contains("\"output_tokens\":100")); // Should contain the recovery usage
+    }
+
+    #[tokio::test]
+    async fn test_create_claude_sse_stream_error_emits_standard_overloaded_error() {
+        use futures::StreamExt;
+
+        // 模拟一个发生网络中断的流
+        let mock_stream = async_stream::stream! {
+            yield Ok::<_, String>(bytes::Bytes::from("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello\"}]}}]}\n\n"));
+            yield Err("error reading a body from connection: connection reset by peer".to_string());
+        };
+
+        let mut claude_stream = create_claude_sse_stream(
+            Box::pin(mock_stream),
+            "trace_err_test".to_string(),
+            "test@example.com".to_string(),
+            None,
+            false,
+            1_000,
+            None,
+            1,
+            None,
+            Vec::new(),
+        );
+
+        let mut all_chunks = Vec::new();
+        while let Some(result) = claude_stream.next().await {
+            if let Ok(bytes) = result {
+                all_chunks.push(String::from_utf8(bytes.to_vec()).unwrap());
+            }
+        }
+        let output = all_chunks.join("");
+
+        // 必须包含 event: error
+        assert!(
+            output.contains("event: error"),
+            "Output must contain event: error"
+        );
+
+        // 关键断言：按照 Anthropic 官方规范，错误类型必须是 overloaded_error
+        // 绝不能是破坏客户端重试状态机的非标 stream_error
+        assert!(
+            output.contains("\"type\":\"overloaded_error\""),
+            "Error event must contain standard Anthropic type 'overloaded_error', got output: {}",
+            output
+        );
+        assert!(
+            !output.contains("\"type\":\"stream_error\""),
+            "Error event must not leak internal non-standard 'stream_error'"
+        );
+        // 同时必须保留诊断信息
+        assert!(output.contains("Stream interrupted before completion"));
+        assert!(output.contains("fn=create_claude_sse_stream"));
     }
 }

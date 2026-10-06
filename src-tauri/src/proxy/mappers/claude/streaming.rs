@@ -513,7 +513,7 @@ impl StreamingState {
                 json!({
                     "type": "error",
                     "error": {
-                        "type": report.classified.error_type,
+                        "type": "overloaded_error",
                         "message": report.client_message(),
                         "function": report.function,
                         "call_site": report.call_site(),
@@ -1543,5 +1543,27 @@ mod tests {
         assert!(output.contains(r#""name":"Read""#));
         assert!(!output.contains("text_delta"));
         assert!(state.used_tool);
+    }
+
+    #[test]
+    fn test_handle_parse_error_emits_standard_overloaded_error() {
+        let mut state = StreamingState::new();
+        // Call handle_parse_error 4 times to exceed threshold (> 3)
+        let _ = state.handle_parse_error("invalid chunk 1");
+        let _ = state.handle_parse_error("invalid chunk 2");
+        let _ = state.handle_parse_error("invalid chunk 3");
+        let chunks = state.handle_parse_error("invalid chunk 4");
+
+        let output = chunks_to_string(&chunks);
+        assert!(output.contains("event: error"), "Must emit error event");
+        assert!(
+            output.contains(r#""type":"overloaded_error""#),
+            "Anthropic SSE error type must be standard 'overloaded_error', got: {}",
+            output
+        );
+        assert!(
+            !output.contains(r#""type":"decode_error""#),
+            "Must not leak internal non-standard 'decode_error'"
+        );
     }
 }

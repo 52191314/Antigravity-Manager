@@ -3,6 +3,14 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.7-beta.0 (2026-10-06)**:
+        -   **[对齐 Anthropic SSE 流错误官方标准类型并恢复客户端自动重试] (PR #3613, Fixes #3612)**:
+            -   **标准错误事件类型对齐**: 将 SSE 流式错误事件中的 `type` 字段从内部非标准的 `"error_detail"` 对齐为 Anthropic 官方规范的 `"error"`，使 `{"type": "error", "error": {"type": "...", "message": "..."}}` 结构完全合规。 (Thanks to @cubelikeplayDaniel)
+            -   **恢复客户端原生错误识别与重试机制**: 修复因错误事件类型不匹配导致 Claude 官方客户端、Cursor 等下游工具将流异常误判为普通文本输出或静默中断的问题，恢复客户端基于标准错误码的自动重试与优雅提示能力。 (Thanks to @cubelikeplayDaniel)
+        -   **[Linux 窗口透明度彻底关闭与图形 Workaround 清理] (Fixes #3605, Ref #3581)**:
+            -   **禁用窗口透明度从根源解决渲染失败**: 在 `tauri.conf.json` 中明确配置 `"transparent": false`，彻底消除 WebKitGTK 2.54 在 GNOME Wayland 和 X11/Xwayland 下因 RGBA Visual / 透明 Surface 离屏合成失败导致的白屏、纯黑与闪烁问题。 (Thanks to @h2kyaw)
+            -   **清理废弃的 Visual 调整与启动硬编码**: 移除 `lib.rs` 中已失效且可能引发 GTK 警告的 runtime `set_visual` hack；移除 `main.rs` 中历史上由于透明窗口遗留的无条件 `WEBKIT_DISABLE_DMABUF_RENDERER=1` 注入，收口由 `configure_linux_graphics()` 统一自适应管理并完整保留用户的环境变量自定义覆盖能力。
+
     *   **v4.9.5-beta.4 (2026-10-06)**:
         -   **[网关思考预算根治与模型后缀绝对优先级保障] 根治思考预算无差别覆盖 32768、确立具名后缀最高优先级并平滑迁移旧版配置 (PR #3611, Fixes #3610)**:
             -   **确立模型后缀绝对最高优先级**: 在 `resolve_custom_budget` 中建立显式后缀（`-low`、`-medium`、`-high`）绝对优先级判定，仅当纯净无后缀裸模型（`is_bare`）时才允许客户端 `effort` 映射，彻底阻断具名中低档位模型（如 `gemini-3.8-flash-medium` 4000、`gemini-3.8-flash-low` 1000）被客户端 `client_effort: high` 越权覆盖为 32768 满血预算。 (Thanks to @cubelikeplayDaniel)

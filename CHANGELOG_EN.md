@@ -3,6 +3,14 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.7-beta.0 (2026-10-06)**:
+        -   **[Align Anthropic SSE Stream Error with Official Standard Type & Restore Client Auto-Retry] (PR #3613, Fixes #3612)**:
+            -   **Align SSE Error Event Type**: Aligned the `type` field in SSE streaming error events from internal non-standard `"error_detail"` to the official Anthropic standard `"error"`, ensuring full compliance with the `{"type": "error", "error": {"type": "...", "message": "..."}}` schema. (Thanks to @cubelikeplayDaniel)
+            -   **Restore Client Error Detection and Auto-Retry**: Fixed issue where Claude official desktop and Cursor treated streamed errors as text or abrupt cuts; clients now recognize official status codes and execute graceful retries. (Thanks to @cubelikeplayDaniel)
+        -   **[Disable Window Transparency on Linux & Clean Up Graphics Workarounds] (Fixes #3605, Ref #3581)**:
+            -   **Disable Window Transparency**: Set `"transparent": false` explicitly in `tauri.conf.json` to eliminate WebKitGTK 2.54 offscreen surface composition failures on GNOME Wayland and X11/Xwayland, resolving blank white and frozen windows. (Thanks to @h2kyaw)
+            -   **Clean Up Obsolete Visual Workarounds & Hardcoding**: Removed runtime `set_visual` setup hook in `lib.rs` and cleaned up unconditional `WEBKIT_DISABLE_DMABUF_RENDERER=1` hardcoding in `main.rs`, unifying graphics detection in `configure_linux_graphics()` while respecting user overrides.
+
     *   **v4.9.5-beta.4 (2026-10-06)**:
         -   **[Thinking Budget Root-Cause Fix & Model Suffix Absolute Priority] Eliminate 32768 Overwrite, Enforce Named Suffix Priority & Migrate Legacy Configs (PR #3611, Fixes #3610)**:
             -   **Enforce Named Model Suffix Absolute Priority**: Established absolute priority for explicit suffixes (`-low`, `-medium`, `-high`) in `resolve_custom_budget`, restricting client `effort` mapping strictly to bare models (`is_bare`), preventing named models (such as `gemini-3.8-flash-medium` 4000, `gemini-3.8-flash-low` 1000) from being overridden to inflated 32768 budgets by client `client_effort: high`. (Thanks to @cubelikeplayDaniel)

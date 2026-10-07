@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowRightLeft, RefreshCw, Trash2, Download, Info, Lock, Ban, Diamond, Gem, Circle, ToggleLeft, ToggleRight, Fingerprint, Sparkles, Tag, X, Check, Clock, Bot, Repeat2, Terminal } from 'lucide-react';
+import { ArrowRightLeft, RefreshCw, Trash2, Download, Info, Lock, Ban, Diamond, Gem, Circle, Fingerprint, Sparkles, Tag, X, Check, Clock, Bot, Repeat2, Terminal, ToggleLeft, ToggleRight } from 'lucide-react';
 import { Account, ModelQuota, getAccountTier } from '../../types/account';
 import { cn } from '../../utils/cn';
 import { useTranslation } from 'react-i18next';
@@ -9,6 +9,7 @@ import { MODEL_CONFIG, sortModels, getModelProtectionKey, resolveQuotaModels, en
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
 import { getLiveLimitForModel } from '../../utils/liveLimit';
 import { getModelQuotaDisplay } from '../../utils/quotaDisplay';
+import { maskEmail, getAccountDisplayName } from '../../utils/format';
 
 interface AccountCardProps {
     account: Account;
@@ -23,11 +24,12 @@ interface AccountCardProps {
     onViewDetails: () => void;
     onExport: () => void;
     onDelete: () => void;
-    onToggleProxy: () => void;
+    onToggleProxy?: () => void;
     onWarmup?: () => void;
     onUpdateLabel?: (label: string) => void;
     onViewError: () => void;
     quotaWindow?: '5h' | 'weekly';
+    maskEmails?: boolean;
 }
 
 // 使用统一的模型配置
@@ -38,7 +40,7 @@ const DEFAULT_MODELS = Object.entries(MODEL_CONFIG).map(([id, config]) => ({
     Icon: config.Icon
 }));
 
-function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, isRefreshing, isSwitching = false, onSwitch, onRefresh, onViewDetails, onExport, onDelete, onToggleProxy, onViewDevice, onWarmup, onUpdateLabel, onViewError, quotaWindow }: AccountCardProps) {
+function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, isRefreshing, isSwitching = false, onSwitch, onRefresh, onViewDetails, onExport, onDelete, onToggleProxy, onViewDevice, onWarmup, onUpdateLabel, onViewError, quotaWindow, maskEmails = true }: AccountCardProps) {
     const { t } = useTranslation();
     const { config, showAllQuotas } = useConfigStore();
     const isDisabled = Boolean(account.disabled);
@@ -179,11 +181,20 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                     onClick={(e) => e.stopPropagation()}
                 />
                 <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                    <h3 className={cn(
-                        "font-semibold text-sm truncate w-full",
-                        isCurrent ? "text-blue-700 dark:text-blue-400" : "text-gray-900 dark:text-base-content"
-                    )} title={account.email}>
-                        {account.email}
+                    <h3
+                        className={cn(
+                            "font-semibold text-sm truncate w-full cursor-pointer hover:underline transition-all",
+                            isCurrent ? "text-blue-700 dark:text-blue-400" : "text-gray-900 dark:text-base-content"
+                        )}
+                        title={account.custom_label ? `${account.custom_label} (${maskEmails ? maskEmail(account.email) : account.email})` : (maskEmails ? maskEmail(account.email) : account.email)}
+                        onClick={(e) => {
+                            if (onUpdateLabel) {
+                                e.stopPropagation();
+                                setIsEditingLabel(true);
+                            }
+                        }}
+                    >
+                        {getAccountDisplayName(account, maskEmails)}
                     </h3>
                     <div className="flex items-center justify-between w-full gap-2">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -203,6 +214,7 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                             {account.proxy_disabled && (
                                 <span
                                     className="px-1.5 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-orange-200/50"
+                                    title={account.proxy_disabled_reason || t('accounts.proxy_disabled_tooltip')}
                                 >
                                     <Ban className="w-2.5 h-2.5" />
                                     {t('accounts.proxy_disabled').toUpperCase()}
@@ -267,15 +279,15 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
 
             {/* 配额展示 */}
             <div className="flex-1 px-2 mb-2 overflow-y-auto scrollbar-none">
-                {isDisabled || account.quota?.is_forbidden || account.proxy_disabled || account.validation_blocked ? (
+                {isDisabled || account.quota?.is_forbidden || account.validation_blocked ? (
                     <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 h-full py-4 text-center">
                         <div className={cn(
                             "flex items-center gap-1.5",
                             account.validation_blocked ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"
                         )}>
-                            {account.validation_blocked ? <Clock className="w-4 h-4" /> : (isDisabled || account.proxy_disabled ? <Ban className="w-4 h-4" /> : <Lock className="w-4 h-4" />)}
+                            {account.validation_blocked ? <Clock className="w-4 h-4" /> : (isDisabled ? <Ban className="w-4 h-4" /> : <Lock className="w-4 h-4" />)}
                             <span className="text-[11px] font-bold">
-                                {account.validation_blocked ? validationBlockedLabel : (isDisabled ? t('accounts.status.disabled') : account.proxy_disabled ? t('accounts.status.proxy_disabled') : t('accounts.forbidden_msg'))}
+                                {account.validation_blocked ? validationBlockedLabel : (isDisabled ? t('accounts.status.disabled') : t('accounts.forbidden_msg'))}
                             </span>
                         </div>
                         <div className={cn(
@@ -332,7 +344,7 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                                 onChange={(e) => setLabelInput(e.target.value)}
                                 onKeyDown={handleKeyDown}
                                 autoFocus
-                                maxLength={15}
+                                maxLength={50}
                             />
                             <button
                                 className="p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-all"
@@ -432,22 +444,24 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                     >
                         <Download className="w-3.5 h-3.5" />
                     </button>
-                    <button
-                        className={cn(
-                            "p-1.5 rounded-lg transition-all",
-                            account.proxy_disabled
-                                ? "text-gray-400 hover:text-green-600 hover:bg-green-50"
-                                : "text-gray-400 hover:text-orange-600 hover:bg-orange-50"
-                        )}
-                        onClick={(e) => { e.stopPropagation(); onToggleProxy(); }}
-                        title={account.proxy_disabled ? t('accounts.enable_proxy') : t('accounts.disable_proxy')}
-                    >
-                        {account.proxy_disabled ? (
-                            <ToggleRight className="w-3.5 h-3.5" />
-                        ) : (
-                            <ToggleLeft className="w-3.5 h-3.5" />
-                        )}
-                    </button>
+                    {onToggleProxy && (
+                        <button
+                            className={cn(
+                                "p-1.5 rounded-lg transition-all",
+                                account.proxy_disabled
+                                    ? "text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30"
+                                    : "text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30"
+                            )}
+                            onClick={(e) => { e.stopPropagation(); onToggleProxy(); }}
+                            title={account.proxy_disabled ? t('accounts.enable_proxy') : t('accounts.disable_proxy')}
+                        >
+                            {account.proxy_disabled ? (
+                                <ToggleRight className="w-3.5 h-3.5" />
+                            ) : (
+                                <ToggleLeft className="w-3.5 h-3.5" />
+                            )}
+                        </button>
+                    )}
                     <button
                         className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                         onClick={(e) => { e.stopPropagation(); onDelete(); }}

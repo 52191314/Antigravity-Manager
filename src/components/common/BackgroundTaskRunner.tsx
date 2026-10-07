@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useAccountStore } from '../../stores/useAccountStore';
+import { checkLowQuotaAccounts, requestNotificationPermission } from '../../utils/lowQuotaMonitor';
 
 function BackgroundTaskRunner() {
     const { config } = useConfigStore();
-    const { refreshAllQuotas } = useAccountStore();
+    const { refreshAllQuotas, accounts, currentAccount } = useAccountStore();
 
     // Use refs to track previous state to detect "off -> on" transitions
     const prevAutoRefreshRef = useRef(false);
@@ -70,6 +71,38 @@ function BackgroundTaskRunner() {
             }
         };
     }, [config?.auto_sync, config?.sync_interval]);
+
+    // Low Quota Alert Detection Effect
+    useEffect(() => {
+        if (!config?.low_quota_alert?.enabled) return;
+
+        // Request notification permission if system notification enabled
+        if (config.low_quota_alert.notify_system) {
+            requestNotificationPermission();
+        }
+
+        if (accounts && accounts.length > 0) {
+            const maskEmails = localStorage.getItem('antigravity_mask_emails') !== 'false';
+            checkLowQuotaAccounts(accounts, currentAccount?.id, config.low_quota_alert, maskEmails);
+        }
+    }, [accounts, currentAccount?.id, config?.low_quota_alert]);
+
+    // Periodic Low Quota Alert Check (every 60s)
+    useEffect(() => {
+        if (!config?.low_quota_alert?.enabled) return;
+
+        const intervalId = setInterval(() => {
+            const { accounts: liveAccounts, currentAccount: liveCurrentAccount } = useAccountStore.getState();
+            if (liveAccounts && liveAccounts.length > 0) {
+                const maskEmails = localStorage.getItem('antigravity_mask_emails') !== 'false';
+                checkLowQuotaAccounts(liveAccounts, liveCurrentAccount?.id, config.low_quota_alert, maskEmails);
+            }
+        }, 60 * 1000);
+
+        return () => {
+            clearInterval(intervalId);
+        };
+    }, [config?.low_quota_alert]);
 
     // Render nothing
     return null;

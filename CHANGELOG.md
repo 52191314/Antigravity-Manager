@@ -3,6 +3,14 @@
 > 完整版本历史记录。返回项目主页请查看 [README_ZH.md](README_ZH.md) | [English Changelog](CHANGELOG_EN.md)。
 
 *   **版本演进**:
+    *   **v4.9.5 (2026-10-05)**:
+        -   **[更新分类] 核心更新标题 (PR #xxx)**:
+            -   **功能详述**: 详细说明请在此处补充；涉及外部贡献者时以行内 `(Thanks to @username)` 标注。
+
+    *   **v4.9.2 (2026-10-04)**:
+        -   **[更新分类] 核心更新标题 (PR #xxx)**:
+            -   **功能详述**: 详细说明请在此处补充；涉及外部贡献者时以行内 `(Thanks to @username)` 标注。
+
     *   **v4.9.1 (2026-10-02)**:
         -   **[模型路由治理与淘汰模型平滑重定向] 修复 3.1-flash-lite 误重定向、拯救 Layer-3 后台摘要与压缩并将已退役 2.5 系列平滑重定向至 3.6-flash-medium (Fixes #3577, Thanks to @Xyloz3n)**:
             -   **纠正 gemini-3.1-flash-lite 错误降级与健康直传**: 彻底移除核心映射表中将健康存活的 `gemini-3.1-flash-lite` 错误重定向至已故 `gemini-2.5-flash-lite` 的硬编码。恢复为其自身标准直传（出站 1:1 透传上游具备 1M 上下文的 `MODEL_PLACEHOLDER_M50`），彻底消除由此引发的 429 与 503 报错，上游实测 200 OK。

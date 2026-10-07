@@ -739,11 +739,7 @@ pub async fn warm_up_all_accounts() -> Result<String, String> {
 
     loop {
         let all_accounts = crate::modules::account::list_accounts().unwrap_or_default();
-        // [FIX] 过滤掉禁用反代的账号
-        let target_accounts: Vec<_> = all_accounts
-            .into_iter()
-            .filter(|a| !a.disabled && !a.proxy_disabled)
-            .collect();
+        let target_accounts: Vec<_> = all_accounts.into_iter().filter(|a| !a.disabled).collect();
 
         if target_accounts.is_empty() {
             return Ok("No accounts available".to_string());
@@ -943,7 +939,7 @@ pub async fn warm_up_account(account_id: &str) -> Result<String, String> {
         .cloned()
         .ok_or_else(|| "Account not found".to_string())?;
 
-    if account_owned.disabled || account_owned.proxy_disabled {
+    if account_owned.disabled {
         return Err("Account is disabled".to_string());
     }
 

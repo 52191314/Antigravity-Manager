@@ -79,6 +79,12 @@ fn should_enable_tray() -> bool {
 fn apply_login_launch_policy(app: &tauri::App) {
     let launched_by_login = std::env::args().any(|arg| arg == "--minimized");
     if !launched_by_login {
+        info!(
+            "Normal launch detected: guaranteeing main window is shown, unminimized, and focused"
+        );
+        if let Some(window) = app.get_webview_window("main") {
+            modules::process::ensure_webview_window_visible_and_foreground(&window);
+        }
         return;
     }
 
@@ -101,6 +107,9 @@ fn apply_login_launch_policy(app: &tauri::App) {
     }
 
     modules::startup_quiet::arm();
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
     if config.lightweight_mode {
         info!("Quiet login launch will enter lightweight mode once the event loop is ready");
         modules::startup_quiet::request_lightweight_on_ready();
@@ -275,13 +284,42 @@ pub fn run() {
     #[cfg(target_os = "windows")]
     windows_api::disable_efficiency_mode();
 
-    // Check for headless mode
+    // Check for CLI or headless mode
     let args: Vec<String> = std::env::args().collect();
     let is_headless = args.iter().any(|arg| arg == "--headless");
 
     // Increase file descriptor limit (macOS only)
     #[cfg(target_os = "macos")]
     increase_nofile_limit();
+
+    // Check for CLI or MCP mode before desktop GUI initialization
+    if modules::cli::is_cli_mode(&args) {
+        modules::cli::attach_console();
+        let is_mcp = args.iter().any(|a| a == "mcp" || a == "--mcp");
+        modules::cli::init_cli_logger(is_mcp);
+
+        // Initialize databases needed by account inspection
+        let _ = modules::token_stats::init_db();
+
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+        let result = rt.block_on(modules::cli::run_cli(args));
+        match result {
+            Ok(()) => std::process::exit(0),
+            Err(e) => {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Windows 单实例快速检查：若已有运行中的 GUI 实例，直接通知唤醒旧实例并退出，避免重复初始化数据库或死锁
+    #[cfg(target_os = "windows")]
+    if !is_headless
+        && !modules::cli::is_cli_mode(&args)
+        && modules::process::handle_existing_gui_instance_if_running(&args)
+    {
+        std::process::exit(0);
+    }
 
     // Initialize logger
     logger::init_logger();
@@ -476,7 +514,11 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            info!("Single-instance activation received; restoring and focusing main window");
             let _ = modules::lightweight::exit_lightweight_mode(app);
+            if let Some(window) = app.get_webview_window("main") {
+                modules::process::ensure_webview_window_visible_and_foreground(&window);
+            }
         }))
         .manage(commands::proxy::ProxyServiceState::new())
         .manage(commands::cloudflared::CloudflaredState::new())
@@ -553,6 +595,9 @@ pub fn run() {
                     let cf_state = handle.state::<commands::cloudflared::CloudflaredState>();
                     let integration =
                         crate::modules::integration::SystemManager::Desktop(handle.clone());
+
+                    // 检测并平滑接管运行在目标端口上的后台 headless 守护进程 (R1)
+                    crate::modules::process::takeover_headless_daemon_if_running(config.proxy.port);
 
                     // 1. 确保管理后台开启
                     if let Err(e) = commands::proxy::ensure_admin_server(
@@ -693,6 +738,7 @@ pub fn run() {
             commands::migrate_data_dir,
             commands::show_main_window,
             commands::set_window_theme,
+            commands::send_system_notification,
             commands::get_antigravity_path,
             commands::get_antigravity_cli_path,
             commands::get_antigravity_args,
@@ -840,6 +886,13 @@ pub fn run() {
                     if modules::startup_quiet::take_lightweight_on_ready() {
                         info!("Entering lightweight mode for quiet login launch");
                         let _ = modules::lightweight::enter_lightweight_mode_without_saving(app_handle);
+                    } else {
+                        let is_minimized_launch = std::env::args().any(|arg| arg == "--minimized");
+                        if !is_minimized_launch {
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                modules::process::ensure_webview_window_visible_and_foreground(&window);
+                            }
+                        }
                     }
                 }
                 // Prevent app from exiting when window is destroyed in lightweight mode

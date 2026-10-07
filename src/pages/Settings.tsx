@@ -1,5 +1,5 @@
 import { useState, useEffect, startTransition } from 'react';
-import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Heart, Coffee, LayoutDashboard, Users, Network, Activity, BarChart3, Settings as SettingsIcon, Lock, CheckCircle2, Globe, Send, KeyRound } from 'lucide-react';
+import { Save, Github, User, MessageCircle, ExternalLink, RefreshCw, Heart, Coffee, LayoutDashboard, Users, Network, Settings as SettingsIcon, CheckCircle2, Globe, Send } from 'lucide-react';
 import { request as invoke } from '../utils/request';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useConfigStore } from '../stores/useConfigStore';
@@ -9,6 +9,7 @@ import { showToast } from '../components/common/ToastContainer';
 import QuotaProtection from '../components/settings/QuotaProtection';
 import SmartWarmup from '../components/settings/SmartWarmup';
 import PinnedQuotaModels from '../components/settings/PinnedQuotaModels';
+import LowQuotaAlertSettings from '../components/settings/LowQuotaAlertSettings';
 import { useDebugConsole } from '../stores/useDebugConsole';
 
 import { useTranslation } from 'react-i18next';
@@ -41,7 +42,7 @@ function Settings() {
     const { config, loadConfig, saveConfig, updateLanguage, updateTheme } = useConfigStore();
     const { enable, disable, isEnabled } = useDebugConsole();
     const [activeTab, setActiveTab] = useState<'general' | 'account' | 'proxy' | 'advanced' | 'debug' | 'about'>('general');
-    const [appVersion, setAppVersion] = useState<string>('4.9.1');
+    const [appVersion, setAppVersion] = useState<string>('4.9.5');
     const [formData, setFormData] = useState<AppConfig>({
         language: 'zh',
         theme: 'system',
@@ -75,7 +76,8 @@ function Settings() {
         },
         scheduled_warmup: {
             enabled: false,
-            monitored_models: []
+            monitored_models: [],
+            enable_5h_warmup: true
         },
         quota_protection: {
             enabled: false,
@@ -83,7 +85,7 @@ function Settings() {
             monitored_models: []
         },
         pinned_quota_models: {
-            models: ['gemini-3.1-pro-high', 'gemini-3.8-flash-high', 'gemini-3.1-flash-image', 'claude-opus-4-6-thinking']
+            models: ['gemini-3.1-pro-high', 'gemini-3.8-flash-high', 'gemini-3.1-flash-image', 'claude-sonnet-5-5-high']
         },
         cloudflared: {
             enabled: false,
@@ -94,6 +96,11 @@ function Settings() {
         circuit_breaker: {
             enabled: false,
             backoff_steps: [30, 60, 120, 300, 600]
+        },
+        low_quota_alert: {
+            enabled: true,
+            threshold_percentage: 20,
+            notify_system: true
         },
         hidden_menu_items: [],  // 菜单显示设置：默认不隐藏任何菜单项
 
@@ -175,7 +182,14 @@ function Settings() {
 
     useEffect(() => {
         if (config) {
-            setFormData(config);
+            setFormData({
+                ...config,
+                low_quota_alert: config.low_quota_alert || {
+                    enabled: true,
+                    threshold_percentage: 20,
+                    notify_system: true,
+                },
+            });
         }
     }, [config]);
 
@@ -496,15 +510,6 @@ function Settings() {
                             {t('settings.tabs.account')}
                         </button>
                         <button
-                            className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${activeTab === 'proxy'
-                                ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-                                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-                                }`}
-                            onClick={() => startTransition(() => setActiveTab('proxy'))}
-                        >
-                            {t('settings.tabs.proxy')}
-                        </button>
-                        <button
                             className={`px-6 py-2 rounded-full text-sm font-medium transition-all ${activeTab === 'advanced'
                                 ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
                                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
@@ -750,16 +755,10 @@ function Settings() {
                                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                                         {t('settings.menu.desc')}
                                     </p>
-                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                                         {[
                                             { path: '/', label: t('nav.dashboard'), icon: LayoutDashboard },
                                             { path: '/accounts', label: t('nav.accounts'), icon: Users },
-                                            { path: '/api-proxy', label: t('nav.proxy'), icon: Network },
-                                            { path: '/apikey-fun', label: t('nav.apikey_fun', '中转站'), icon: KeyRound },
-                                            { path: '/monitor', label: t('nav.call_records'), icon: Activity },
-                                            { path: '/token-stats', label: t('nav.token_stats'), icon: BarChart3 },
-                                            { path: '/user-token', label: t('nav.user_token', 'User Tokens'), icon: Users },
-                                            { path: '/security', label: t('nav.security'), icon: Lock },
                                             { path: '/settings', label: t('nav.settings'), icon: SettingsIcon },
                                         ].map((item) => {
                                             const hiddenItems = formData.hidden_menu_items || [];
@@ -971,6 +970,26 @@ function Settings() {
                                         };
                                         setFormData(newFormData);
 
+                                        // Hot Save
+                                        try {
+                                            await saveConfig(newFormData);
+                                        } catch (error) {
+                                            showToast(`${t('common.error')}: ${error}`, 'error');
+                                        }
+                                    }}
+                                />
+                            </div>
+
+                            {/* 低配额切号提醒 (Low Quota Alert & Auto-Switch Suggestion) */}
+                            <div className="group bg-white dark:bg-base-100 rounded-xl p-5 border border-gray-100 dark:border-base-200 hover:border-amber-200 transition-all duration-300 shadow-sm">
+                                <LowQuotaAlertSettings
+                                    config={formData.low_quota_alert}
+                                    onChange={async (newConfig) => {
+                                        const newFormData = {
+                                            ...formData,
+                                            low_quota_alert: newConfig
+                                        };
+                                        setFormData(newFormData);
                                         // Hot Save
                                         try {
                                             await saveConfig(newFormData);

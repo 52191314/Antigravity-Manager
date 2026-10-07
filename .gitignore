@@ -70,3 +70,9 @@ docs/CODEBASE_ALIGNMENT_ANALYSIS.md
 
 # Captured payload samples (contain real thought signatures — never push)
 testJson/
+
+# Binaries, local databases and temporary tools
+*.exe
+*.db
+/WebView2Loader.dll
+/tools/

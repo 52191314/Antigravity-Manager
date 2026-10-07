@@ -144,6 +144,20 @@ pub fn get_upstream_proxy_url() -> Option<String> {
 /// 2. Fallback to GitHub API (Release or Pre-release)
 pub async fn check_for_updates() -> Result<UpdateInfo, String> {
     let settings = load_update_settings().unwrap_or_default();
+    if !settings.auto_check || std::env::var("ANTIGRAVITY_DISABLE_UPDATE").is_ok() {
+        return Ok(UpdateInfo {
+            current_version: CURRENT_VERSION.to_string(),
+            latest_version: CURRENT_VERSION.to_string(),
+            has_update: false,
+            download_url: String::new(),
+            release_notes: "Auto update is disabled.".to_string(),
+            published_at: Utc::now().to_rfc3339(),
+            source: Some("Disabled".to_string()),
+            proxy_url: None,
+            channel: Some(settings.update_channel),
+            updater_json_url: None,
+        });
+    }
     let mut info = check_for_updates_internal(settings.update_channel).await?;
     info.proxy_url = get_upstream_proxy_url();
     info.channel = Some(settings.update_channel);

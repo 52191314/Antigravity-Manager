@@ -1,6 +1,7 @@
 import { TrendingUp } from 'lucide-react';
 import { Account, QuotaGroup } from '../../types/account';
 import { findQuotaModel } from '../../config/modelConfig';
+import { getAccountDisplayName, maskEmail } from '../../utils/format';
 
 interface BestAccountsProps {
     accounts: Account[];
@@ -77,7 +78,7 @@ function BestAccounts({ accounts, currentAccountId, onSwitch }: BestAccountsProp
     const { t } = useTranslation();
     // 1. 获取按综合有效配额排序的列表 (排除当前账号及已禁用账号)
     const geminiSorted = accounts
-        .filter(a => a.id !== currentAccountId && !a.disabled && !a.proxy_disabled)
+        .filter(a => a.id !== currentAccountId && !a.disabled && !a.quota?.is_forbidden)
         .map(a => {
             const pro5hModel = findQuotaModel(a.quota?.models, 'gemini-pro')?.percentage ?? null;
             const flash5hModel = findQuotaModel(a.quota?.models, 'gemini-flash')?.percentage ?? null;
@@ -104,7 +105,7 @@ function BestAccounts({ accounts, currentAccountId, onSwitch }: BestAccountsProp
         .sort((a, b) => b.quotaVal - a.quotaVal);
 
     const claudeSorted = accounts
-        .filter(a => a.id !== currentAccountId && !a.disabled && !a.proxy_disabled)
+        .filter(a => a.id !== currentAccountId && !a.disabled && !a.quota?.is_forbidden)
         .map(a => {
             const claude5hModel = findQuotaModel(a.quota?.models, 'claude')?.percentage ?? null;
             const weeklyGroup = getBucketPercentage(a.quota?.quota_groups, 'claude', 'weekly');
@@ -167,8 +168,8 @@ function BestAccounts({ accounts, currentAccountId, onSwitch }: BestAccountsProp
                     <div className="flex items-center justify-between p-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-100 dark:border-green-900/30">
                         <div className="flex-1 min-w-0">
                             <div className="text-[10px] text-green-600 dark:text-green-400 font-medium mb-0.5">{t('dashboard.for_gemini')}</div>
-                            <div className="font-medium text-sm text-gray-900 dark:text-base-content truncate">
-                                {bestGeminiRender.email}
+                            <div className="font-medium text-sm text-gray-900 dark:text-base-content truncate" title={bestGeminiRender.custom_label ? `${bestGeminiRender.custom_label} (${maskEmail(bestGeminiRender.email)})` : maskEmail(bestGeminiRender.email)}>
+                                {getAccountDisplayName(bestGeminiRender)}
                             </div>
                         </div>
                         <div className="ml-2 px-2 py-0.5 bg-green-500 text-white text-xs font-semibold rounded-full">
@@ -182,8 +183,8 @@ function BestAccounts({ accounts, currentAccountId, onSwitch }: BestAccountsProp
                     <div className="flex items-center justify-between p-2.5 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg border border-cyan-100 dark:border-cyan-900/30">
                         <div className="flex-1 min-w-0">
                             <div className="text-[10px] text-cyan-600 dark:text-cyan-400 font-medium mb-0.5">{t('dashboard.for_claude')}</div>
-                            <div className="font-medium text-sm text-gray-900 dark:text-base-content truncate">
-                                {bestClaudeRender.email}
+                            <div className="font-medium text-sm text-gray-900 dark:text-base-content truncate" title={bestClaudeRender.custom_label ? `${bestClaudeRender.custom_label} (${maskEmail(bestClaudeRender.email)})` : maskEmail(bestClaudeRender.email)}>
+                                {getAccountDisplayName(bestClaudeRender)}
                             </div>
                         </div>
                         <div className="ml-2 px-2 py-0.5 bg-cyan-500 text-white text-xs font-semibold rounded-full">

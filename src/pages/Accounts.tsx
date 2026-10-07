@@ -4,13 +4,13 @@ import {
   Calendar,
   Clock,
   Download,
+  Eye,
+  EyeOff,
   LayoutGrid,
   List,
   RefreshCw,
   Search,
   Sparkles,
-  ToggleLeft,
-  ToggleRight,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -18,6 +18,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import AccountDetailsDialog from "../components/accounts/AccountDetailsDialog";
 import AccountGrid from "../components/accounts/AccountGrid";
 import AccountTable from "../components/accounts/AccountTable";
+import AccountSortDropdown from "../components/accounts/AccountSortDropdown";
+import AccountQuotaSummaryBar from "../components/accounts/AccountQuotaSummaryBar";
 import AddAccountDialog from "../components/accounts/AddAccountDialog";
 import DeviceFingerprintDialog from "../components/accounts/DeviceFingerprintDialog";
 import ModalDialog from "../components/common/ModalDialog";
@@ -28,6 +30,7 @@ import { exportAccounts } from "../services/accountService";
 import { useAccountStore } from "../stores/useAccountStore";
 import { useConfigStore } from "../stores/useConfigStore";
 import { Account, getAccountTier } from "../types/account";
+import { AccountSortOption, sortAccounts } from "../utils/accountSort";
 import { cn } from "../utils/cn";
 import { isTauri } from "../utils/env";
 import { request as invoke } from "../utils/request";
@@ -73,6 +76,11 @@ function Accounts() {
     return (saved === '5h' || saved === 'weekly') ? saved : '5h';
   });
 
+  const [sortOption, setSortOption] = useState<AccountSortOption>(() => {
+    const saved = localStorage.getItem('accounts_sort_option');
+    return (saved as AccountSortOption) || 'default';
+  });
+
   // Save view mode preference
   useEffect(() => {
     localStorage.setItem('accounts_view_mode', viewMode);
@@ -82,6 +90,23 @@ function Accounts() {
   useEffect(() => {
     localStorage.setItem('accounts_quota_window', quotaWindow);
   }, [quotaWindow]);
+
+  // Save sort option preference
+  useEffect(() => {
+    localStorage.setItem('accounts_sort_option', sortOption);
+  }, [sortOption]);
+
+  const [maskEmails, setMaskEmails] = useState<boolean>(() => {
+    return localStorage.getItem('antigravity_mask_emails') !== 'false';
+  });
+
+  const toggleMaskEmails = () => {
+    setMaskEmails((prev) => {
+      const next = !prev;
+      localStorage.setItem('antigravity_mask_emails', String(next));
+      return next;
+    });
+  };
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deviceAccount, setDeviceAccount] = useState<Account | null>(null);
   const [detailsAccount, setDetailsAccount] = useState<Account | null>(null);
@@ -270,11 +295,16 @@ function Accounts() {
     return searchedAccounts.filter((a) => getAccountTier(a) === filter);
   }, [searchedAccounts, filter]);
 
+  // 全局排序逻辑 (在分页前执行，保证跨所有页全局生效)
+  const sortedAccounts = useMemo(() => {
+    return sortAccounts(filteredAccounts, sortOption, quotaWindow);
+  }, [filteredAccounts, sortOption, quotaWindow]);
+
   // Pagination Logic
   const paginatedAccounts = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredAccounts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  }, [filteredAccounts, currentPage, ITEMS_PER_PAGE]);
+    return sortedAccounts.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [sortedAccounts, currentPage, ITEMS_PER_PAGE]);
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
@@ -284,7 +314,7 @@ function Accounts() {
   useEffect(() => {
     setSelectedIds(new Set());
     setCurrentPage(1);
-  }, [filter, searchQuery]);
+  }, [filter, searchQuery, sortOption]);
 
   const handleToggleSelect = (id: string) => {
     const newSet = new Set(selectedIds);
@@ -421,31 +451,6 @@ function Accounts() {
       showToast(`${t("common.error")}: ${error}`, "error");
     } finally {
       setToggleProxyConfirm(null);
-    }
-  };
-
-  const handleBatchToggleProxy = async (enable: boolean) => {
-    if (selectedIds.size === 0) return;
-
-    try {
-      const promises = Array.from(selectedIds).map((id) =>
-        toggleProxyStatus(
-          id,
-          enable,
-          enable ? undefined : t("accounts.proxy_disabled_reason_batch"),
-        ),
-      );
-      await Promise.all(promises);
-      showToast(
-        enable
-          ? t("accounts.toast.proxy_enabled", { count: selectedIds.size })
-          : t("accounts.toast.proxy_disabled", { count: selectedIds.size }),
-        "success",
-      );
-      setSelectedIds(new Set());
-    } catch (error) {
-      console.error("[Accounts] Batch toggle proxy status failed:", error);
-      showToast(`${t("common.error")}: ${error}`, "error");
     }
   };
 
@@ -812,6 +817,13 @@ function Accounts() {
           </button>
         </div>
 
+        {/* 账号排序下拉菜单 */}
+        <AccountSortDropdown
+          sortOption={sortOption}
+          onSortChange={setSortOption}
+          quotaWindow={quotaWindow}
+        />
+
         {/* 视图切换按钮组 */}
         <div className="flex gap-1 bg-gray-100 dark:bg-base-200 p-1 rounded-lg shrink-0">
           <button
@@ -837,6 +849,18 @@ function Accounts() {
             title={t("accounts.views.grid")}
           >
             <LayoutGrid className="w-4 h-4" />
+          </button>
+          <button
+            className={cn(
+              "p-1.5 rounded-md transition-all",
+              maskEmails
+                ? "bg-white dark:bg-base-100 text-blue-600 dark:text-blue-400 shadow-sm"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-base-content",
+            )}
+            onClick={toggleMaskEmails}
+            title={maskEmails ? t("accounts.privacy.show_email", "Show Full Email") : t("accounts.privacy.hide_email", "Hide Email (***)")}
+          >
+            {maskEmails ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
         </div>
 
@@ -951,34 +975,6 @@ function Accounts() {
                   {t("accounts.delete_selected", { count: selectedIds.size })}
                 </span>
               </button>
-              <button
-                className="px-2.5 py-2 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1.5 shadow-sm"
-                onClick={() => handleBatchToggleProxy(false)}
-                title={t("accounts.disable_proxy_selected", {
-                  count: selectedIds.size,
-                })}
-              >
-                <ToggleLeft className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline">
-                  {t("accounts.disable_proxy_selected", {
-                    count: selectedIds.size,
-                  })}
-                </span>
-              </button>
-              <button
-                className="px-2.5 py-2 bg-green-500 text-white text-xs font-medium rounded-lg hover:bg-green-600 transition-colors flex items-center gap-1.5 shadow-sm"
-                onClick={() => handleBatchToggleProxy(true)}
-                title={t("accounts.enable_proxy_selected", {
-                  count: selectedIds.size,
-                })}
-              >
-                <ToggleRight className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline">
-                  {t("accounts.enable_proxy_selected", {
-                    count: selectedIds.size,
-                  })}
-                </span>
-              </button>
             </>
           )}
 
@@ -1069,6 +1065,14 @@ function Accounts() {
         </div>
       </div>
 
+      {/* 账号配额总量摘要栏 (Sleek Quota Summary Bar) */}
+      <AccountQuotaSummaryBar
+        accounts={filteredAccounts}
+        totalAccountsCount={accounts.length}
+        quotaWindow={quotaWindow}
+        onSelectWindow={setQuotaWindow}
+      />
+
       {/* 账号列表内容区域 */}
       <div className="flex-1 min-h-0 relative" ref={containerRef}>
         {viewMode === "list" ? (
@@ -1099,6 +1103,9 @@ function Accounts() {
                 onUpdateLabel={handleUpdateLabel}
                 onViewError={(id: string) => setErrorAccountId(id)}
                 quotaWindow={quotaWindow}
+                maskEmails={maskEmails}
+                sortOption={sortOption}
+                onSortChange={setSortOption}
               />
             </div>
           </div>
@@ -1127,6 +1134,7 @@ function Accounts() {
               onUpdateLabel={handleUpdateLabel}
               onViewError={(id: string) => setErrorAccountId(id)}
               quotaWindow={quotaWindow}
+              maskEmails={maskEmails}
             />
           </div>
         )}

@@ -6,6 +6,10 @@ pub(crate) fn default_priority() -> u8 {
     50
 }
 
+pub(crate) fn default_proxy_disabled_true() -> bool {
+    true
+}
+
 pub(crate) fn validate_priority(priority: u8) -> Result<(), String> {
     if !(1..=100).contains(&priority) {
         return Err("priority must be an integer between 1 and 100".to_string());
@@ -61,8 +65,8 @@ pub struct Account {
     /// Unix timestamp when the account was disabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disabled_at: Option<i64>,
-    /// User manually disabled proxy feature (does not affect app usage).
-    #[serde(default)]
+    /// User manually disabled proxy feature (does not affect app usage). Defaults to true (proxy OFF by default).
+    #[serde(default = "default_proxy_disabled_true")]
     pub proxy_disabled: bool,
     /// Optional human-readable reason for proxy disabling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -116,9 +120,9 @@ impl Account {
             disabled: false,
             disabled_reason: None,
             disabled_at: None,
-            proxy_disabled: false,
-            proxy_disabled_reason: None,
-            proxy_disabled_at: None,
+            proxy_disabled: true,
+            proxy_disabled_reason: Some("Default disabled on creation".to_string()),
+            proxy_disabled_at: Some(now),
             protected_models: HashSet::new(),
             live_limited_models: HashMap::new(),
             validation_blocked: false,
@@ -204,7 +208,7 @@ pub struct AccountSummary {
     pub name: Option<String>,
     #[serde(default)]
     pub disabled: bool,
-    #[serde(default)]
+    #[serde(default = "default_proxy_disabled_true")]
     pub proxy_disabled: bool,
     /// 受保护的模型列表 [NEW] 供 UI 显示锁定图标
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]

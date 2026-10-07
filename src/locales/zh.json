@@ -380,6 +380,27 @@
       "sort_by_reset_time": "点击按配额重置时间排序",
       "sort_by_last_used": "点击按最后使用时间排序"
     },
+    "sort": {
+      "title": "账号排序",
+      "default": "默认排序",
+      "reset_to_default": "恢复默认排序",
+      "group_5h": "5小时滑动窗口",
+      "group_weekly": "周配额窗口",
+      "group_quota": "配额百分比",
+      "group_other": "使用与信息",
+      "reset_5h_weekly_priority": "5H重置 (周配额优先)",
+      "reset_5h_asc": "5H重置: 最快恢复优先",
+      "reset_5h_desc": "5H重置: 最晚恢复优先",
+      "reset_weekly_asc": "周配额重置: 最快恢复优先",
+      "reset_weekly_desc": "周配额重置: 最晚恢复优先",
+      "quota_desc": "配额: 从高到低",
+      "quota_asc": "配额: 从低到高",
+      "last_used_desc": "最后使用: 从新到旧",
+      "last_used_asc": "最后使用: 从旧到新",
+      "priority_desc": "优先级: 从高到低",
+      "email_asc": "名称 / 邮箱: A 到 Z",
+      "email_desc": "名称 / 邮箱: Z 到 A"
+    },
     "drag_to_reorder": "拖拽排序",
     "drag_disabled_during_sort": "已激活列排序，拖拽排序已暂停",
     "empty": {
@@ -389,6 +410,22 @@
     "views": {
       "list": "列表视图",
       "grid": "网格视图"
+    },
+    "summary": {
+      "fleet_capacity": "Gemini 配额",
+      "quota_weekly": "周总配额",
+      "quota_monthly": "月度总容量",
+      "quota_5h": "5H 现存配额",
+      "acc_equivalent": "{{equiv}} 个账号当量",
+      "acc_equivalent_monthly": "约 {{equiv}} 个账号当量/月",
+      "tooltip_weekly": "当前 {{count}} 个可用账号在 7 天周周期内的 Gemini 剩余可用配额之和（相当于 {{equiv}} 个满额账号）。点击可将表格视图切换至周配额。",
+      "tooltip_monthly": "按每周 4 个滚动周期预估的 30 天 Gemini 总配额承载能力（约 {{equiv}} 个账号当量/月）。",
+      "tooltip_5h": "当前 {{count}} 个可用账号在 5 小时滑动窗口内的 Gemini 剩余可用配额之和（相当于 {{equiv}} 个满额账号）。点击可将表格视图切换至 5H 配额。",
+      "ready": "可用",
+      "waiting": "恢复中",
+      "filtered_notice": "({{visible}}/{{total}})",
+      "toggle_details": "查看配额池明细",
+      "breakdown_title": "账号池配额明细"
     },
     "dialog": {
       "add_title": "添加新账号",
@@ -459,8 +496,13 @@
       "sync_interval": "同步间隔（分钟）"
     },
     "warmup": {
-      "title": "7天周配额智能预热",
-      "desc": "在各账号的 7 天周配额到达重置时间后自动唤醒 1 次，启动当周计时器，零多余消耗。"
+      "title": "智能配额预热",
+      "desc": "自动唤醒闲置账号启动 7 天周配额与 5 小时滚动重置计时器，保持额度循环更新，零多余消耗。",
+      "enable_5h_title": "5小时滚动窗口自动预热",
+      "enable_5h_desc": "应用开启时，自动唤醒处于 100% 闲置状态的模型，提前激活 5 小时滚动倒计时，无需等待首次手动使用。",
+      "weekly_notice": "默认包含 7 天周配额重置唤醒",
+      "monitored_models_label": "预热模型范围",
+      "monitored_models_desc": "勾选需要预热的模型。在周配额重置或 5 小时窗口闲置时将自动唤醒启动新周期。"
     },
     "quota_protection": {
       "title": "配额保护",
@@ -472,6 +514,24 @@
       "range": "范围",
       "example": "示例：设置 {{percentage}}% 时，{{total}} 次配额的账号剩余 ≤ {{threshold}} 次时将被自动禁用",
       "auto_restore_info": "配额重置后将自动重新启用账号"
+    },
+    "low_quota_alert": {
+      "title": "低配额预警与切号提醒",
+      "desc": "自动监测逐渐见底的活跃账号，并通过系统和应用内通知推荐配额最高的可用账号进行一键切换。",
+      "enable": "开启低配额切号提醒",
+      "enable_desc": "当账号配额低于预警阈值时自动发出切换提示",
+      "threshold_label": "预警配额阈值",
+      "threshold_hint": "当账号剩余配额降至或低于此百分比时触发提醒 (5% - 50%)",
+      "notify_system": "系统桌面通知",
+      "notify_system_desc": "在账号配额偏低时弹出操作系统桌面通知，点击可快速置顶应用",
+      "switch_now": "立即切换",
+      "switch_to": "切换至 {{name}} ({{quota}}%)",
+      "dismiss": "忽略",
+      "all_accounts_low": "所有可用账号配额均已偏低",
+      "alert_title": "账号配额偏低提醒",
+      "quota_low_msg": "配额已偏低",
+      "alert_message": "账号 {{name}} 配额已降至 {{quota}}%。建议切换至 {{targetName}} ({{targetQuota}}%)。",
+      "switched_success": "已成功切换至 {{name}}"
     },
     "pinned_quota_models": {
       "title": "配额关注列表",

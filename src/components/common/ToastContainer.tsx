@@ -40,16 +40,15 @@ const ToastContainer = () => {
     }, [addToast]);
 
     return createPortal(
-        <div className="fixed top-24 right-8 z-[200] flex flex-col gap-3 pointer-events-none">
-            <div className="flex flex-col gap-3 pointer-events-auto">
-                {toasts.map(toast => (
+        <div className="fixed top-24 right-8 z-[200] flex flex-col gap-3 pointer-events-none items-end">
+            {toasts.map(toast => (
+                <div key={toast.id} className="pointer-events-auto">
                     <Toast
-                        key={toast.id}
                         {...toast}
                         onClose={removeToast}
                     />
-                ))}
-            </div>
+                </div>
+            ))}
         </div>,
         document.body
     );

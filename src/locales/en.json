@@ -382,6 +382,27 @@
       "sort_by_reset_time": "Click to sort by quota reset time",
       "sort_by_last_used": "Click to sort by last used time"
     },
+    "sort": {
+      "title": "Sort Accounts",
+      "default": "Default Order",
+      "reset_to_default": "Reset to Default Order",
+      "group_5h": "5-Hour Window",
+      "group_weekly": "Weekly Window",
+      "group_quota": "Quota Percentage",
+      "group_other": "Usage & Details",
+      "reset_5h_weekly_priority": "5H Reset (Weekly-Prioritized)",
+      "reset_5h_asc": "5H Reset: Shortest first",
+      "reset_5h_desc": "5H Reset: Longest first",
+      "reset_weekly_asc": "Weekly Reset: Shortest first",
+      "reset_weekly_desc": "Weekly Reset: Longest first",
+      "quota_desc": "Quota: Highest first",
+      "quota_asc": "Quota: Lowest first",
+      "last_used_desc": "Last Used: Newest first",
+      "last_used_asc": "Last Used: Oldest first",
+      "priority_desc": "Priority: Highest first",
+      "email_asc": "Name / Email: A to Z",
+      "email_desc": "Name / Email: Z to A"
+    },
     "drag_to_reorder": "Drag to reorder",
     "drag_disabled_during_sort": "Column sorting is active; drag-to-reorder is paused",
     "empty": {
@@ -391,6 +412,22 @@
     "views": {
       "list": "List View",
       "grid": "Grid View"
+    },
+    "summary": {
+      "fleet_capacity": "Gemini Quota",
+      "quota_weekly": "Weekly",
+      "quota_monthly": "Monthly",
+      "quota_5h": "5H Current",
+      "acc_equivalent": "{{equiv}} Accs",
+      "acc_equivalent_monthly": "~{{equiv}} Accs/mo",
+      "tooltip_weekly": "Sum of current available Gemini weekly quota across {{count}} active accounts ({{equiv}} account equivalents). Click to switch table view to Weekly.",
+      "tooltip_monthly": "Estimated 30-day Gemini capacity based on 4× weekly rolling quota cycles (approx. {{equiv}} account equivalents/month).",
+      "tooltip_5h": "Sum of current available Gemini 5-hour quota across {{count}} active accounts ({{equiv}} account equivalents). Click to switch table view to 5H.",
+      "ready": "Ready",
+      "waiting": "waiting",
+      "filtered_notice": "({{visible}}/{{total}})",
+      "toggle_details": "View Quota Breakdown",
+      "breakdown_title": "Fleet Quota Breakdown"
     },
     "dialog": {
       "add_title": "Add Account",
@@ -461,8 +498,13 @@
       "sync_interval": "Sync Interval (minutes)"
     },
     "warmup": {
-      "title": "7-Day Weekly Reset Warmup",
-      "desc": "Automatically sends a minimal ping once when the 7-day weekly quota resets, starting the countdown with zero extra token waste."
+      "title": "Smart Quota Warmup",
+      "desc": "Automatically wakes up idle accounts to activate 7-day weekly and 5-hour rolling countdown timers with zero wasted tokens.",
+      "enable_5h_title": "5-Hour Rolling Window Auto Warmup",
+      "enable_5h_desc": "While the app is open, automatically pings idle models at 100% quota to start their 5-hour rolling countdown early without waiting for manual usage.",
+      "weekly_notice": "Includes 7-day weekly reset timer activation",
+      "monitored_models_label": "Monitored Models",
+      "monitored_models_desc": "Select models to warm up. When weekly resets or 5-hour windows are idle, minimal pings will start the new cycles."
     },
     "quota_protection": {
       "title": "Quota Protection",
@@ -474,6 +516,24 @@
       "range": "Range",
       "example": "Example: At {{percentage}}%, an account with {{total}} quota will be disabled when remaining ≤ {{threshold}}",
       "auto_restore_info": "Account will be automatically re-enabled when quota resets"
+    },
+    "low_quota_alert": {
+      "title": "Low Quota Alert & Auto-Switch Suggestion",
+      "desc": "Autodetects accounts approaching low quota gradually and delivers system and in-app notifications recommending the best high-quota account to switch to.",
+      "enable": "Enable Low Quota Alert",
+      "enable_desc": "Detect when accounts drop below threshold quota and trigger switch notifications",
+      "threshold_label": "Low Quota Threshold",
+      "threshold_hint": "Trigger alert when remaining quota falls to or below this percentage (5% - 50%)",
+      "notify_system": "OS Desktop Notification",
+      "notify_system_desc": "Send native Windows desktop notification with 1-click focus when quota is low",
+      "switch_now": "Switch Now",
+      "switch_to": "Switch to {{name}} ({{quota}}%)",
+      "dismiss": "Dismiss",
+      "all_accounts_low": "All accounts are running low on quota",
+      "alert_title": "Low Quota Warning",
+      "quota_low_msg": "is running low on quota",
+      "alert_message": "{{name}} quota is down to {{quota}}%. Recommended switch: {{targetName}} ({{targetQuota}}%).",
+      "switched_success": "Switched to {{name}}"
     },
     "pinned_quota_models": {
       "title": "Pinned Quota Models",

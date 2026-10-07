@@ -65,41 +65,51 @@ fn parse_reset_time_ts(s: &str) -> Option<i64> {
 }
 
 /// Select a model to ping for a given group, honoring user's monitored_models preference if available
-fn pick_model_for_group(group_name: &str, bucket_id: &str, monitored_models: &[String]) -> String {
+fn pick_model_for_group(
+    group_name: &str,
+    bucket_id: &str,
+    monitored_models: &[String],
+) -> Option<String> {
     let is_3p = bucket_id.to_lowercase().contains("3p")
         || group_name.to_lowercase().contains("claude")
         || group_name.to_lowercase().contains("gpt");
 
     if is_3p {
-        if let Some(m) = monitored_models.iter().find(|m| {
-            let l = m.to_lowercase();
-            l.contains("claude") || l.contains("gpt")
-        }) {
-            return m.clone();
+        if monitored_models.is_empty() {
+            return Some("claude-sonnet-4-6".to_string());
         }
-        "claude-sonnet-4-6".to_string()
+        monitored_models
+            .iter()
+            .find(|m| {
+                let l = m.to_lowercase();
+                l.contains("claude") || l.contains("gpt")
+            })
+            .cloned()
     } else {
-        if let Some(m) = monitored_models.iter().find(|m| {
-            let l = m.to_lowercase();
-            l.contains("gemini")
-        }) {
-            return m.clone();
+        if monitored_models.is_empty() {
+            return Some("gemini-3-flash".to_string());
         }
-        "gemini-3-flash".to_string()
+        monitored_models
+            .iter()
+            .find(|m| {
+                let l = m.to_lowercase();
+                l.contains("gemini")
+            })
+            .cloned()
     }
 }
 
-/// Start smart weekly scheduler
+/// Start smart warmup scheduler (monitors weekly and 5-hour quota windows)
 pub fn start_scheduler(
     app_handle: Option<tauri::AppHandle>,
     proxy_state: crate::commands::proxy::ProxyServiceState,
 ) {
     tauri::async_runtime::spawn(async move {
         logger::log_info(
-            "[Scheduler] Weekly Reset Warmup Scheduler started. Monitoring 7-day quota windows...",
+            "[Scheduler] Smart Warmup Scheduler started. Monitoring weekly and 5-hour quota windows...",
         );
 
-        // Scan every 5 minutes (300s) to check for accounts reaching weekly reset time
+        // Scan every 5 minutes (300s) to check for accounts reaching reset time or idle 5h windows
         let mut interval = time::interval(Duration::from_secs(300));
 
         loop {
@@ -124,10 +134,19 @@ pub fn start_scheduler(
             }
 
             let now_ts = Utc::now().timestamp();
-            let mut tasks_to_run = Vec::new();
+            let mut tasks_to_run: Vec<(
+                String,
+                String,
+                String,
+                String,
+                String,
+                Vec<String>,
+                &'static str,
+            )> = Vec::new();
+            let mut queued_targets = std::collections::HashSet::new();
 
             for acc in &accounts {
-                if acc.disabled || acc.proxy_disabled {
+                if acc.disabled {
                     continue;
                 }
 
@@ -146,7 +165,7 @@ pub fn start_scheduler(
                     continue;
                 }
 
-                // Check quota_groups for WEEKLY buckets
+                // Check quota_groups for WEEKLY and 5-HOUR buckets
                 if let Some(groups) = &fresh_quota.quota_groups {
                     for group in groups {
                         for bucket in &group.buckets {
@@ -156,53 +175,120 @@ pub fn start_scheduler(
                                 || bid_lower.contains("week")
                                 || win_lower.contains("7d")
                                 || bid_lower.contains("7d");
-                            if !is_weekly {
+                            let is_5h = win_lower.contains("5h")
+                                || bid_lower.contains("5h")
+                                || win_lower.contains("hour")
+                                || bid_lower.contains("hour");
+
+                            if !is_weekly
+                                && !(is_5h && app_config.scheduled_warmup.enable_5h_warmup)
+                            {
                                 continue;
                             }
 
                             // If fraction is 1.0 (100% full)
                             if bucket.remaining_fraction >= 0.999 {
                                 let reset_ts_opt = parse_reset_time_ts(&bucket.reset_time);
-                                let should_warmup = match reset_ts_opt {
-                                    Some(reset_ts) => {
-                                        // Periodic reset: current time has passed reset_time (with 1 min buffer)
-                                        now_ts >= reset_ts - 60
-                                    }
-                                    None => {
-                                        // Cold start: reset_time is empty (e.g. Gemini weekly bucket not yet activated this week)
-                                        // Triggering a warmup activates the 7-day timer upstream.
-                                        true
-                                    }
-                                };
 
-                                if should_warmup {
-                                    let history_key = match reset_ts_opt {
-                                        Some(reset_ts) => format!(
-                                            "{}:{}:weekly:{}",
-                                            acc.email, bucket.bucket_id, reset_ts
-                                        ),
-                                        None => format!(
-                                            "{}:{}:weekly:initial",
-                                            acc.email, bucket.bucket_id
-                                        ),
+                                // 1. Weekly Bucket Check
+                                if is_weekly {
+                                    let should_warmup = match reset_ts_opt {
+                                        Some(reset_ts) => now_ts >= reset_ts - 60,
+                                        None => true, // Cold start: weekly timer not yet activated
                                     };
 
-                                    // 6-day cooldown for the same cycle
-                                    if !check_cooldown(&history_key, 6 * 86400) {
-                                        let model_to_ping = pick_model_for_group(
+                                    if should_warmup {
+                                        let history_key = match reset_ts_opt {
+                                            Some(reset_ts) => format!(
+                                                "{}:{}:weekly:{}",
+                                                acc.email, bucket.bucket_id, reset_ts
+                                            ),
+                                            None => format!(
+                                                "{}:{}:weekly:initial",
+                                                acc.email, bucket.bucket_id
+                                            ),
+                                        };
+
+                                        if !check_cooldown(&history_key, 6 * 86400) {
+                                            if let Some(model_to_ping) = pick_model_for_group(
+                                                &group.display_name,
+                                                &bucket.bucket_id,
+                                                &app_config.scheduled_warmup.monitored_models,
+                                            ) {
+                                                let target_key =
+                                                    (acc.id.clone(), model_to_ping.clone());
+                                                if !queued_targets.contains(&target_key) {
+                                                    queued_targets.insert(target_key);
+                                                    tasks_to_run.push((
+                                                        acc.id.clone(),
+                                                        acc.email.clone(),
+                                                        model_to_ping,
+                                                        token.clone(),
+                                                        pid.clone(),
+                                                        vec![
+                                                            history_key,
+                                                            format!(
+                                                                "{}:{}:5h",
+                                                                acc.email, bucket.bucket_id
+                                                            ),
+                                                        ],
+                                                        "weekly",
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 2. 5-Hour Rolling Window Check (if enable_5h_warmup is enabled)
+                                if is_5h && app_config.scheduled_warmup.enable_5h_warmup {
+                                    let should_warmup_5h = match reset_ts_opt {
+                                        Some(reset_ts) => now_ts >= reset_ts - 60, // Periodic reset: 5h cycle has expired, back at 100%
+                                        None => true, // Cold start / idle: no active 5-hour countdown running
+                                    };
+
+                                    if should_warmup_5h {
+                                        let generic_5h_key =
+                                            format!("{}:{}:5h", acc.email, bucket.bucket_id);
+                                        let cycle_key = match reset_ts_opt {
+                                            Some(reset_ts) => format!(
+                                                "{}:{}:5h:{}",
+                                                acc.email, bucket.bucket_id, reset_ts
+                                            ),
+                                            None => format!(
+                                                "{}:{}:5h:idle",
+                                                acc.email, bucket.bucket_id
+                                            ),
+                                        };
+
+                                        if let Some(model_to_ping) = pick_model_for_group(
                                             &group.display_name,
                                             &bucket.bucket_id,
                                             &app_config.scheduled_warmup.monitored_models,
-                                        );
+                                        ) {
+                                            let manual_key =
+                                                format!("{}:{}:100", acc.email, model_to_ping);
 
-                                        tasks_to_run.push((
-                                            acc.id.clone(),
-                                            acc.email.clone(),
-                                            model_to_ping,
-                                            token.clone(),
-                                            pid.clone(),
-                                            history_key,
-                                        ));
+                                            if !check_cooldown(&generic_5h_key, 17400)
+                                                && !check_cooldown(&cycle_key, 17400)
+                                                && !check_cooldown(&manual_key, 14400)
+                                            {
+                                                let target_key =
+                                                    (acc.id.clone(), model_to_ping.clone());
+                                                if !queued_targets.contains(&target_key) {
+                                                    queued_targets.insert(target_key);
+                                                    tasks_to_run.push((
+                                                        acc.id.clone(),
+                                                        acc.email.clone(),
+                                                        model_to_ping,
+                                                        token.clone(),
+                                                        pid.clone(),
+                                                        vec![generic_5h_key, cycle_key, manual_key],
+                                                        "5-hour rolling",
+                                                    ));
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -211,27 +297,85 @@ pub fn start_scheduler(
                 } else {
                     // Fallback to models if quota_groups is not populated
                     for model in &fresh_quota.models {
-                        if model.percentage == 100 {
-                            if !app_config
-                                .scheduled_warmup
-                                .monitored_models
-                                .contains(&model.name)
-                            {
+                        if model.percentage >= 100 {
+                            let is_monitored =
+                                if app_config.scheduled_warmup.monitored_models.is_empty() {
+                                    true
+                                } else {
+                                    app_config
+                                        .scheduled_warmup
+                                        .monitored_models
+                                        .iter()
+                                        .any(|m| {
+                                            model.name.to_lowercase().contains(&m.to_lowercase())
+                                        })
+                                };
+                            if !is_monitored {
                                 continue;
                             }
-                            if let Some(reset_ts) = parse_reset_time_ts(&model.reset_time) {
+
+                            let reset_ts_opt = parse_reset_time_ts(&model.reset_time);
+
+                            // Weekly check
+                            if let Some(reset_ts) = reset_ts_opt {
                                 if now_ts >= reset_ts - 60 {
                                     let history_key =
                                         format!("{}:{}:weekly:{}", acc.email, model.name, reset_ts);
                                     if !check_cooldown(&history_key, 6 * 86400) {
-                                        tasks_to_run.push((
-                                            acc.id.clone(),
-                                            acc.email.clone(),
-                                            model.name.clone(),
-                                            token.clone(),
-                                            pid.clone(),
-                                            history_key,
-                                        ));
+                                        let target_key = (acc.id.clone(), model.name.clone());
+                                        if !queued_targets.contains(&target_key) {
+                                            queued_targets.insert(target_key);
+                                            tasks_to_run.push((
+                                                acc.id.clone(),
+                                                acc.email.clone(),
+                                                model.name.clone(),
+                                                token.clone(),
+                                                pid.clone(),
+                                                vec![
+                                                    history_key,
+                                                    format!("{}:{}:5h", acc.email, model.name),
+                                                ],
+                                                "weekly",
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 5h check (if enable_5h_warmup)
+                            if app_config.scheduled_warmup.enable_5h_warmup {
+                                let should_warmup_5h = match reset_ts_opt {
+                                    Some(reset_ts) => now_ts >= reset_ts - 60,
+                                    None => true, // idle, no timer running
+                                };
+
+                                if should_warmup_5h {
+                                    let generic_5h_key = format!("{}:{}:5h", acc.email, model.name);
+                                    let cycle_key = match reset_ts_opt {
+                                        Some(reset_ts) => {
+                                            format!("{}:{}:5h:{}", acc.email, model.name, reset_ts)
+                                        }
+                                        None => format!("{}:{}:5h:idle", acc.email, model.name),
+                                    };
+                                    let manual_key = format!("{}:{}:100", acc.email, model.name);
+
+                                    if !check_cooldown(&generic_5h_key, 17400)
+                                        && !check_cooldown(&cycle_key, 17400)
+                                        && !check_cooldown(&manual_key, 14400)
+                                    {
+                                        let target_key = (acc.id.clone(), model.name.clone());
+                                        if !queued_targets.contains(&target_key) {
+                                            queued_targets.insert(target_key);
+                                            tasks_to_run.push((
+                                                acc.id.clone(),
+                                                acc.email.clone(),
+                                                model.name.clone(),
+                                                token.clone(),
+                                                pid.clone(),
+                                                vec![generic_5h_key, cycle_key, manual_key],
+                                                "5-hour rolling",
+                                            ));
+                                        }
                                     }
                                 }
                             }
@@ -240,10 +384,10 @@ pub fn start_scheduler(
                 }
             }
 
-            // Execute weekly warmup tasks
+            // Execute warmup tasks
             if !tasks_to_run.is_empty() {
                 logger::log_info(&format!(
-                    "[Scheduler] 🎯 Reached weekly reset for {} account targets. Triggering warmup...",
+                    "[Scheduler] 🎯 Found {} warmup targets across accounts. Triggering warmup...",
                     tasks_to_run.len()
                 ));
 
@@ -251,10 +395,12 @@ pub fn start_scheduler(
                 let state_for_warmup = proxy_state.clone();
 
                 tokio::spawn(async move {
-                    for (acc_id, email, model, token, pid, history_key) in tasks_to_run {
+                    for (acc_id, email, model, token, pid, history_keys, warmup_type) in
+                        tasks_to_run
+                    {
                         logger::log_info(&format!(
-                            "[WeeklyWarmup] 🚀 Triggering weekly warmup for {} @ {}",
-                            model, email
+                            "[Warmup] 🚀 Triggering {} warmup for {} @ {}",
+                            warmup_type, model, email
                         ));
 
                         let success = quota::warmup_model_directly(
@@ -269,10 +415,12 @@ pub fn start_scheduler(
 
                         if success {
                             let now = Utc::now().timestamp();
-                            record_warmup_history(&history_key, now);
+                            for key in &history_keys {
+                                record_warmup_history(key, now);
+                            }
                             logger::log_info(&format!(
-                                "[WeeklyWarmup] ✅ Successfully started weekly timer for {} @ {}",
-                                model, email
+                                "[Warmup] ✅ Successfully started {} timer for {} @ {}",
+                                warmup_type, model, email
                             ));
                         }
                         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -324,63 +472,245 @@ pub async fn trigger_warmup_for_account(account: &Account) {
     }
 
     let now_ts = Utc::now().timestamp();
-    if let Some(groups) = fresh_quota.quota_groups {
+    let mut tasks_to_run: Vec<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        Vec<String>,
+        &'static str,
+    )> = Vec::new();
+    let mut queued_targets = std::collections::HashSet::new();
+
+    if let Some(groups) = &fresh_quota.quota_groups {
         for group in groups {
-            for bucket in group.buckets {
+            for bucket in &group.buckets {
                 let win_lower = bucket.window.to_lowercase();
                 let bid_lower = bucket.bucket_id.to_lowercase();
                 let is_weekly = win_lower.contains("week")
                     || bid_lower.contains("week")
                     || win_lower.contains("7d")
                     || bid_lower.contains("7d");
-                if !is_weekly {
+                let is_5h = win_lower.contains("5h")
+                    || bid_lower.contains("5h")
+                    || win_lower.contains("hour")
+                    || bid_lower.contains("hour");
+
+                if !is_weekly && !(is_5h && app_config.scheduled_warmup.enable_5h_warmup) {
                     continue;
                 }
 
                 if bucket.remaining_fraction >= 0.999 {
                     let reset_ts_opt = parse_reset_time_ts(&bucket.reset_time);
-                    let should_warmup = match reset_ts_opt {
-                        Some(reset_ts) => now_ts >= reset_ts - 60,
-                        None => true, // Cold-start for uninitialized weekly timer (Gemini)
-                    };
 
-                    if should_warmup {
-                        let history_key = match reset_ts_opt {
-                            Some(reset_ts) => {
-                                format!(
-                                    "{}:{}:weekly:{}",
-                                    account.email, bucket.bucket_id, reset_ts
-                                )
-                            }
-                            None => {
-                                format!("{}:{}:weekly:initial", account.email, bucket.bucket_id)
-                            }
+                    if is_weekly {
+                        let should_warmup = match reset_ts_opt {
+                            Some(reset_ts) => now_ts >= reset_ts - 60,
+                            None => true,
                         };
 
-                        if !check_cooldown(&history_key, 6 * 86400) {
-                            let model_to_ping = pick_model_for_group(
+                        if should_warmup {
+                            let history_key = match reset_ts_opt {
+                                Some(reset_ts) => {
+                                    format!(
+                                        "{}:{}:weekly:{}",
+                                        account.email, bucket.bucket_id, reset_ts
+                                    )
+                                }
+                                None => {
+                                    format!("{}:{}:weekly:initial", account.email, bucket.bucket_id)
+                                }
+                            };
+
+                            if !check_cooldown(&history_key, 6 * 86400) {
+                                if let Some(model_to_ping) = pick_model_for_group(
+                                    &group.display_name,
+                                    &bucket.bucket_id,
+                                    &app_config.scheduled_warmup.monitored_models,
+                                ) {
+                                    let target_key = (account.id.clone(), model_to_ping.clone());
+                                    if !queued_targets.contains(&target_key) {
+                                        queued_targets.insert(target_key);
+                                        tasks_to_run.push((
+                                            account.id.clone(),
+                                            account.email.clone(),
+                                            model_to_ping,
+                                            token.clone(),
+                                            pid.clone(),
+                                            vec![
+                                                history_key,
+                                                format!(
+                                                    "{}:{}:5h",
+                                                    account.email, bucket.bucket_id
+                                                ),
+                                            ],
+                                            "weekly",
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if is_5h && app_config.scheduled_warmup.enable_5h_warmup {
+                        let should_warmup_5h = match reset_ts_opt {
+                            Some(reset_ts) => now_ts >= reset_ts - 60,
+                            None => true,
+                        };
+
+                        if should_warmup_5h {
+                            let generic_5h_key =
+                                format!("{}:{}:5h", account.email, bucket.bucket_id);
+                            let cycle_key = match reset_ts_opt {
+                                Some(reset_ts) => {
+                                    format!(
+                                        "{}:{}:5h:{}",
+                                        account.email, bucket.bucket_id, reset_ts
+                                    )
+                                }
+                                None => format!("{}:{}:5h:idle", account.email, bucket.bucket_id),
+                            };
+
+                            if let Some(model_to_ping) = pick_model_for_group(
                                 &group.display_name,
                                 &bucket.bucket_id,
                                 &app_config.scheduled_warmup.monitored_models,
-                            );
+                            ) {
+                                let manual_key = format!("{}:{}:100", account.email, model_to_ping);
 
-                            let success = quota::warmup_model_directly(
-                                &token,
-                                &model_to_ping,
-                                &pid,
-                                &account.email,
-                                100,
-                                Some(&account.id),
-                            )
-                            .await;
-
-                            if success {
-                                record_warmup_history(&history_key, now_ts);
+                                if !check_cooldown(&generic_5h_key, 17400)
+                                    && !check_cooldown(&cycle_key, 17400)
+                                    && !check_cooldown(&manual_key, 14400)
+                                {
+                                    let target_key = (account.id.clone(), model_to_ping.clone());
+                                    if !queued_targets.contains(&target_key) {
+                                        queued_targets.insert(target_key);
+                                        tasks_to_run.push((
+                                            account.id.clone(),
+                                            account.email.clone(),
+                                            model_to_ping,
+                                            token.clone(),
+                                            pid.clone(),
+                                            vec![generic_5h_key, cycle_key, manual_key],
+                                            "5-hour rolling",
+                                        ));
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    } else {
+        // Fallback to models
+        for model in &fresh_quota.models {
+            if model.percentage >= 100 {
+                let is_monitored = if app_config.scheduled_warmup.monitored_models.is_empty() {
+                    true
+                } else {
+                    app_config
+                        .scheduled_warmup
+                        .monitored_models
+                        .iter()
+                        .any(|m| model.name.to_lowercase().contains(&m.to_lowercase()))
+                };
+                if !is_monitored {
+                    continue;
+                }
+
+                let reset_ts_opt = parse_reset_time_ts(&model.reset_time);
+
+                if let Some(reset_ts) = reset_ts_opt {
+                    if now_ts >= reset_ts - 60 {
+                        let history_key =
+                            format!("{}:{}:weekly:{}", account.email, model.name, reset_ts);
+                        if !check_cooldown(&history_key, 6 * 86400) {
+                            let target_key = (account.id.clone(), model.name.clone());
+                            if !queued_targets.contains(&target_key) {
+                                queued_targets.insert(target_key);
+                                tasks_to_run.push((
+                                    account.id.clone(),
+                                    account.email.clone(),
+                                    model.name.clone(),
+                                    token.clone(),
+                                    pid.clone(),
+                                    vec![
+                                        history_key,
+                                        format!("{}:{}:5h", account.email, model.name),
+                                    ],
+                                    "weekly",
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                if app_config.scheduled_warmup.enable_5h_warmup {
+                    let should_warmup_5h = match reset_ts_opt {
+                        Some(reset_ts) => now_ts >= reset_ts - 60,
+                        None => true,
+                    };
+
+                    if should_warmup_5h {
+                        let generic_5h_key = format!("{}:{}:5h", account.email, model.name);
+                        let cycle_key = match reset_ts_opt {
+                            Some(reset_ts) => {
+                                format!("{}:{}:5h:{}", account.email, model.name, reset_ts)
+                            }
+                            None => format!("{}:{}:5h:idle", account.email, model.name),
+                        };
+                        let manual_key = format!("{}:{}:100", account.email, model.name);
+
+                        if !check_cooldown(&generic_5h_key, 17400)
+                            && !check_cooldown(&cycle_key, 17400)
+                            && !check_cooldown(&manual_key, 14400)
+                        {
+                            let target_key = (account.id.clone(), model.name.clone());
+                            if !queued_targets.contains(&target_key) {
+                                queued_targets.insert(target_key);
+                                tasks_to_run.push((
+                                    account.id.clone(),
+                                    account.email.clone(),
+                                    model.name.clone(),
+                                    token.clone(),
+                                    pid.clone(),
+                                    vec![generic_5h_key, cycle_key, manual_key],
+                                    "5-hour rolling",
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !tasks_to_run.is_empty() {
+        tokio::spawn(async move {
+            for (acc_id, email, model, token, pid, history_keys, warmup_type) in tasks_to_run {
+                logger::log_info(&format!(
+                    "[Warmup] 🚀 Triggering {} warmup for {} @ {}",
+                    warmup_type, model, email
+                ));
+
+                let success =
+                    quota::warmup_model_directly(&token, &model, &pid, &email, 100, Some(&acc_id))
+                        .await;
+
+                if success {
+                    let now = Utc::now().timestamp();
+                    for key in &history_keys {
+                        record_warmup_history(key, now);
+                    }
+                    logger::log_info(&format!(
+                        "[Warmup] ✅ Successfully started {} timer for {} @ {}",
+                        warmup_type, model, email
+                    ));
+                }
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            }
+        });
     }
 }

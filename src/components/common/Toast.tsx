@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { CheckCircle, XCircle, Info, AlertTriangle, X } from 'lucide-react';
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
@@ -14,18 +14,35 @@ export interface ToastProps {
 const Toast = ({ id, message, type, duration = 3000, onClose }: ToastProps) => {
     const [isVisible, setIsVisible] = useState(false);
 
+    const [isHovered, setIsHovered] = useState(false);
+    const remainingRef = useRef(duration);
+    const lastTickRef = useRef<number>(Date.now());
+
     useEffect(() => {
         // Exciting entrance
         requestAnimationFrame(() => setIsVisible(true));
+    }, []);
 
-        if (duration > 0) {
-            const timer = setTimeout(() => {
-                setIsVisible(false);
-                setTimeout(() => onClose(id), 300); // Wait for transition
-            }, duration);
-            return () => clearTimeout(timer);
-        }
-    }, [duration, id, onClose]);
+    useEffect(() => {
+        if (duration <= 0) return;
+
+        const interval = setInterval(() => {
+            const now = Date.now();
+            const delta = now - lastTickRef.current;
+            lastTickRef.current = now;
+
+            if (!isHovered) {
+                remainingRef.current -= delta;
+                if (remainingRef.current <= 0) {
+                    setIsVisible(false);
+                    setTimeout(() => onClose(id), 300);
+                    clearInterval(interval);
+                }
+            }
+        }, 50);
+
+        return () => clearInterval(interval);
+    }, [duration, id, onClose, isHovered]);
 
     const getIcon = () => {
         switch (type) {
@@ -47,7 +64,12 @@ const Toast = ({ id, message, type, duration = 3000, onClose }: ToastProps) => {
 
     return (
         <div
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border transition-all duration-300 transform ${getStyles()} ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => {
+                lastTickRef.current = Date.now();
+                setIsHovered(false);
+            }}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border transition-all duration-300 transform pointer-events-auto ${getStyles()} ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}
             style={{ minWidth: '300px' }}
         >
             {getIcon()}

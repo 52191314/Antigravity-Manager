@@ -218,26 +218,163 @@ fn apply_account_credentials(
     Ok(())
 }
 
+/// Shared system-level account switch logic (keyring, DB injection, process control)
+pub async fn execute_system_switch(
+    account: &crate::models::Account,
+    target_ide: Option<&str>,
+) -> Result<(), String> {
+    crate::modules::logger::log_info(&format!(
+        "[System] Executing system switch for: {} (target_ide: {:?})",
+        account.email, target_ide
+    ));
+
+    if target_ide == Some("agy") {
+        write_to_system_keyring(account)?;
+
+        if let Ok(storage_path) = device::get_storage_path(target_ide) {
+            if let Some(ref profile) = account.device_profile {
+                let _ = device::write_profile(&storage_path, profile);
+            }
+        }
+
+        return Ok(());
+    }
+
+    // 1. 智能决策：判断目标是 Antigravity IDE (VS Code 定制版) 还是 Antigravity 经典版 (原生桌面端)
+    let classic_running = process::is_antigravity_running(None);
+    let ide_running = process::is_antigravity_running(Some("ide"));
+    let classic_exe = process::get_antigravity_executable_path(None);
+    let ide_exe = process::get_antigravity_executable_path(Some("ide"));
+    let ide_exe_str = ide_exe.as_ref().map(|p| p.to_string_lossy().to_string());
+
+    let (is_ide, effective_target) = resolve_effective_target(
+        target_ide,
+        classic_running,
+        ide_running,
+        classic_exe.is_some(),
+        ide_exe_str.as_deref(),
+    );
+
+    if is_ide {
+        crate::modules::logger::log_info(
+            "[System] Determined target environment is Antigravity IDE, using IDE account switch logic.",
+        );
+    } else {
+        crate::modules::logger::log_info(
+            "[System] Determined target environment is Antigravity classic, using classic account switch logic.",
+        );
+    }
+
+    // 0. 在关闭外部进程前，预先快照捕获正在运行的客户端可执行文件路径与启动参数
+    let active_exe_path = process::get_antigravity_executable_path(effective_target);
+    let active_args = process::get_args_from_running_process(effective_target);
+
+    // 2. 决定切换模式（热切号 / 完整重启）并处理进程与凭据
+    let running = process::is_antigravity_running(effective_target);
+    let mut hot_switch = false;
+    let mut credentials_applied = false;
+
+    if is_ide && running {
+        apply_account_credentials(
+            account,
+            effective_target,
+            is_ide,
+            active_exe_path.as_deref(),
+        )?;
+        credentials_applied = true;
+
+        match process::kill_language_server_subprocesses(effective_target) {
+            Ok(n) if n > 0 => {
+                hot_switch = true;
+                crate::modules::logger::log_info(&format!(
+                    "[System] Hot switch: terminated {} language_server subprocess(es); main window kept alive, supervisor will respawn the child with the new credentials.",
+                    n
+                ));
+
+                if let Err(e) = apply_account_credentials(
+                    account,
+                    effective_target,
+                    is_ide,
+                    active_exe_path.as_deref(),
+                ) {
+                    crate::modules::logger::log_warn(&format!(
+                        "[System] Hot switch: post-kill credential re-assert failed ({}); the pre-kill write is already in place, continuing.",
+                        e
+                    ));
+                }
+            }
+            Ok(_) => crate::modules::logger::log_info(
+                "[System] Hot switch unavailable: no language_server subprocess found; falling back to full restart.",
+            ),
+            Err(e) => crate::modules::logger::log_warn(&format!(
+                "[System] Hot switch failed ({}); falling back to full restart.",
+                e
+            )),
+        }
+    }
+
+    if !hot_switch && running {
+        process::close_antigravity(20, effective_target)?;
+    }
+    if effective_target != target_ide
+        && target_ide.is_some()
+        && process::is_antigravity_running(target_ide)
+    {
+        process::close_antigravity(20, target_ide)?;
+    }
+
+    // 凭据写入（热切号已在终止子进程之前完成，避免重复写入；完整重启路径保持「先杀后写」）
+    if !credentials_applied {
+        apply_account_credentials(
+            account,
+            effective_target,
+            is_ide,
+            active_exe_path.as_deref(),
+        )?;
+    }
+
+    // 3. 重启外部进程
+    if hot_switch {
+        if process::wait_for_language_server_respawn(effective_target, 15) {
+            crate::modules::logger::log_info(&format!(
+                "[System] Hot switch completed for {}: language_server respawned with the new credentials.",
+                account.email
+            ));
+            return Ok(());
+        }
+
+        crate::modules::logger::log_warn(
+            "[System] Hot switch degraded: language_server did not respawn within timeout; performing a full restart.",
+        );
+        process::close_antigravity(20, effective_target)?;
+    }
+
+    if let Err(e) = process::start_antigravity_with_fallback_path(
+        effective_target,
+        active_exe_path.as_deref(),
+        active_args.as_deref(),
+    ) {
+        if !running && process::is_client_executable_missing(&e) {
+            crate::modules::logger::log_info(
+                "[System] Client executable not found and was not running before switch; credentials applied successfully.",
+            );
+        } else {
+            return Err(e);
+        }
+    }
+
+    Ok(())
+}
+
 impl SystemIntegration for DesktopIntegration {
     async fn on_account_switch(
         &self,
         account: &crate::models::Account,
         target_ide: Option<&str>,
     ) -> Result<(), String> {
-        crate::modules::logger::log_info(&format!(
-            "[Desktop] Executing system switch for: {} (target_ide: {:?})",
-            account.email, target_ide
-        ));
+        execute_system_switch(account, target_ide).await?;
 
         if target_ide == Some("agy") {
-            write_to_system_keyring(account)?;
-
-            if let Ok(storage_path) = device::get_storage_path(target_ide) {
-                if let Some(ref profile) = account.device_profile {
-                    let _ = device::write_profile(&storage_path, profile);
-                }
-            }
-
             let is_running = process::is_process_running_by_name("agy");
             let msg = if is_running {
                 format!(
@@ -251,160 +388,9 @@ impl SystemIntegration for DesktopIntegration {
                 )
             };
             self.show_notification("Antigravity CLI", &msg);
-            self.update_tray();
-
-            return Ok(());
         }
 
-        // 1. 智能决策：判断目标是 Antigravity IDE (VS Code 定制版) 还是 Antigravity 经典版 (原生桌面端)
-        let classic_running = process::is_antigravity_running(None);
-        let ide_running = process::is_antigravity_running(Some("ide"));
-        let classic_exe = process::get_antigravity_executable_path(None);
-        let ide_exe = process::get_antigravity_executable_path(Some("ide"));
-        let ide_exe_str = ide_exe.as_ref().map(|p| p.to_string_lossy().to_string());
-
-        let (is_ide, effective_target) = resolve_effective_target(
-            target_ide,
-            classic_running,
-            ide_running,
-            classic_exe.is_some(),
-            ide_exe_str.as_deref(),
-        );
-
-        if is_ide {
-            crate::modules::logger::log_info(
-                "[Desktop] Determined target environment is Antigravity IDE, using IDE account switch logic.",
-            );
-        } else {
-            crate::modules::logger::log_info(
-                "[Desktop] Determined target environment is Antigravity classic, using classic account switch logic.",
-            );
-        }
-
-        // 0. 在关闭外部进程前，预先快照捕获正在运行的客户端可执行文件路径与启动参数
-        // 彻底防止杀死进程后由于安装在非标准路径而丢失路径导致启动失败 (Unable to start)
-        let active_exe_path = process::get_antigravity_executable_path(effective_target);
-        let active_args = process::get_args_from_running_process(effective_target);
-
-        // 2. 决定切换模式（热切号 / 完整重启）并处理进程与凭据
-        //
-        //    · 热切号 —— 仅 IDE 目标（issue #3503 方案 A）：只终止 language_server 子进程、保留主窗口，
-        //      IDE 内置 supervisor 会在约 2 秒内原地重建子进程并重载 Webview，从而保住用户的
-        //      未保存缓冲区 / 终端任务 / 断点 / 文件树。顺序是**先写凭据 → 再杀子进程 →（best-effort）再补写一次**：
-        //      supervisor 重启有约 2s 退避窗口，而写入只需毫秒级，"写在前"保证重新拉起的子进程
-        //      必然读到新凭据，不存在"子进程先起来、加载旧账号"的竞态；杀完再补写一次是为了覆盖
-        //      "写 → 杀"这几十毫秒窗口内旧语言服务把旧 token 回写进数据库的极端情况。
-        //      另外写入失败会在杀进程之前返回错误，IDE 保持原样不受影响。
-        //    · 完整重启 —— 经典原生版（或未定位到语言服务子进程）：沿用原顺序「先杀 → 再写 → 再启动」，
-        //      因为旧架构下运行中的应用会在退出时刷盘覆盖刚写入的 Token。
-        let running = process::is_antigravity_running(effective_target);
-        let mut hot_switch = false;
-        let mut credentials_applied = false;
-
-        if is_ide && running {
-            apply_account_credentials(
-                account,
-                effective_target,
-                is_ide,
-                active_exe_path.as_deref(),
-            )?;
-            credentials_applied = true;
-
-            match process::kill_language_server_subprocesses(effective_target) {
-                Ok(n) if n > 0 => {
-                    hot_switch = true;
-                    crate::modules::logger::log_info(&format!(
-                        "[Desktop] Hot switch: terminated {} language_server subprocess(es); \
-                         main window kept alive, supervisor will respawn the child with the new credentials.",
-                        n
-                    ));
-
-                    // 补写一次凭据（best-effort）：子进程已被终止，此时数据库不存在竞争写者，
-                    // 这次写入即为权威值 —— 用于覆盖"写凭据 → 杀子进程"这几十毫秒窗口内
-                    // 旧语言服务可能把旧 token 回写进 state.vscdb 的情况，
-                    // 确保 supervisor 约 2s 后重新拉起的子进程读到的一定是新凭据。
-                    // 失败只告警，不使整个切号失败：第一次写入已经就位。
-                    if let Err(e) = apply_account_credentials(
-                        account,
-                        effective_target,
-                        is_ide,
-                        active_exe_path.as_deref(),
-                    ) {
-                        crate::modules::logger::log_warn(&format!(
-                            "[Desktop] Hot switch: post-kill credential re-assert failed ({}); \
-                             the pre-kill write is already in place, continuing.",
-                            e
-                        ));
-                    }
-                }
-                Ok(_) => crate::modules::logger::log_info(
-                    "[Desktop] Hot switch unavailable: no language_server subprocess found; falling back to full restart.",
-                ),
-                Err(e) => crate::modules::logger::log_warn(&format!(
-                    "[Desktop] Hot switch failed ({}); falling back to full restart.",
-                    e
-                )),
-            }
-        }
-
-        if !hot_switch && running {
-            process::close_antigravity(20, effective_target)?;
-        }
-        if effective_target != target_ide
-            && target_ide.is_some()
-            && process::is_antigravity_running(target_ide)
-        {
-            process::close_antigravity(20, target_ide)?;
-        }
-
-        // 凭据写入（热切号已在终止子进程之前完成，避免重复写入；完整重启路径保持「先杀后写」）
-        if !credentials_applied {
-            apply_account_credentials(
-                account,
-                effective_target,
-                is_ide,
-                active_exe_path.as_deref(),
-            )?;
-        }
-
-        // 3. 重启外部进程（优先使用预快照路径与启动参数）
-        //    热切号路径下主窗口仍然存活：只需等 supervisor 把 language_server 拉起即可，
-        //    绝不能再去启动一次主窗口（否则会变成双实例）。
-        if hot_switch {
-            if process::wait_for_language_server_respawn(effective_target, 15) {
-                crate::modules::logger::log_info(&format!(
-                    "[Desktop] Hot switch completed for {}: language_server respawned with the new credentials.",
-                    account.email
-                ));
-                let _ = crate::modules::tray::update_tray_menus(&self.app_handle);
-                return Ok(());
-            }
-
-            // 子进程迟迟未恢复 → 降级为完整重启，避免留下"窗口活着但 AI 引擎已死"的残状态
-            crate::modules::logger::log_warn(
-                "[Desktop] Hot switch degraded: language_server did not respawn within timeout; performing a full restart.",
-            );
-            process::close_antigravity(20, effective_target)?;
-        }
-
-        if let Err(e) = process::start_antigravity_with_fallback_path(
-            effective_target,
-            active_exe_path.as_deref(),
-            active_args.as_deref(),
-        ) {
-            // 若切号前外部客户端原本就没有处于运行状态，且启动失败原因是找不到客户端可执行文件
-            // （例如纯反代服务模式、未安装 GUI 客户端或无头环境）：
-            // 此时凭据和配置已经写入成功，降级处理并记录信息，避免让整个切号操作报错中断。
-            if !running && process::is_client_executable_missing(&e) {
-                crate::modules::logger::log_info(
-                    "[Desktop] Client executable not found and was not running before switch; credentials applied successfully.",
-                );
-            } else {
-                return Err(e);
-            }
-        }
-
-        // 4. 更新托盘
+        // 更新托盘
         let _ = crate::modules::tray::update_tray_menus(&self.app_handle);
 
         Ok(())
@@ -415,8 +401,27 @@ impl SystemIntegration for DesktopIntegration {
     }
 
     fn show_notification(&self, title: &str, body: &str) {
-        // 使用 tauri-plugin-dialog 或原生通知（此处简化）
+        crate::commands::show_desktop_notification(title, body);
         crate::modules::logger::log_info(&format!("[Notification] {}: {}", title, body));
+    }
+}
+
+/// CLI 模式实现：执行完整的数据写入与客户端进程热重启，不依赖桌面 AppHandle
+pub struct CliIntegration;
+
+impl SystemIntegration for CliIntegration {
+    async fn on_account_switch(
+        &self,
+        account: &crate::models::Account,
+        target_ide: Option<&str>,
+    ) -> Result<(), String> {
+        execute_system_switch(account, target_ide).await
+    }
+
+    fn update_tray(&self) {}
+
+    fn show_notification(&self, title: &str, body: &str) {
+        crate::modules::logger::log_info(&format!("[CLI Notification] {}: {}", title, body));
     }
 }
 
@@ -1113,6 +1118,7 @@ impl SystemIntegration for HeadlessIntegration {
 pub enum SystemManager {
     Desktop(tauri::AppHandle),
     Headless,
+    Cli,
 }
 
 impl SystemManager {
@@ -1130,6 +1136,10 @@ impl SystemManager {
             }
             SystemManager::Headless => {
                 let integration = HeadlessIntegration;
+                integration.on_account_switch(account, target_ide).await
+            }
+            SystemManager::Cli => {
+                let integration = CliIntegration;
                 integration.on_account_switch(account, target_ide).await
             }
         }
@@ -1156,6 +1166,10 @@ impl SystemManager {
                 let integration = HeadlessIntegration;
                 integration.show_notification(title, body);
             }
+            SystemManager::Cli => {
+                let integration = CliIntegration;
+                integration.show_notification(title, body);
+            }
         }
     }
 }
@@ -1175,6 +1189,10 @@ impl SystemIntegration for SystemManager {
             }
             SystemManager::Headless => {
                 let integration = HeadlessIntegration;
+                integration.on_account_switch(account, target_ide).await
+            }
+            SystemManager::Cli => {
+                let integration = CliIntegration;
                 integration.on_account_switch(account, target_ide).await
             }
         }

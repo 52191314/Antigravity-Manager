@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { X, Clock, AlertCircle, Bot } from 'lucide-react';
+import { X, Clock, AlertCircle, Bot, Eye, EyeOff } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Account, getAccountTier, getTierLabel } from '../../types/account';
-import { formatDate } from '../../utils/format';
+import { formatDate, maskEmail } from '../../utils/format';
 import { useTranslation } from 'react-i18next';
 import { MODEL_CONFIG, sortModels } from '../../config/modelConfig';
 import { showToast } from '../common/ToastContainer';
@@ -18,6 +18,7 @@ export default function AccountDetailsDialog({ account, onClose, onUpdatePriorit
     const [activeTab, setActiveTab] = useState<'basic' | 'detailed'>('basic');
     const [priorityInput, setPriorityInput] = useState('50');
     const [savingPriority, setSavingPriority] = useState(false);
+    const [showFullEmail, setShowFullEmail] = useState(false);
     useEffect(() => {
         setPriorityInput(String(account?.priority ?? 50));
     }, [account?.id, account?.priority]);
@@ -50,9 +51,18 @@ export default function AccountDetailsDialog({ account, onClose, onUpdatePriorit
                 <div className="px-6 py-5 border-b border-gray-100 dark:border-base-200 bg-gray-50/50 dark:bg-base-200/50 flex justify-between items-center">
                     <div className="flex items-center gap-3">
                         <h3 className="font-bold text-lg text-gray-900 dark:text-base-content">{t('accounts.details.title')}</h3>
-                        <div className="px-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-base-200 border border-gray-200 dark:border-base-300 text-xs font-mono text-gray-500 dark:text-gray-400">
-                            {account.email}
-                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowFullEmail(!showFullEmail)}
+                            className="px-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-base-200 border border-gray-200 dark:border-base-300 text-xs font-mono text-gray-600 dark:text-gray-300 hover:bg-gray-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+                            title={showFullEmail ? "Click to mask" : "Click to reveal full email"}
+                        >
+                            <span>
+                                {account.custom_label ? `${account.custom_label} • ` : ''}
+                                {showFullEmail ? account.email : maskEmail(account.email)}
+                            </span>
+                            {showFullEmail ? <EyeOff size={12} className="text-gray-400" /> : <Eye size={12} className="text-gray-400" />}
+                        </button>
                         {(() => {
                             const tier = getAccountTier(account);
                             // 用归一化后的等级文案，避免把后端的原始字符串

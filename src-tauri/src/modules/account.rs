@@ -2569,7 +2569,7 @@ pub async fn check_and_trigger_warmup_for_recovered_models() {
 
     for account in accounts {
         // Skip disabled accounts
-        if account.disabled || account.proxy_disabled {
+        if account.disabled {
             continue;
         }
 

@@ -803,17 +803,8 @@ export default function ApiProxy() {
                 setAppConfig(newConfig);
                 await invoke('save_config', { config: newConfig });
             } else {
-                const newConfig = {
-                    ...appConfig,
-                    proxy: {
-                        ...appConfig.proxy,
-                        auto_start: true
-                    }
-                };
-                setAppConfig(newConfig);
-                await invoke('save_config', { config: newConfig });
-                // 使用当前的 appConfig.proxy 启动
-                await invoke('start_proxy_service', { config: newConfig.proxy });
+                // 使用当前的 appConfig.proxy 启动，不强制将 auto_start 改为 true
+                await invoke('start_proxy_service', { config: appConfig.proxy });
             }
             await loadStatus();
         } catch (error: any) {

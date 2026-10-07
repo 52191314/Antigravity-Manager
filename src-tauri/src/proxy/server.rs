@@ -2,7 +2,7 @@ use crate::models::AppConfig;
 use crate::modules::{account, config, logger, migration, proxy_db, security_db, token_stats};
 use crate::proxy::TokenManager;
 use axum::{
-    extract::{DefaultBodyLimit, Path, Query, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Json, Response},
     routing::{any, delete, get, post},
@@ -109,6 +109,7 @@ pub struct AppState {
     pub proxy_pool_manager: Arc<crate::proxy::proxy_pool::ProxyPoolManager>, // [FIX Web Mode]
     pub only_raw_quota_models: Arc<tokio::sync::RwLock<bool>>, // [NEW] 是否只暴露真实配额模型
     pub image_scheduler: Arc<ImageScheduler>,
+    pub cancel_token: tokio_util::sync::CancellationToken,
 }
 
 #[derive(Default)]
@@ -549,6 +550,8 @@ impl AxumServer {
             "Image scheduler initialized"
         );
 
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+
         let state = AppState {
             token_manager: token_manager.clone(),
             custom_mapping: custom_mapping_state.clone(),
@@ -584,6 +587,7 @@ impl AxumServer {
             proxy_pool_manager: proxy_pool_manager.clone(),
             only_raw_quota_models: only_raw_quota_models_state.clone(),
             image_scheduler,
+            cancel_token: cancel_token.clone(),
         };
 
         // 构建路由 - 使用新架构的 handlers！
@@ -1040,6 +1044,7 @@ impl AxumServer {
             .merge(proxy_routes)
             // 公开路由 (无需鉴权)
             .route("/auth/callback", get(handle_oauth_callback))
+            .route("/system/shutdown", post(handle_system_shutdown))
             // 应用全局监控与状态层 (外层)
             .layer(axum::middleware::from_fn_with_state(
                 state.clone(),
@@ -1071,11 +1076,8 @@ impl AxumServer {
         };
         tracing::info!("反代服务器启动在 http://{}:{}", display_host, port);
 
-        // 创建统一取消令牌
-        let cancel_token = tokio_util::sync::CancellationToken::new();
-
         let server_instance = Self {
-            cancel_token: cancel_token.clone(),
+            cancel_token: state.cancel_token.clone(),
             custom_mapping: custom_mapping_state.clone(),
             proxy_state,
             upstream: state.upstream.clone(),
@@ -1310,6 +1312,28 @@ async fn health_check_handler() -> Response {
 /// 静默成功处理器 (用于拦截遥测日志等)
 async fn silent_ok_handler() -> Response {
     StatusCode::OK.into_response()
+}
+
+/// 本地平滑关机处理器 (仅允许 loopback 访问)
+async fn handle_system_shutdown(
+    State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+) -> impl IntoResponse {
+    let ip = addr.ip();
+    if !ip.is_loopback() {
+        tracing::warn!("拒绝非回环 IP 请求关机: {}", ip);
+        return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+    }
+
+    tracing::info!("收到本地平滑停机请求，正在退出服务...");
+    let cancel_token = state.cancel_token.clone();
+    tokio::spawn(async move {
+        cancel_token.cancel();
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        std::process::exit(0);
+    });
+
+    (StatusCode::OK, "Shutting down").into_response()
 }
 
 // ============================================================================

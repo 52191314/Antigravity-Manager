@@ -33,6 +33,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub circuit_breaker: CircuitBreakerConfig, // [NEW] Circuit breaker configuration
     #[serde(default)]
+    pub low_quota_alert: LowQuotaAlertConfig, // [NEW] Low quota alert configuration
+    #[serde(default)]
     pub hidden_menu_items: Vec<String>, // Hidden menu item path list
     #[serde(default)]
     pub cloudflared: CloudflaredConfig, // [NEW] Cloudflared configuration
@@ -59,6 +61,14 @@ pub struct ScheduledWarmupConfig {
     /// List of models to warmup
     #[serde(default = "default_warmup_models")]
     pub monitored_models: Vec<String>,
+
+    /// Whether 5-hour rolling window auto-warmup is enabled
+    #[serde(default = "default_enable_5h_warmup")]
+    pub enable_5h_warmup: bool,
+}
+
+fn default_enable_5h_warmup() -> bool {
+    true
 }
 
 fn default_warmup_models() -> Vec<String> {
@@ -75,6 +85,7 @@ impl ScheduledWarmupConfig {
         Self {
             enabled: false,
             monitored_models: default_warmup_models(),
+            enable_5h_warmup: true,
         }
     }
 }
@@ -137,7 +148,7 @@ fn default_pinned_models() -> Vec<String> {
         "gemini-3-pro-high".to_string(),
         "gemini-3-flash".to_string(),
         "gemini-3.1-flash-image".to_string(),
-        "claude-sonnet-4-6-thinking".to_string(),
+        "claude-sonnet-5-5-high".to_string(),
     ]
 }
 
@@ -195,6 +206,43 @@ impl Default for CircuitBreakerConfig {
     }
 }
 
+/// Low quota alert configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LowQuotaAlertConfig {
+    /// Whether low quota alert is enabled
+    pub enabled: bool,
+    /// Alert threshold percentage (e.g. 20)
+    #[serde(default = "default_low_quota_threshold")]
+    pub threshold_percentage: u32,
+    /// Whether to trigger system desktop notification
+    #[serde(default = "default_low_quota_notify_system")]
+    pub notify_system: bool,
+}
+
+fn default_low_quota_threshold() -> u32 {
+    20
+}
+
+fn default_low_quota_notify_system() -> bool {
+    true
+}
+
+impl LowQuotaAlertConfig {
+    pub fn new() -> Self {
+        Self {
+            enabled: true,
+            threshold_percentage: 20,
+            notify_system: true,
+        }
+    }
+}
+
+impl Default for LowQuotaAlertConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppConfig {
     pub fn new() -> Self {
         Self {
@@ -216,6 +264,7 @@ impl AppConfig {
             quota_protection: QuotaProtectionConfig::default(),
             pinned_quota_models: PinnedQuotaModelsConfig::default(),
             circuit_breaker: CircuitBreakerConfig::default(),
+            low_quota_alert: LowQuotaAlertConfig::default(),
             hidden_menu_items: Vec::new(),
             cloudflared: CloudflaredConfig::default(),
             lightweight_mode: false,

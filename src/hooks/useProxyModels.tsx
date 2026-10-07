@@ -43,7 +43,11 @@ const ALIAS_TO_CANONICAL: Record<string, { id: string; name: string; group: stri
     'gemini-3.1-flash-image': { id: 'gemini-3.1-flash-image', name: 'gemini-3.1-flash-image', group: 'Gemini 3' },
     'gemini-3-pro-image': { id: 'gemini-3-pro-image', name: 'gemini-3-pro-image', group: 'Gemini 3' },
 
-    // Claude (基准线 >= 4.6)
+    // Claude (基准线 >= 5.5)
+    'claude-sonnet-5-5': { id: 'claude-sonnet-5-5', name: 'claude-sonnet-5-5', group: 'Claude' },
+    'claude-sonnet-5-5-high': { id: 'claude-sonnet-5-5-high', name: 'claude-sonnet-5-5-high', group: 'Claude' },
+    'claude-opus-5-5': { id: 'claude-opus-5-5', name: 'claude-opus-5-5', group: 'Claude' },
+    'claude-opus-5-5-high': { id: 'claude-opus-5-5-high', name: 'claude-opus-5-5-high', group: 'Claude' },
     'claude-sonnet-4-6': { id: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6', group: 'Claude' },
     'claude-sonnet-4-6-thinking': { id: 'claude-sonnet-4-6-thinking', name: 'claude-sonnet-4-6-thinking', group: 'Claude' },
     'claude-opus-4-6': { id: 'claude-opus-4-6', name: 'claude-opus-4-6', group: 'Claude' },

@@ -68,9 +68,7 @@ pub fn exit_lightweight_mode(app: &AppHandle) -> Result<WebviewWindow, String> {
     crate::modules::startup_quiet::clear();
     let window = ensure_main_window(app)?;
 
-    let _ = window.show();
-    let _ = window.unminimize();
-    let _ = window.set_focus();
+    crate::utils::win_lifecycle::ensure_webview_window_visible_and_foreground(&window);
 
     #[cfg(target_os = "macos")]
     {

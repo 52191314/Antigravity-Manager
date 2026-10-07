@@ -3,6 +3,12 @@ use std::thread;
 use std::time::Duration;
 use sysinfo::System;
 
+pub use crate::utils::win_lifecycle::{
+    ensure_tauri_window_visible_and_foreground, ensure_webview_window_visible_and_foreground,
+    get_pids_listening_on_port, handle_existing_gui_instance_if_running,
+    takeover_headless_daemon_if_running,
+};
+
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 

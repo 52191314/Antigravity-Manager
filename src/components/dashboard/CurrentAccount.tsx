@@ -1,6 +1,6 @@
 import { CheckCircle, Mail, Diamond, Gem, Circle, Tag, Lock, Clock, AlertTriangle } from 'lucide-react';
 import { Account, getAccountTier, ModelQuota } from '../../types/account';
-import { formatTimeRemaining } from '../../utils/format';
+import { formatTimeRemaining, getAccountDisplayName, maskEmail } from '../../utils/format';
 import { findQuotaModel, getModelProtectionKey, getModelDisplayName, findImageQuotaModel } from '../../config/modelConfig';
 import { getModelConstrainedQuota, DashboardQuotaView } from '../../utils/quotaDisplay';
 import { useTranslation } from 'react-i18next';
@@ -149,7 +149,9 @@ function CurrentAccount({ account, quotaView = 'weighted', onSwitch }: CurrentAc
                 <div className="flex items-center gap-3 mb-1">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                         <Mail className="w-3.5 h-3.5 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">{account.email}</span>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate" title={account.custom_label ? `${account.custom_label} (${maskEmail(account.email)})` : maskEmail(account.email)}>
+                            {getAccountDisplayName(account)}
+                        </span>
                     </div>
                     {/* 订阅类型 */}
                     {(() => {

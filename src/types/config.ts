@@ -126,6 +126,7 @@ export interface StickySessionConfig {
 export interface ScheduledWarmupConfig {
     enabled: boolean;
     monitored_models: string[];
+    enable_5h_warmup?: boolean;
 }
 
 export interface QuotaProtectionConfig {
@@ -155,6 +156,12 @@ export interface CircuitBreakerConfig {
     lock_on_zero_quota?: boolean;
 }
 
+export interface LowQuotaAlertConfig {
+    enabled: boolean;
+    threshold_percentage: number;
+    notify_system: boolean;
+}
+
 export interface AppConfig {
     language: string;
     theme: string;
@@ -178,6 +185,7 @@ export interface AppConfig {
     quota_protection: QuotaProtectionConfig; // [NEW] 配额保护配置
     pinned_quota_models: PinnedQuotaModelsConfig; // [NEW] 配额关注列表
     circuit_breaker: CircuitBreakerConfig; // [NEW] 熔断器配置
+    low_quota_alert?: LowQuotaAlertConfig; // [NEW] 低配额切号提醒配置
     proxy: ProxyConfig;
     cloudflared: CloudflaredConfig; // [NEW] Cloudflared 配置
     lightweight_mode?: boolean; // [NEW] 轻量模式：关闭到托盘时释放 WebView

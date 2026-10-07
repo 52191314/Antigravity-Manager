@@ -7,7 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import clsx from 'clsx';
-import { formatTimeRemaining, formatCompactNumber } from '../../utils/format';
+import { formatTimeRemaining, formatCompactNumber, getAccountDisplayName, maskEmail } from '../../utils/format';
 import { enterMiniMode, exitMiniMode } from '../../utils/windowManager';
 import { getModelDisplayName, findQuotaModel } from '../../config/modelConfig';
 import { getModelConstrainedQuota, DashboardQuotaView } from '../../utils/quotaDisplay';
@@ -81,7 +81,7 @@ export default function MiniView() {
                 }
             } else {
                 // Fallback for web mode if needed, or import from package.json
-                setAppVersion('4.9.1');
+                setAppVersion('4.9.5');
             }
         };
         fetchVersion();
@@ -241,8 +241,8 @@ export default function MiniView() {
                 >
                     <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white overflow-hidden">
                         <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)] animate-pulse shrink-0" />
-                        <span className="truncate" title={currentAccount?.email}>
-                            {currentAccount?.email?.split('@')[0] || 'No Account'}
+                        <span className="truncate" title={currentAccount?.custom_label ? `${currentAccount.custom_label} (${maskEmail(currentAccount.email)})` : (currentAccount ? maskEmail(currentAccount.email) : undefined)}>
+                            {currentAccount ? getAccountDisplayName(currentAccount) : 'No Account'}
                         </span>
                     </div>
 

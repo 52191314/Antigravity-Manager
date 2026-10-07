@@ -1024,7 +1024,8 @@ pub async fn show_main_window(window: tauri::Window) -> Result<(), String> {
         tracing::info!("Skipped the automatic first window show for a quiet login launch");
         return Ok(());
     }
-    window.show().map_err(|e| e.to_string())
+    crate::utils::win_lifecycle::ensure_tauri_window_visible_and_foreground(&window);
+    Ok(())
 }
 
 /// 设置窗口主题（用于同步 Windows 标题栏按钮颜色）
@@ -1529,5 +1530,99 @@ pub async fn query_transit_info(url: String, key: String) -> Result<String, Stri
         Ok(text)
     } else {
         Err(format!("HTTP {}: {}", status, text))
+    }
+}
+
+/// 发送系统级桌面通知 (Windows Toast / macOS / Linux)
+#[tauri::command]
+pub async fn send_system_notification(title: String, body: String) -> Result<(), String> {
+    show_desktop_notification(&title, &body);
+    Ok(())
+}
+
+pub fn show_desktop_notification(title: &str, body: &str) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        let escape_xml = |s: &str| -> String {
+            s.replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('"', "&quot;")
+                .replace('\'', "&apos;")
+        };
+
+        let safe_title = escape_xml(title);
+        let safe_body = escape_xml(body);
+
+        let script = format!(
+            r#"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+$template = @"
+<toast duration="short">
+    <visual>
+        <binding template="ToastGeneric">
+            <text>{}</text>
+            <text>{}</text>
+        </binding>
+    </visual>
+    <audio src="ms-winsoundevent:Notification.Default" />
+</toast>
+"@
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($template)
+$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+try {{
+    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Antigravity Tools").Show($toast)
+}} catch {{
+    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\powershell.exe").Show($toast)
+}}"#,
+            safe_title, safe_body
+        );
+
+        let utf16: Vec<u16> = script.encode_utf16().collect();
+        let bytes: Vec<u8> = utf16.iter().flat_map(|u| u.to_le_bytes()).collect();
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+        std::thread::spawn(move || {
+            let _ = std::process::Command::new("powershell.exe")
+                .arg("-NoProfile")
+                .arg("-WindowStyle")
+                .arg("Hidden")
+                .arg("-EncodedCommand")
+                .arg(b64)
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .output();
+        });
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let safe_title = title.replace('"', "\\\"");
+        let safe_body = body.replace('"', "\\\"");
+        let script = format!(
+            r#"display notification "{}" with title "{}""#,
+            safe_body, safe_title
+        );
+        std::thread::spawn(move || {
+            let _ = std::process::Command::new("osascript")
+                .arg("-e")
+                .arg(&script)
+                .output();
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let t = title.to_string();
+        let b = body.to_string();
+        std::thread::spawn(move || {
+            let _ = std::process::Command::new("notify-send")
+                .arg(&t)
+                .arg(&b)
+                .output();
+        });
     }
 }

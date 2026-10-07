@@ -72,13 +72,13 @@ function Dashboard() {
         const abnormalAccounts = accounts.filter(
             a => a.validation_blocked || a.quota?.is_forbidden
         );
-        // 禁用账号：非异常，但用户手动禁用反代或停用账号
+        // 禁用账号：非异常，但用户手动停用账号
         const disabledAccounts = accounts.filter(
-            a => !a.validation_blocked && !a.quota?.is_forbidden && (a.disabled || a.proxy_disabled)
+            a => !a.validation_blocked && !a.quota?.is_forbidden && a.disabled
         );
         // 可用账号：开启且状态正常、风控正常的生产力账号
         const availableAccounts = accounts.filter(
-            a => !a.disabled && !a.proxy_disabled && !a.validation_blocked && !a.quota?.is_forbidden
+            a => !a.disabled && !a.validation_blocked && !a.quota?.is_forbidden
         );
         // 全部正常状态账号（包含禁用与非禁用，彻底剔除风控异常账号）
         const normalAccounts = accounts.filter(

@@ -114,3 +114,53 @@ export function formatCompactNumber(num: number): string {
     const formatted = value.toFixed(Math.abs(value) < 10 && i > 0 ? 1 : 0);
     return `${formatted.replace(/\.0$/, '')}${units[i]}`;
 }
+
+/**
+ * Masks an email to show the first 3 characters and the tail characters before '@' with *** in between.
+ * Example: "user12345@gmail.com" -> "use***45"
+ * Example: "kdmhg4@gmail.com" -> "kdm***g4"
+ */
+export function maskEmail(email: string | undefined | null): string {
+    if (!email) return '';
+    const trimmed = email.trim();
+    const atIndex = trimmed.indexOf('@');
+
+    if (atIndex > 0) {
+        const localPart = trimmed.slice(0, atIndex);
+        if (localPart.length <= 2) {
+            return '***';
+        }
+        if (localPart.length === 3) {
+            return `${localPart[0]}***${localPart[2]}`;
+        }
+        if (localPart.length === 4) {
+            return `${localPart.slice(0, 2)}***${localPart.slice(-2)}`;
+        }
+        const first = localPart.slice(0, 3);
+        const tail = localPart.slice(-2);
+        return `${first}***${tail}`;
+    }
+
+    if (trimmed.length <= 5) {
+        return '***';
+    }
+    const first = trimmed.slice(0, 3);
+    const last = trimmed.slice(-2);
+    return `${first}***${last}`;
+}
+
+/**
+ * Returns the display name for an account.
+ * If an explicit text (custom_label) is provided, it replaces the email.
+ * Otherwise, the email is displayed masked by default.
+ */
+export function getAccountDisplayName(
+    account: { email: string; custom_label?: string | null } | undefined | null,
+    mask: boolean = true
+): string {
+    if (!account) return '';
+    if (account.custom_label && account.custom_label.trim().length > 0) {
+        return account.custom_label.trim();
+    }
+    return mask ? maskEmail(account.email) : (account.email || '');
+}

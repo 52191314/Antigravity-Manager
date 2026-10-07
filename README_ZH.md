@@ -1,5 +1,5 @@
 # Antigravity Tools 🚀
-> 专业级 AI 账号管理与协议代理系统 (v4.9.1)
+> 专业级 AI 账号管理与协议代理系统 (v4.9.5)
 
 <div align="center">
   <img src="public/icon.png" width="100" height="100" alt="Antigravity Tools Logo">
@@ -11,7 +11,7 @@
       <img src="https://img.shields.io/github/v/release/lbjlaq/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
     </a>
     <a href="https://github.com/lbjlaq/Antigravity-Manager">
-      <img src="https://img.shields.io/badge/Version-4.9.1-blue?style=flat-square" alt="Version">
+      <img src="https://img.shields.io/badge/Version-4.9.5-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square" alt="Tauri">
     <img src="https://img.shields.io/badge/Backend-Rust-red?style=flat-square" alt="Rust">
@@ -96,6 +96,11 @@
 ### 5. 🎨 多模态与 Imagen 3 支持
 *   **高级画质控制**: 支持通过 OpenAI `size` (如 `1024x1024`, `16:9`) 参数自动映射到 Imagen 3 的相应规格。
 *   **超强 Body 支持**: 后端支持高达 **100MB** (可配置) 的 Payload，处理 4K 高清图识别绰绰有余。
+
+### 6. 🤖 原生 CLI 与 Model Context Protocol (MCP) 服务
+*   **免 GUI 终端自动化**: 原生内置 CLI 命令（`accounts`、`quota`、`switch`、`current`），支持在脚本中一键查询配额池、查看模型桶详情及毫秒级切换活跃账号。
+*   **AI Agent MCP Stdio 协议中转**: 内置标准 Model Context Protocol 服务（`antigravity-tools mcp`），对外暴露 `list_accounts`、`read_quotas`、`switch_account`、`get_current_account` 工具，让 **Hermes Agent**、**Claude Desktop**、**Cursor**、**Windsurf** 等自主 AI Agent 自动读取配额与换号。
+*   **Opus 5.5 账号安全保底隔离**: 带有 `Opus5.5` 标签的账号在所有排序与推荐算法中被严格沉底隔离，防止日常高频调用意外耗尽稀缺配额。
 
 ## 📸 界面导览 (GUI Overview)
 
@@ -355,7 +360,51 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
+### 如何为 AI Agent 接入 CLI 与 原生 MCP 服务?
+
+Antigravity Tools 桌面端二进制程序（`antigravity-tools` / `Antigravity-Tools.exe`）已内置标准 CLI 命令分发器与 stdio MCP 服务。
+
+#### 1. CLI 命令行指令
+```bash
+# 列出所有账号、当前激活状态与配额概况
+antigravity-tools accounts
+
+# 查看活跃账号的配额组（Gemini/Claude 周限与 5 小时限）及具体模型百分比
+antigravity-tools quota
+
+# 通过邮箱、Label 别名或 UUID 秒级切换活跃账号
+antigravity-tools switch "Thun"
+antigravity-tools switch user@gmail.com
+
+# 输出当前活跃账号信息
+antigravity-tools current
+```
+
+#### 2. 原生 Model Context Protocol (MCP) 服务
+使自主 Agent（如 Hermes、Claude Desktop、Cursor、Windsurf、Cline）能够实时查询配额并在额度耗尽前自动换号：
+
+在 Agent 的 MCP 配置文件中添加：
+```json
+{
+  "mcpServers": {
+    "antigravity-tools": {
+      "command": "C:\\Users\\<用户名>\\AppData\\Local\\Antigravity Tools\\antigravity-tools.exe",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**内置 MCP 工具集：**
+* `list_accounts`: 获取所有已配置账号清单、配额百分比、订阅等级及 Opus 5.5 状态。
+* `read_quotas`: 深入读取指定或当前账号的模型详细配额池和刷新时间。
+* `get_current_account`: 获取当前激活账号的摘要。
+* `switch_account`: 执行跨系统、反代池及 IDE 的瞬时切号。
+
+> 完整参数规格与 JSON 格式细节请参阅：[CLI & MCP 服务完整指南 (docs/CLI_MCP_GUIDE.md)](./docs/CLI_MCP_GUIDE.md)。
+
 ### 如何使用图片生成 (Imagen 3)?
+
 
 #### 方式一：OpenAI Images API (推荐)
 ```python

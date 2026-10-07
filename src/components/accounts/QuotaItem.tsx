@@ -8,6 +8,7 @@ import { formatCompactDuration, getLiveLimitState } from '../../utils/liveLimit'
 
 interface QuotaItemProps {
     label: string;
+    title?: string;
     percentage: number;
     resetTime?: string;
     isProtected?: boolean;
@@ -19,7 +20,7 @@ interface QuotaItemProps {
     Icon?: React.ComponentType<{ size?: number; className?: string }>;
 }
 
-export function QuotaItem({ label, percentage, resetTime, isProtected, liveLimit, isWeeklyConstrained, weeklyResetTime, weeklyTokens, className, Icon }: QuotaItemProps) {
+export function QuotaItem({ label, title, percentage, resetTime, isProtected, liveLimit, isWeeklyConstrained, weeklyResetTime, weeklyTokens, className, Icon }: QuotaItemProps) {
     const { t } = useTranslation();
     const liveState = getLiveLimitState(liveLimit);
     const showLiveIssue = liveState.shouldShow || isWeeklyConstrained;
@@ -75,7 +76,7 @@ export function QuotaItem({ label, percentage, resetTime, isProtected, liveLimit
             isUnavailable && "border-rose-400/70 dark:border-rose-500/70 bg-rose-50/80 dark:bg-rose-950/30 ring-rose-400/30",
             className
         )}
-            title={showLiveIssue ? liveLimitTitle : label}
+            title={showLiveIssue ? liveLimitTitle : (title || label)}
         >
             {/* Background Progress Bar */}
             <div
@@ -93,7 +94,7 @@ export function QuotaItem({ label, percentage, resetTime, isProtected, liveLimit
                     "flex-1 min-w-0 text-gray-500 dark:text-gray-400 font-bold truncate text-left flex items-center gap-1",
                     showLiveIssue && "text-amber-700 dark:text-amber-300",
                     isUnavailable && "text-rose-700 dark:text-rose-300"
-                )} title={showLiveIssue ? liveLimitTitle : label}>
+                )} title={showLiveIssue ? liveLimitTitle : (title || label)}>
                     {showLiveIssue && (
                         <AlertTriangle
                             size={12}

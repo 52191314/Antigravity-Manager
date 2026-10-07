@@ -390,6 +390,22 @@
       "tip2": "For production environments, using a <1>Service Account</1> JSON key is highly recommended for stability and headless operation.",
       "tip3": "If it still fails, check the Generative Language API in <1>Google Cloud Console</1> to see if permissions are frozen. If so, your account is under risk control. Please let the account cool down for 72 hours before trying again.",
       "tip4": "You can also try <1>npm install -g @google/gemini-cli</1>. If it doesn't throw errors, simply deleting and re-authorizing the account in the app will likely fix it."
+    },
+    "summary": {
+      "fleet_capacity": "Gemini 配額",
+      "quota_weekly": "週總配額",
+      "quota_monthly": "月度總容量",
+      "quota_5h": "5H 現存配額",
+      "acc_equivalent": "{{equiv}} 個帳號當量",
+      "acc_equivalent_monthly": "約 {{equiv}} 個帳號當量/月",
+      "tooltip_weekly": "目前 {{count}} 個可用帳號在 7 天週週期內的 Gemini 剩餘可用配額總和（相當於 {{equiv}} 個滿額帳號）。點選可將表格檢視切換至週配額。",
+      "tooltip_monthly": "按每週 4 個滾動週期預估的 30 天 Gemini 總配額承載能力（約 {{equiv}} 個帳號當量/月）。",
+      "tooltip_5h": "目前 {{count}} 個可用帳號在 5 小時滑動窗口內的 Gemini 剩餘可用配額總和（相當於 {{equiv}} 個滿額帳號）。點選可將表格檢視切換至 5H 配額。",
+      "ready": "可用",
+      "waiting": "恢復中",
+      "filtered_notice": "({{visible}}/{{total}})",
+      "toggle_details": "檢視配額池明細",
+      "breakdown_title": "帳號配額池明細"
     }
   },
   "settings": {
@@ -440,8 +456,13 @@
       "sync_interval": "同步間隔（分鐘）"
     },
     "warmup": {
-      "title": "智慧預熱",
-      "desc": "自動監控所有模型，當額度恢復到 100% 時立即觸發預熱，保持模型熱狀態"
+      "title": "智慧配額預熱",
+      "desc": "自動喚醒閒置帳號啟動 7 天周配額與 5 小時滑動重置計時器，保持額度循環更新，零多餘消耗。",
+      "enable_5h_title": "5小時滑動窗口自動預熱",
+      "enable_5h_desc": "應用開啟時，自動喚醒處於 100% 閒置狀態的模型，提前激活 5 小時滑動倒計時，無需等待首次手動使用。",
+      "weekly_notice": "預設包含 7 天周配额重置喚醒",
+      "monitored_models_label": "預熱模型範圍",
+      "monitored_models_desc": "勾選需要預熱的模型。在周配額重置或 5 小時窗口閒置時將自動喚醒啟動新週期。"
     },
     "quota_protection": {
       "title": "配額保護",

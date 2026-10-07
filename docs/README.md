@@ -13,5 +13,6 @@ This folder contains developer-focused documentation (architecture, implementati
 - [`docs/zai/vision-mcp.md`](zai/vision-mcp.md) — built-in Vision MCP server protocol and tool implementations.
 - [`docs/zai/notes.md`](zai/notes.md) — research notes, constraints, and future follow-ups (budget/usage, additional endpoints).
 
-## Agent Integrations
+## Agent Integrations & Automation
 - [`docs/jeikcode_integration.md`](jeikcode_integration.md) — JeikCode integration guide, one-click synchronization, configuration options, and KV-cache optimization.
+- [`docs/CLI_MCP_GUIDE.md`](CLI_MCP_GUIDE.md) — Native CLI commands (`accounts`, `quota`, `switch`, `current`) and Model Context Protocol (MCP) server integration for AI agents.

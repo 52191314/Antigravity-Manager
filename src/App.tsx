@@ -1,16 +1,10 @@
-import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
 import Accounts from './pages/Accounts';
 import Settings from './pages/Settings';
-import ApiProxy from './pages/ApiProxy';
-import Monitor from './pages/Monitor';
-import TokenStats from './pages/TokenStats';
-import Security from './pages/Security';
 import ThemeManager from './components/common/ThemeManager';
-import UserToken from './pages/UserToken';
-import { ApiKeyFun } from './pages/ApiKeyFun';
 import { UpdateNotification } from './components/UpdateNotification';
 import SuggestionDeleteThinkingModal from './components/common/SuggestionDeleteThinkingModal';
 import DebugConsole from './components/debug/DebugConsole';
@@ -37,32 +31,12 @@ const router = createBrowserRouter([
         element: <Accounts />,
       },
       {
-        path: 'api-proxy',
-        element: <ApiProxy />,
-      },
-      {
-        path: 'monitor',
-        element: <Monitor />,
-      },
-      {
-        path: 'token-stats',
-        element: <TokenStats />,
-      },
-      {
-        path: 'user-token',
-        element: <UserToken />,
-      },
-      {
-        path: 'apikey-fun',
-        element: <ApiKeyFun />,
-      },
-      {
-        path: 'security',
-        element: <Security />,
-      },
-      {
         path: 'settings',
         element: <Settings />,
+      },
+      {
+        path: '*',
+        element: <Navigate to="/" replace />,
       },
     ],
   },

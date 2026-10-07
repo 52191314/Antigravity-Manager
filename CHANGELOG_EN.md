@@ -3,6 +3,14 @@
 > Complete version history for Antigravity Tools. Return to project home at [README.md](README.md).
 
 *   **Version History**:
+    *   **v4.9.5 (2026-10-05)**:
+        -   **[Feature Category] Main Update Summary (PR #xxx)**:
+            -   **Description**: Please document update details here; credit external contributors inline as `(Thanks to @username)`.
+
+    *   **v4.9.2 (2026-10-04)**:
+        -   **[Feature Category] Main Update Summary (PR #xxx)**:
+            -   **Description**: Please document update details here; credit external contributors inline as `(Thanks to @username)`.
+
     *   **v4.9.1 (2026-10-02)**:
         -   **[Model Routing & Deprecated Model Seamless Redirect] Fix Stale gemini-3.1-flash-lite Redirect, Restore Layer-3 Background Summary, and Route Retired 2.5 Family to gemini-3.6-flash-medium (Fixes #3577, Thanks to @Xyloz3n)**:
             -   **Correct gemini-3.1-flash-lite Direct Passthrough**: Permanently removed the hardcoded redirect that sent healthy `gemini-3.1-flash-lite` requests to the retired `gemini-2.5-flash-lite`. Restored 1:1 passthrough to upstream's active 1M-context `MODEL_PLACEHOLDER_M50`, eliminating upstream 429/503 errors and serving requests as 200 OK.

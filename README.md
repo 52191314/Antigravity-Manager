@@ -1,5 +1,5 @@
 # Antigravity Tools 🚀
-> Professional Account Management & Protocol Proxy System for AI Services (v4.9.1)
+> Professional Account Management & Protocol Proxy System for AI Services (v4.9.5)
 
 <div align="center">
   <img src="public/icon.png" width="100" height="100" alt="Antigravity Tools Logo">
@@ -11,7 +11,7 @@
       <img src="https://img.shields.io/github/v/release/lbjlaq/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
     </a>
     <a href="https://github.com/lbjlaq/Antigravity-Manager">
-      <img src="https://img.shields.io/badge/Version-4.9.1-blue?style=flat-square" alt="Version">
+      <img src="https://img.shields.io/badge/Version-4.9.5-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square" alt="Tauri">
     <img src="https://img.shields.io/badge/Backend-Rust-red?style=flat-square" alt="Rust">
@@ -96,6 +96,11 @@ If you like this project, you might also be interested in:
 ### 5. 🎨 Multimodal & Imagen 3 Support
 *   **Advanced Image Control**: Supports precise control over image generation tasks via OpenAI `size` (e.g., `1024x1024`, `16:9`) parameters or model name suffixes.
 *   **Enhanced Payload Support**: The backend supports payloads up to **100MB** (configurable), more than enough for 4K HD image recognition and processing.
+
+### 6. 🤖 Native CLI & Model Context Protocol (MCP) Server
+*   **Zero-GUI Terminal Automation**: Built-in CLI commands (`accounts`, `quota`, `switch`, `current`) allow inspecting quota pools, viewing model buckets, and switching active accounts straight from shell scripts.
+*   **AI Agent MCP Stdio Transport**: Out-of-the-box Model Context Protocol server (`antigravity-tools mcp`) exposes tools (`list_accounts`, `read_quotas`, `switch_account`, `get_current_account`) to **Hermes Agent**, **Claude Desktop**, **Cursor**, **Windsurf**, and **Cline**.
+*   **Safe Opus 5.5 Partitioning**: Accounts containing `Opus5.5` in their labels are automatically isolated and pinned strictly to the bottom of the account list regardless of quota levels, preventing accidental routing exhaustion.
 
 ## 📸 GUI Overview
 
@@ -354,7 +359,51 @@ print(response.choices[0].message.content)
     - **OpenAI Protocol Limitation**: When using OpenAI mode, Kilo Code's request path will append `/v1/chat/completions/responses`, a non-standard path that will return 404 from Antigravity. Make sure to enter the Base URL and select Gemini mode.
     - **Model Mapping**: Model names in Kilo Code may differ from Antigravity's defaults. If you encounter connection issues, set up custom mappings on the "Model Mapping" page and check the **log files** for debugging.
 
+### How to use CLI & Native MCP Server for AI Agents?
+
+Antigravity Tools includes a built-in CLI and stdio MCP server directly inside the application binary (`antigravity-tools` / `Antigravity-Tools.exe`).
+
+#### 1. CLI Commands
+```bash
+# List all accounts with quota and active status
+antigravity-tools accounts
+
+# Inspect quota groups (Gemini & Claude weekly/5h) and model buckets
+antigravity-tools quota
+
+# Switch active account immediately by email, label, or UUID
+antigravity-tools switch "Thun"
+antigravity-tools switch user@gmail.com
+
+# Print currently active account
+antigravity-tools current
+```
+
+#### 2. Native Model Context Protocol (MCP) Server
+Allows autonomous agents (Hermes, Claude Desktop, Cursor, Cline, etc.) to read quotas and switch accounts on demand.
+
+Add to your agent's MCP config:
+```json
+{
+  "mcpServers": {
+    "antigravity-tools": {
+      "command": "C:\\Users\\<User>\\AppData\\Local\\Antigravity Tools\\antigravity-tools.exe",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Exposed MCP Tools:**
+* `list_accounts`: Lists all accounts, quotas, tiers, and Opus 5.5 status.
+* `read_quotas`: Reads detailed 5h/weekly quota groups and per-model percentages.
+* `get_current_account`: Returns the current active account.
+* `switch_account`: Switches account credentials across the app, proxy pool, and IDE.
+
+> For complete parameter references and JSON output examples, see the [CLI & MCP Guide (docs/CLI_MCP_GUIDE.md)](./docs/CLI_MCP_GUIDE.md).
+
 ### How to use Image Generation (Imagen 3)?
+
 
 #### Method 1: OpenAI Images API (Recommended)
 ```python

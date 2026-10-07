@@ -406,6 +406,10 @@ Function PageLeaveReinstall
 
     ; 卸载完成后无需多余确认弹窗，直接顺畅流转至安装目录选择与全新安装阶段
   reinst_done:
+    ; 终止可能在后台运行的主程序，确保直接升级/覆盖安装时文件不被占用
+    nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "${MAINBINARYNAME}.exe"'
+    nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "Antigravity-Tools.exe"'
+    Sleep 500
 FunctionEnd
 
 ; 5. Choose install directory page
@@ -666,10 +670,16 @@ Section Install
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
 
+  ; 终止可能运行中的旧进程，避免句柄占用导致复制失败
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "${MAINBINARYNAME}.exe"'
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "Antigravity-Tools.exe"'
+  Sleep 500
+
   !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
-  ; [FIX] 写入主程序文件前强制杀掉残留运行的旧进程，彻底杜绝 "Error opening file for writing" 占用报错
+  ; [FIX] 写入主程序文件前再次确保杀掉旧进程，彻底杜绝 "Error opening file for writing" 占用报错
   nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "${MAINBINARYNAME}.exe"'
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "Antigravity-Tools.exe"'
   Sleep 500
 
   ; Copy main executable

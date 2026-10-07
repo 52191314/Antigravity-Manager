@@ -2,7 +2,7 @@
  * 账号表格组件
  * 支持拖拽排序功能，用户可以通过拖拽行来调整账号顺序
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import {
     DndContext,
     closestCenter,
@@ -35,19 +35,24 @@ import {
     Diamond,
     Gem,
     Circle,
-    ToggleLeft,
-    ToggleRight,
     Sparkles,
     Tag,
     X,
     Check,
     Clock,
+    Calendar,
+    BatteryCharging,
+    BatteryLow,
     Bot,
     Repeat2,
     Terminal,
     ArrowUpDown,
     ArrowUp,
     ArrowDown,
+    Mail,
+    Copy,
+    ToggleLeft,
+    ToggleRight,
 } from 'lucide-react';
 import { type Account, type ModelQuota, getAccountTier } from '../../types/account';
 import { useTranslation } from 'react-i18next';
@@ -56,10 +61,12 @@ import { cn } from '../../utils/cn';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { QuotaItem } from './QuotaItem';
 import { getModelQuotaDisplay } from '../../utils/quotaDisplay';
-import { MODEL_CONFIG, sortModels, resolveQuotaModels, ensurePinnedImageSelector } from '../../config/modelConfig';
+import { MODEL_CONFIG, sortModels, resolveQuotaModels, ensurePinnedImageSelector, findQuotaModel } from '../../config/modelConfig';
 import { categorizeModel, getModelProtectionKey } from '../../utils/modelCategory';
+import { maskEmail, getAccountDisplayName } from '../../utils/format';
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
 import { getLiveLimitForModel } from '../../utils/liveLimit';
+import { AccountSortOption } from '../../utils/accountSort';
 
 // ============================================================================
 // 类型定义
@@ -86,6 +93,9 @@ interface AccountTableProps {
     onReorder?: (accountIds: string[]) => void;
     onViewError: (accountId: string) => void;
     quotaWindow?: '5h' | 'weekly';
+    maskEmails?: boolean;
+    sortOption?: AccountSortOption;
+    onSortChange?: (option: AccountSortOption) => void;
 }
 
 interface SortableRowProps {
@@ -108,6 +118,7 @@ interface SortableRowProps {
     onViewError: () => void;
     quotaWindow?: '5h' | 'weekly';
     isDragDisabled?: boolean;
+    maskEmails?: boolean;
 }
 
 interface AccountRowContentProps {
@@ -122,11 +133,12 @@ interface AccountRowContentProps {
     onViewDetails: () => void;
     onExport: () => void;
     onDelete: () => void;
-    onToggleProxy: () => void;
+    onToggleProxy?: () => void;
     onWarmup?: () => void;
     onUpdateLabel?: (label: string) => void;
     onViewError: () => void;
     quotaWindow?: '5h' | 'weekly';
+    maskEmails?: boolean;
 }
 
 // ============================================================================
@@ -159,42 +171,6 @@ function isModelProtected(protectedModels: string[] | undefined, modelName: stri
     return protectionKey ? protectedModels.includes(protectionKey) : false;
 }
 
-/**
- * 提取账号的最快配额重置时间（毫秒时间戳）
- * 用于表格排序
- */
-function extractAccountResetTime(account: Account, quotaWindow?: '5h' | 'weekly'): number | null {
-    let earliestTime: number | null = null;
-
-    if (quotaWindow === 'weekly') {
-        const groups = account.quota?.quota_groups || [];
-        for (const group of groups) {
-            for (const bucket of group.buckets || []) {
-                const isWeekly = bucket.window.toLowerCase().includes('week') || bucket.bucket_id.toLowerCase().includes('week');
-                if (isWeekly && bucket.reset_time) {
-                    const t = new Date(bucket.reset_time).getTime();
-                    if (!isNaN(t) && (earliestTime === null || t < earliestTime)) {
-                        earliestTime = t;
-                    }
-                }
-            }
-        }
-    } else {
-        // 5h 或常规视图下，从 models 中获取最近的 reset_time
-        const models = account.quota?.models || [];
-        for (const model of models) {
-            if (model.reset_time) {
-                const t = new Date(model.reset_time).getTime();
-                if (!isNaN(t) && (earliestTime === null || t < earliestTime)) {
-                    earliestTime = t;
-                }
-            }
-        }
-    }
-
-    return earliestTime;
-}
-
 // ============================================================================
 // 子组件
 // ============================================================================
@@ -223,6 +199,7 @@ function SortableAccountRow({
     onViewError,
     quotaWindow,
     isDragDisabled = false,
+    maskEmails = true,
 }: SortableRowProps) {
     const { t } = useTranslation();
     const {
@@ -295,6 +272,7 @@ function SortableAccountRow({
                 onUpdateLabel={onUpdateLabel}
                 onViewError={onViewError}
                 quotaWindow={quotaWindow}
+                maskEmails={maskEmails}
             />
         </tr>
     );
@@ -321,6 +299,7 @@ function AccountRowContent({
     onUpdateLabel,
     onViewError,
     quotaWindow,
+    maskEmails = true,
 }: AccountRowContentProps) {
     const { t } = useTranslation();
     const { config, showAllQuotas } = useConfigStore();
@@ -329,6 +308,18 @@ function AccountRowContent({
     // 自定义标签编辑状态
     const [isEditingLabel, setIsEditingLabel] = useState(false);
     const [labelInput, setLabelInput] = useState(account.custom_label || '');
+
+    // 邮箱复制状态
+    const [copiedEmail, setCopiedEmail] = useState(false);
+
+    const handleCopyEmail = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (account.email) {
+            navigator.clipboard.writeText(account.email);
+            setCopiedEmail(true);
+            setTimeout(() => setCopiedEmail(false), 1500);
+        }
+    };
 
     const handleSaveLabel = () => {
         if (onUpdateLabel) {
@@ -383,7 +374,7 @@ function AccountRowContent({
         (showAllQuotas
             ? (account.quota?.models || []).map(m => {
                 const config = MODEL_CONFIG[m.name.toLowerCase()];
-                const label = m.display_name || (config?.i18nKey ? t(config.i18nKey) : (config?.shortLabel || config?.label || m.name));
+                const label = (config?.shortLabel || config?.label) || m.display_name || (config?.i18nKey ? t(config.i18nKey) : m.name);
                 return {
                     id: m.name.toLowerCase(),
                     label: label,
@@ -395,8 +386,8 @@ function AccountRowContent({
                 const selectorConfig = MODEL_CONFIG[sel.selectorId.toLowerCase()];
                 const resolvedConfig = sel.model ? MODEL_CONFIG[sel.model.name.toLowerCase()] : undefined;
                 if (!selectorConfig && !sel.model) return null;
-                const label = sel.model?.display_name
-                    || (resolvedConfig?.shortLabel || resolvedConfig?.label)
+                const label = (resolvedConfig?.shortLabel || resolvedConfig?.label)
+                    || sel.model?.display_name
                     || (selectorConfig?.shortLabel || selectorConfig?.label)
                     || (resolvedConfig?.i18nKey ? t(resolvedConfig.i18nKey) : undefined)
                     || (selectorConfig?.i18nKey ? t(selectorConfig.i18nKey) : undefined)
@@ -432,17 +423,49 @@ function AccountRowContent({
         return self.findIndex(t => `${t.label}-${t.protectedKey}` === labelKey) === index;
     });
 
+    // 针对有自定义标签的账号，配额银行聚合展示：上排 2 个最新模型 (Gemini 3.8 Flash + Claude 5.5)，下排展示邮箱
+    const hasLabel = Boolean(account.custom_label);
+    const geminiFlashModel = findQuotaModel(account.quota?.models, 'gemini-flash');
+    const claudeModel = findQuotaModel(account.quota?.models, 'claude');
+
+    const geminiFlashId = geminiFlashModel?.name?.toLowerCase() || 'gemini-3.8-flash';
+    const geminiFlashConfig = MODEL_CONFIG[geminiFlashId] || MODEL_CONFIG['gemini-3.8-flash'];
+    const geminiFlashLabel = geminiFlashConfig?.shortLabel || 'G3.8 Flash';
+    const geminiFlashTitle = geminiFlashModel?.display_name || geminiFlashConfig?.label || geminiFlashLabel;
+    const geminiFlashDisplay = getModelQuotaDisplay(geminiFlashId, geminiFlashModel, account.quota?.quota_groups);
+    const geminiFlashProtectedKey = getModelProtectionKey(geminiFlashId) || 'gemini-flash';
+    const isGeminiFlashProtected = Boolean(config?.quota_protection?.enabled && isModelProtected(account.protected_models, geminiFlashProtectedKey));
+    const geminiFlashLiveLimit = getLiveLimitForModel(account, geminiFlashId, geminiFlashProtectedKey);
+
+    const claudeId = claudeModel?.name?.toLowerCase() || 'claude-sonnet-5-5-high';
+    const claudeConfig = MODEL_CONFIG[claudeId] || MODEL_CONFIG['claude-sonnet-5-5'];
+    const claudeLabel = claudeConfig?.shortLabel || 'Claude 5.5';
+    const claudeTitle = claudeModel?.display_name || claudeConfig?.label || claudeLabel;
+    const claudeDisplay = getModelQuotaDisplay(claudeId, claudeModel, account.quota?.quota_groups);
+    const claudeProtectedKey = getModelProtectionKey(claudeId) || 'claude';
+    const isClaudeProtected = Boolean(config?.quota_protection?.enabled && isModelProtected(account.protected_models, claudeProtectedKey));
+    const claudeLiveLimit = getLiveLimitForModel(account, claudeId, claudeProtectedKey);
+
 
     return (
         <>
             {/* 邮箱列 */}
             <td className="px-2 py-1 align-middle">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className={cn(
-                        "font-medium text-sm break-all transition-colors",
-                        isCurrent ? "text-blue-700 dark:text-blue-400" : "text-gray-900 dark:text-base-content"
-                    )} title={account.email}>
-                        {account.email}
+                    <span
+                        className={cn(
+                            "font-medium text-sm break-all transition-colors cursor-pointer hover:underline",
+                            isCurrent ? "text-blue-700 dark:text-blue-400" : "text-gray-900 dark:text-base-content"
+                        )}
+                        title={account.custom_label ? `${account.custom_label} (${maskEmails ? maskEmail(account.email) : account.email})` : (maskEmails ? maskEmail(account.email) : account.email)}
+                        onClick={(e) => {
+                            if (onUpdateLabel) {
+                                e.stopPropagation();
+                                setIsEditingLabel(true);
+                            }
+                        }}
+                    >
+                        {getAccountDisplayName(account, maskEmails)}
                     </span>
 
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -463,6 +486,7 @@ function AccountRowContent({
                         {account.proxy_disabled && (
                             <span
                                 className="px-2 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300 text-[10px] font-bold flex items-center gap-1 shadow-sm border border-orange-200/50"
+                                title={account.proxy_disabled_reason || t('accounts.proxy_disabled_tooltip')}
                             >
                                 <Ban className="w-2.5 h-2.5" />
                                 <span>{t('accounts.proxy_disabled')}</span>
@@ -524,13 +548,13 @@ function AccountRowContent({
                             <div className="flex items-center gap-1">
                                 <input
                                     type="text"
-                                    className="px-1.5 py-0.5 text-[10px] w-20 border border-orange-300 dark:border-orange-700 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 bg-white dark:bg-base-200"
+                                    className="px-1.5 py-0.5 text-[10px] w-32 border border-orange-300 dark:border-orange-700 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 bg-white dark:bg-base-200"
                                     placeholder={t('accounts.custom_label_placeholder', 'Label')}
                                     value={labelInput}
                                     onChange={(e) => setLabelInput(e.target.value)}
                                     onKeyDown={handleKeyDown}
                                     autoFocus
-                                    maxLength={15}
+                                    maxLength={50}
                                     onClick={(e) => e.stopPropagation()}
                                 />
                                 <button
@@ -586,20 +610,82 @@ function AccountRowContent({
                     <div className={cn(
                         "grid gap-x-2 gap-y-1 py-0",
                         (quotaWindow === 'weekly' && weeklyItems.length > 0)
-                            ? (weeklyItems.length === 1 ? "grid-cols-1" : "grid-cols-2")
-                            : (displayModels.length === 1 ? "grid-cols-1" : "grid-cols-2")
+                            ? (weeklyItems.length === 1 && (!hasLabel || showAllQuotas) ? "grid-cols-1" : "grid-cols-2")
+                            : (displayModels.length === 1 && (!hasLabel || showAllQuotas) ? "grid-cols-1" : "grid-cols-2")
                     )}>
                         {quotaWindow === 'weekly' && weeklyItems.length > 0 ? (
-                            weeklyItems.map((item) => (
+                            <>
+                                {weeklyItems.map((item) => (
+                                    <QuotaItem
+                                        key={item.id}
+                                        label={item.label}
+                                        percentage={item.percentage}
+                                        resetTime={item.resetTime}
+                                        weeklyTokens={item.cycleTokens ?? null}
+                                        Icon={item.Icon}
+                                    />
+                                ))}
+                                {hasLabel && !showAllQuotas && (
+                                    <div
+                                        onClick={handleCopyEmail}
+                                        className="col-span-2 relative h-[22px] flex items-center px-2 rounded-md overflow-hidden border border-gray-100/50 dark:border-white/5 bg-gray-50/30 dark:bg-white/5 group/email cursor-pointer hover:bg-gray-100/50 dark:hover:bg-white/10 transition-colors"
+                                        title={account.email ? `${account.email} (${t('accounts.click_to_copy', 'Click to copy')})` : ''}
+                                    >
+                                        <Mail className="w-2.5 h-2.5 mr-1.5 text-gray-400 group-hover/email:text-blue-500 shrink-0 transition-colors" />
+                                        <span className="truncate flex-1 text-[10px] font-mono text-gray-500 dark:text-gray-400 group-hover/email:text-gray-700 dark:group-hover/email:text-gray-200 transition-colors select-all">
+                                            {maskEmails ? maskEmail(account.email) : account.email}
+                                        </span>
+                                        {copiedEmail ? (
+                                            <span className="flex items-center gap-1 text-[9px] text-emerald-600 dark:text-emerald-400 font-sans font-medium shrink-0 ml-1">
+                                                <Check className="w-2.5 h-2.5" />
+                                                <span>{t('common.copied', 'Copied')}</span>
+                                            </span>
+                                        ) : (
+                                            <Copy className="w-2.5 h-2.5 opacity-0 group-hover/email:opacity-60 hover:!opacity-100 text-gray-400 shrink-0 ml-1 transition-opacity" />
+                                        )}
+                                    </div>
+                                )}
+                            </>
+                        ) : hasLabel && !showAllQuotas ? (
+                            <>
+                                {/* Upper Left: Gemini 3.8 Flash */}
                                 <QuotaItem
-                                    key={item.id}
-                                    label={item.label}
-                                    percentage={item.percentage}
-                                    resetTime={item.resetTime}
-                                    weeklyTokens={item.cycleTokens ?? null}
-                                    Icon={item.Icon}
+                                    label={geminiFlashLabel}
+                                    title={geminiFlashTitle}
+                                    {...geminiFlashDisplay}
+                                    isProtected={isGeminiFlashProtected}
+                                    liveLimit={geminiFlashLiveLimit}
+                                    Icon={geminiFlashConfig?.Icon || Bot}
                                 />
-                            ))
+                                {/* Upper Right: Claude 5.5 */}
+                                <QuotaItem
+                                    label={claudeLabel}
+                                    title={claudeTitle}
+                                    {...claudeDisplay}
+                                    isProtected={isClaudeProtected}
+                                    liveLimit={claudeLiveLimit}
+                                    Icon={claudeConfig?.Icon || Bot}
+                                />
+                                {/* Bottom Row: Account Email */}
+                                <div
+                                    onClick={handleCopyEmail}
+                                    className="col-span-2 relative h-[22px] flex items-center px-2 rounded-md overflow-hidden border border-gray-100/50 dark:border-white/5 bg-gray-50/30 dark:bg-white/5 group/email cursor-pointer hover:bg-gray-100/50 dark:hover:bg-white/10 transition-colors"
+                                    title={account.email ? `${account.email} (${t('accounts.click_to_copy', 'Click to copy')})` : ''}
+                                >
+                                    <Mail className="w-2.5 h-2.5 mr-1.5 text-gray-400 group-hover/email:text-blue-500 shrink-0 transition-colors" />
+                                    <span className="truncate flex-1 text-[10px] font-mono text-gray-500 dark:text-gray-400 group-hover/email:text-gray-700 dark:group-hover/email:text-gray-200 transition-colors select-all">
+                                        {maskEmails ? maskEmail(account.email) : account.email}
+                                    </span>
+                                    {copiedEmail ? (
+                                        <span className="flex items-center gap-1 text-[9px] text-emerald-600 dark:text-emerald-400 font-sans font-medium shrink-0 ml-1">
+                                            <Check className="w-2.5 h-2.5" />
+                                            <span>{t('common.copied', 'Copied')}</span>
+                                        </span>
+                                    ) : (
+                                        <Copy className="w-2.5 h-2.5 opacity-0 group-hover/email:opacity-60 hover:!opacity-100 text-gray-400 shrink-0 ml-1 transition-opacity" />
+                                    )}
+                                </div>
+                            </>
                         ) : (
                             displayModels.map((model) => {
                                 const modelData = model.data;
@@ -609,6 +695,7 @@ function AccountRowContent({
                                     <QuotaItem
                                         key={model.id}
                                         label={model.label}
+                                        title={modelData?.display_name || model.label}
                                         {...display}
                                         isProtected={Boolean(config?.quota_protection?.enabled && isModelProtected(account.protected_models, model.protectedKey))}
                                         liveLimit={getLiveLimitForModel(account, model.id, model.protectedKey)}
@@ -721,22 +808,24 @@ function AccountRowContent({
                     >
                         <Download className="w-3.5 h-3.5" />
                     </button>
-                    <button
-                        className={cn(
-                            "p-1.5 rounded-lg transition-all",
-                            account.proxy_disabled
-                                ? "text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30"
-                                : "text-gray-500 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/30"
-                        )}
-                        onClick={(e) => { e.stopPropagation(); onToggleProxy(); }}
-                        title={account.proxy_disabled ? t('accounts.enable_proxy') : t('accounts.disable_proxy')}
-                    >
-                        {account.proxy_disabled ? (
-                            <ToggleRight className="w-3.5 h-3.5" />
-                        ) : (
-                            <ToggleLeft className="w-3.5 h-3.5" />
-                        )}
-                    </button>
+                    {onToggleProxy && (
+                        <button
+                            className={cn(
+                                "p-1.5 rounded-lg transition-all",
+                                account.proxy_disabled
+                                    ? "text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30"
+                                    : "text-gray-500 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/30"
+                            )}
+                            onClick={(e) => { e.stopPropagation(); onToggleProxy(); }}
+                            title={account.proxy_disabled ? t('accounts.enable_proxy') : t('accounts.disable_proxy')}
+                        >
+                            {account.proxy_disabled ? (
+                                <ToggleRight className="w-3.5 h-3.5" />
+                            ) : (
+                                <ToggleLeft className="w-3.5 h-3.5" />
+                            )}
+                        </button>
+                    )}
                     <button
                         className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
                         onClick={(e) => { e.stopPropagation(); onDelete(); }}
@@ -778,60 +867,120 @@ function AccountTable({
     onUpdateLabel,
     onViewError,
     quotaWindow,
+    maskEmails = true,
+    sortOption = 'default',
+    onSortChange,
 }: AccountTableProps) {
     const { t } = useTranslation();
 
     const [activeId, setActiveId] = useState<string | null>(null);
-    // 排序状态配置: 支持按配额重置时间 (reset_time) 或最后使用时间 (last_used) 排序
-    const [sortConfig, setSortConfig] = useState<{
-        key: 'reset_time' | 'last_used' | null;
-        direction: 'asc' | 'desc' | null;
-    }>({
-        key: null,
-        direction: null,
-    });
+    const [isQuotaPopoverOpen, setIsQuotaPopoverOpen] = useState(false);
+    const quotaPopoverRef = useRef<HTMLTableHeaderCellElement>(null);
 
-    const isSortingActive = sortConfig.key !== null && sortConfig.direction !== null;
+    // Close quota popover on outside click
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (quotaPopoverRef.current && !quotaPopoverRef.current.contains(event.target as Node)) {
+                setIsQuotaPopoverOpen(false);
+            }
+        }
+        if (isQuotaPopoverOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isQuotaPopoverOpen]);
 
-    const handleSortToggle = (key: 'reset_time' | 'last_used') => {
-        setSortConfig(prev => {
-            if (prev.key !== key) {
-                return { key, direction: 'asc' };
-            }
-            if (prev.direction === 'asc') {
-                return { key, direction: 'desc' };
-            }
-            return { key: null, direction: null };
-        });
+    const isSortingActive = sortOption !== 'default';
+
+    const handleEmailSortToggle = () => {
+        if (!onSortChange) return;
+        if (sortOption === 'email_asc') {
+            onSortChange('email_desc');
+        } else if (sortOption === 'email_desc') {
+            onSortChange('default');
+        } else {
+            onSortChange('email_asc');
+        }
     };
 
-    // 根据排序状态对 accounts 进行拦截排序
-    const sortedAccounts = useMemo(() => {
-        if (!isSortingActive) return accounts;
+    const handleLastUsedSortToggle = () => {
+        if (!onSortChange) return;
+        if (sortOption === 'last_used_desc') {
+            onSortChange('last_used_asc');
+        } else if (sortOption === 'last_used_asc') {
+            onSortChange('default');
+        } else {
+            onSortChange('last_used_desc');
+        }
+    };
 
-        return [...accounts].sort((a, b) => {
-            if (sortConfig.key === 'reset_time') {
-                const timeA = extractAccountResetTime(a, quotaWindow);
-                const timeB = extractAccountResetTime(b, quotaWindow);
+    const isQuotaSortActive = [
+        'reset_5h_weekly_priority',
+        'reset_5h_asc',
+        'reset_5h_desc',
+        'reset_weekly_asc',
+        'reset_weekly_desc',
+        'quota_desc',
+        'quota_asc',
+    ].includes(sortOption);
 
-                // 没有 reset_time 的排到后面
-                if (timeA === null && timeB === null) return 0;
-                if (timeA === null) return 1;
-                if (timeB === null) return -1;
-
-                return sortConfig.direction === 'asc' ? timeA - timeB : timeB - timeA;
-            }
-
-            if (sortConfig.key === 'last_used') {
-                const timeA = a.last_used || 0;
-                const timeB = b.last_used || 0;
-
-                return sortConfig.direction === 'asc' ? timeA - timeB : timeB - timeA;
-            }
-
-            return 0;
-        });
-    }, [accounts, sortConfig, quotaWindow, isSortingActive]);
+    const getQuotaSortBadge = () => {
+        switch (sortOption) {
+            case 'reset_5h_weekly_priority':
+                return (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 font-bold text-[10px]">
+                        <Sparkles className="w-3 h-3 text-amber-500" />
+                        <span>5H★</span>
+                    </span>
+                );
+            case 'reset_5h_asc':
+                return (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 font-bold text-[10px]">
+                        <Clock className="w-3 h-3 text-emerald-500" />
+                        <span>5H ↑</span>
+                    </span>
+                );
+            case 'reset_5h_desc':
+                return (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-base-200 text-gray-600 dark:text-gray-400 font-bold text-[10px]">
+                        <Clock className="w-3 h-3 text-gray-400" />
+                        <span>5H ↓</span>
+                    </span>
+                );
+            case 'reset_weekly_asc':
+                return (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold text-[10px]">
+                        <Calendar className="w-3 h-3 text-blue-500" />
+                        <span>Wk ↑</span>
+                    </span>
+                );
+            case 'reset_weekly_desc':
+                return (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-base-200 text-gray-600 dark:text-gray-400 font-bold text-[10px]">
+                        <Calendar className="w-3 h-3 text-gray-400" />
+                        <span>Wk ↓</span>
+                    </span>
+                );
+            case 'quota_desc':
+                return (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 font-bold text-[10px]">
+                        <BatteryCharging className="w-3 h-3 text-emerald-500" />
+                        <span>% ↓</span>
+                    </span>
+                );
+            case 'quota_asc':
+                return (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 font-bold text-[10px]">
+                        <BatteryLow className="w-3 h-3 text-rose-500" />
+                        <span>% ↑</span>
+                    </span>
+                );
+            default:
+                return <ArrowUpDown className="w-3 h-3 text-gray-400 opacity-60 group-hover:opacity-100" />;
+        }
+    };
 
     // 配置拖拽传感器
     const sensors = useSensors(
@@ -843,8 +992,8 @@ function AccountTable({
         })
     );
 
-    const accountIds = useMemo(() => sortedAccounts.map(a => a.id), [sortedAccounts]);
-    const activeAccount = useMemo(() => sortedAccounts.find(a => a.id === activeId), [sortedAccounts, activeId]);
+    const accountIds = useMemo(() => accounts.map(a => a.id), [accounts]);
+    const activeAccount = useMemo(() => accounts.find(a => a.id === activeId), [accounts, activeId]);
 
     const handleDragStart = (event: DragStartEvent) => {
         if (isSortingActive) return;
@@ -898,38 +1047,209 @@ function AccountTable({
                                     onChange={onToggleAll}
                                 />
                             </th>
-                            <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[300px] whitespace-nowrap">{t('accounts.table.email')}</th>
-                            <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[340px] whitespace-nowrap">
+                            <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[300px] whitespace-nowrap">
                                 <button
                                     type="button"
-                                    onClick={() => handleSortToggle('reset_time')}
+                                    onClick={handleEmailSortToggle}
                                     className={cn(
                                         "inline-flex items-center gap-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors uppercase font-medium",
-                                        sortConfig.key === 'reset_time' && "text-blue-600 dark:text-blue-400 font-semibold"
+                                        (sortOption === 'email_asc' || sortOption === 'email_desc') && "text-blue-600 dark:text-blue-400 font-semibold"
                                     )}
-                                    title={t('accounts.table.sort_by_reset_time', '点击按配额重置时间排序')}
+                                    title={t('accounts.sort.email_asc', 'Click to sort by email / name')}
                                 >
-                                    <span>{quotaWindow === 'weekly' ? t('accounts.table.weekly_quota', '周配额') : t('accounts.table.quota')}</span>
-                                    {sortConfig.key === 'reset_time' ? (
-                                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                    <span>{t('accounts.table.email')}</span>
+                                    {sortOption === 'email_asc' ? (
+                                        <ArrowUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                    ) : sortOption === 'email_desc' ? (
+                                        <ArrowDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                                     ) : (
                                         <ArrowUpDown className="w-3 h-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 opacity-60 hover:opacity-100" />
                                     )}
                                 </button>
                             </th>
+                            <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[340px] whitespace-nowrap relative" ref={quotaPopoverRef}>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsQuotaPopoverOpen(!isQuotaPopoverOpen)}
+                                    className={cn(
+                                        "inline-flex items-center gap-1.5 hover:text-blue-600 dark:hover:text-blue-400 transition-colors uppercase font-medium group",
+                                        isQuotaSortActive && "text-blue-600 dark:text-blue-400 font-semibold"
+                                    )}
+                                    title={t('accounts.sort.title', 'Click to select quota & reset sort')}
+                                >
+                                    <span>{quotaWindow === 'weekly' ? t('accounts.table.weekly_quota', '周配额') : t('accounts.table.quota')}</span>
+                                    {getQuotaSortBadge()}
+                                </button>
+
+                                {isQuotaPopoverOpen && (
+                                    <div className="absolute left-2 top-full mt-1.5 w-64 rounded-xl bg-white dark:bg-base-100 shadow-2xl border border-gray-100 dark:border-base-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 normal-case font-normal backdrop-blur-md">
+                                        <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-100 dark:border-base-200/60 flex items-center justify-between">
+                                            <span>{t('accounts.sort.title', 'Sort by Quota & Reset')}</span>
+                                            {isQuotaSortActive && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        onSortChange?.('default');
+                                                        setIsQuotaPopoverOpen(false);
+                                                    }}
+                                                    className="text-blue-500 hover:text-blue-600 text-[10px] hover:underline"
+                                                >
+                                                    {t('common.reset', 'Reset')}
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        <div className="py-1 divide-y divide-gray-50 dark:divide-white/5">
+                                            {/* 5H Group */}
+                                            <div className="py-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        onSortChange?.('reset_5h_weekly_priority');
+                                                        setIsQuotaPopoverOpen(false);
+                                                    }}
+                                                    className={cn(
+                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
+                                                        sortOption === 'reset_5h_weekly_priority'
+                                                            ? "bg-amber-50/70 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 font-semibold"
+                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+                                                    )}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                                                        <span>{t('accounts.sort.reset_5h_weekly_priority', '5H Reset (Weekly-Prioritized)')}</span>
+                                                        <span className="px-1.5 py-0.2 text-[9px] font-bold rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+                                                            Best
+                                                        </span>
+                                                    </div>
+                                                    {sortOption === 'reset_5h_weekly_priority' && <Check className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />}
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        onSortChange?.('reset_5h_asc');
+                                                        setIsQuotaPopoverOpen(false);
+                                                    }}
+                                                    className={cn(
+                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
+                                                        sortOption === 'reset_5h_asc'
+                                                            ? "bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold"
+                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+                                                    )}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <Clock className="w-3.5 h-3.5 text-emerald-500" />
+                                                        <span>{t('accounts.sort.reset_5h_asc', '5H Reset: Shortest first')}</span>
+                                                    </div>
+                                                    {sortOption === 'reset_5h_asc' && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        onSortChange?.('reset_weekly_asc');
+                                                        setIsQuotaPopoverOpen(false);
+                                                    }}
+                                                    className={cn(
+                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
+                                                        sortOption === 'reset_weekly_asc'
+                                                            ? "bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold"
+                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+                                                    )}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <Calendar className="w-3.5 h-3.5 text-blue-500" />
+                                                        <span>{t('accounts.sort.reset_weekly_asc', 'Weekly Reset: Shortest first')}</span>
+                                                    </div>
+                                                    {sortOption === 'reset_weekly_asc' && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
+                                                </button>
+                                            </div>
+
+                                            {/* Quota % Group */}
+                                            <div className="py-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        onSortChange?.('quota_desc');
+                                                        setIsQuotaPopoverOpen(false);
+                                                    }}
+                                                    className={cn(
+                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
+                                                        sortOption === 'quota_desc'
+                                                            ? "bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold"
+                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+                                                    )}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <BatteryCharging className="w-3.5 h-3.5 text-emerald-500" />
+                                                        <span>{t('accounts.sort.quota_desc', 'Quota: Highest first')}</span>
+                                                    </div>
+                                                    {sortOption === 'quota_desc' && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        onSortChange?.('quota_asc');
+                                                        setIsQuotaPopoverOpen(false);
+                                                    }}
+                                                    className={cn(
+                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
+                                                        sortOption === 'quota_asc'
+                                                            ? "bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold"
+                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+                                                    )}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <BatteryLow className="w-3.5 h-3.5 text-rose-500" />
+                                                        <span>{t('accounts.sort.quota_asc', 'Quota: Lowest first')}</span>
+                                                    </div>
+                                                    {sortOption === 'quota_asc' && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
+                                                </button>
+                                            </div>
+
+                                            {/* Reset to Default */}
+                                            <div className="py-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        onSortChange?.('default');
+                                                        setIsQuotaPopoverOpen(false);
+                                                    }}
+                                                    className={cn(
+                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
+                                                        sortOption === 'default'
+                                                            ? "bg-gray-100 dark:bg-base-200 text-gray-900 dark:text-white font-semibold"
+                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+                                                    )}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <ArrowUpDown className="w-3.5 h-3.5 text-gray-400" />
+                                                        <span>{t('accounts.sort.default', 'Default Order (Drag & Drop)')}</span>
+                                                    </div>
+                                                    {sortOption === 'default' && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </th>
                             <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[90px] whitespace-nowrap">
                                 <button
                                     type="button"
-                                    onClick={() => handleSortToggle('last_used')}
+                                    onClick={handleLastUsedSortToggle}
                                     className={cn(
                                         "inline-flex items-center gap-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors uppercase font-medium",
-                                        sortConfig.key === 'last_used' && "text-blue-600 dark:text-blue-400 font-semibold"
+                                        (sortOption === 'last_used_desc' || sortOption === 'last_used_asc') && "text-blue-600 dark:text-blue-400 font-semibold"
                                     )}
-                                    title={t('accounts.table.sort_by_last_used', '点击按最后使用时间排序')}
+                                    title={t('accounts.table.sort_by_last_used', 'Click to sort by last used time')}
                                 >
                                     <span>{t('accounts.table.last_used')}</span>
-                                    {sortConfig.key === 'last_used' ? (
-                                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> : <ArrowDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                    {sortOption === 'last_used_desc' ? (
+                                        <ArrowDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                    ) : sortOption === 'last_used_asc' ? (
+                                        <ArrowUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                                     ) : (
                                         <ArrowUpDown className="w-3 h-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 opacity-60 hover:opacity-100" />
                                     )}
@@ -940,7 +1260,7 @@ function AccountTable({
                     </thead >
                     <SortableContext items={accountIds} strategy={verticalListSortingStrategy}>
                         <tbody className="divide-y divide-gray-100 dark:divide-base-200">
-                            {sortedAccounts.map((account) => (
+                            {accounts.map((account) => (
                                 <SortableAccountRow
                                     key={account.id}
                                     account={account}
@@ -962,6 +1282,7 @@ function AccountTable({
                                     onViewError={() => onViewError(account.id)}
                                     quotaWindow={quotaWindow}
                                     isDragDisabled={isSortingActive}
+                                    maskEmails={maskEmails}
                                 />
                             ))}
                         </tbody>
@@ -1004,6 +1325,7 @@ function AccountTable({
                                         isDisabled={Boolean(activeAccount.disabled)}
                                         onViewError={() => { }}
                                         quotaWindow={quotaWindow}
+                                        maskEmails={maskEmails}
                                     />
                                 </tr>
                             </tbody>

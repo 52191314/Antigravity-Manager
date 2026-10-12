@@ -43,6 +43,7 @@ const COMMAND_MAPPING: Record<string, { url: string; method: 'GET' | 'POST' | 'D
   'check_proxy_health': { url: '/api/proxy/health-check/trigger', method: 'POST' },
   'get_preferred_account': { url: '/api/proxy/preferred-account', method: 'GET' },
   'set_preferred_account': { url: '/api/proxy/preferred-account', method: 'POST' },
+  'fetch_vertex_models': { url: '/api/proxy/vertex/models', method: 'POST' },
   'load_config': { url: '/api/config', method: 'GET' },
   'get_config': { url: '/api/config', method: 'GET' },
   'save_config': { url: '/api/config', method: 'POST' },

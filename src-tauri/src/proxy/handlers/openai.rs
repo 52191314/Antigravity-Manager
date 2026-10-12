@@ -2157,7 +2157,7 @@ pub async fn handle_chat_completions(
                 }
             } else {
                 match token_manager
-                    .get_token(
+                    .get_token_waiting_out_cooldown(
                         &config.request_type,
                         force_rotate,
                         Some(&affinity_key),
@@ -3892,7 +3892,7 @@ pub async fn handle_completions(
                 credentials
             } else {
                 match token_manager
-                    .get_token(
+                    .get_token_waiting_out_cooldown(
                         &config.request_type,
                         force_rotate,
                         session_id,

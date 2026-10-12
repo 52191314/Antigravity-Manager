@@ -526,9 +526,9 @@ mod tests {
 
     #[test]
     fn test_resolve_38_flash_variants() {
-        // 无后缀的 3.x Flash 裸模型依据思考档位路由（未指定档位默认 High）
+        // 无后缀的 3.8 Flash 裸模型未指定档位时按 High 档位路由，High 默认升级为 tiered（规避 -n canary）
         let s = resolve("gemini-3.8-flash", None).unwrap();
-        assert_eq!(s.id, "gemini-3.8-flash-high");
+        assert_eq!(s.id, "gemini-3.8-flash-tiered");
         assert_eq!(s.thinking_budget, 10000);
         assert_eq!(s.max_output_tokens, 65536);
 

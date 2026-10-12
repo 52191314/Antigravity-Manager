@@ -23,7 +23,7 @@ impl Default for SchedulingMode {
 pub struct StickySessionConfig {
     /// 当前调度模式
     pub mode: SchedulingMode,
-    /// 缓存优先模式下的最大等待时间 (秒)
+    /// 整池账号都在短暂冷却时，单个请求最多原地等待的时间 (秒)，0 表示立即报错
     pub max_wait_seconds: u64,
 }
 

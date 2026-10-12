@@ -310,6 +310,7 @@ pub async fn ensure_admin_server(
     // [NEW] 初始化全局图像思维模式配置
     crate::proxy::update_image_thinking_mode(config.image_thinking_mode.clone());
     crate::proxy::update_multimodal_config(config.multimodal.clone());
+    crate::proxy::vertex::update_config(config.vertex.clone());
     crate::proxy::config::update_global_audit_config(
         config.experimental.payload_storage_mode.clone(),
         config.experimental.log_retention_days,
@@ -767,6 +768,16 @@ pub async fn get_preferred_account(
     } else {
         Ok(None)
     }
+}
+
+/// 列出 Vertex 项目可用的 Gemini 模型（设置页勾选要展示给客户端的模型时使用）。
+/// 配置由前端传入，这样未保存的项目 ID 也能直接拉取。
+#[tauri::command]
+pub async fn fetch_vertex_models(
+    config: crate::proxy::vertex::VertexConfig,
+) -> Result<Vec<String>, String> {
+    crate::proxy::vertex::list_models(&crate::utils::http::get_long_standard_client(), &config)
+        .await
 }
 
 /// 清除指定账号的限流记录

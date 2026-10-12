@@ -5,7 +5,7 @@ import { cn } from '../../utils/cn';
 import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { QuotaItem } from './QuotaItem';
-import { MODEL_CONFIG, sortModels, getModelProtectionKey, resolveQuotaModels, ensurePinnedImageSelector } from '../../config/modelConfig';
+import { MODEL_CONFIG, sortModels, getModelProtectionKey, resolveQuotaModels, ensurePinnedImageSelector, getModelIcon } from '../../config/modelConfig';
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
 import { getLiveLimitForModel } from '../../utils/liveLimit';
 import { getModelQuotaDisplay } from '../../utils/quotaDisplay';
@@ -74,9 +74,6 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
     };
 
     const displayModels = useMemo(() => {
-        // Build map of friendly labels and icons from DEFAULT_MODELS
-        const iconMap = new Map(DEFAULT_MODELS.map(m => [m.id, m.Icon]));
-
         // Get all models from account (source of truth)
         const accountModels = account.quota?.models?.map(m => {
             // 注意：DEFAULT_MODELS 现在应该包含 shortLabel，我们需要确保它被正确映射
@@ -87,7 +84,7 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                 id: m.name,
                 label: m.display_name || fullConfig?.shortLabel || fullConfig?.label || m.name,
                 protectedKey: getModelProtectionKey(m.name) ?? fullConfig?.protectedKey ?? m.name,
-                Icon: iconMap.get(m.name) || Bot,
+                Icon: getModelIcon(m.name) || Bot,
                 data: m
             };
         }) || [];
@@ -319,6 +316,7 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                                 <QuotaItem
                                     key={model.id}
                                     label={model.label}
+                                    modelId={model.data.name}
                                     {...getModelQuotaDisplay(model.id, model.data, account.quota?.quota_groups)}
                                     isProtected={isModelProtected(model.protectedKey)}
                                     liveLimit={getLiveLimitForModel(account, model.id, model.protectedKey)}

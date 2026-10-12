@@ -247,6 +247,16 @@ pub fn wrap_request_v2(
                                 "thought": true,
                                 "thoughtSignature": sig,
                             }));
+                        } else if is_target_claude {
+                            // Claude 上游（Vertex AI）强制要求所有思考块附带有效签名。
+                            // 若无签名，降级为普通正文部件，避免 Vertex AI 报错 "thinking.signature: Field required"
+                            tracing::warn!(
+                                "[Gemini-Wrap] No signature for thought block on Claude model ({}). Downgrading to text to satisfy Vertex AI schema.",
+                                final_model_name
+                            );
+                            new_parts.push(json!({
+                                "text": final_thought_text,
+                            }));
                         } else {
                             new_parts.push(json!({
                                 "text": final_thought_text,

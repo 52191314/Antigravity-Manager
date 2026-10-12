@@ -1684,6 +1684,8 @@ pub fn finalize_gemini_contents_thinking_with_session(
                 None
             };
 
+            let mut chosen_sig: Option<String> = None;
+
             // 2. 签名归位（终审出站门禁 Gatekeeper）：
             // 签名只写在该轮第一个非思考 part 上。Gemini 与 Claude 桌面端都是这个落点。
             if other_parts.is_empty() {
@@ -1716,7 +1718,7 @@ pub fn finalize_gemini_contents_thinking_with_session(
                 // ③ 最新轮次按会话 ID 取回上一轮流式产出的最新签名 cached_session_sig
                 // ④ 上一轮纯思考暂存预留的签名 pending_thought_sig
                 // ⑤ 兜底保底：若当前包含工具调用且为 Gemini 目标，回填不了则带官方哨兵 (SENTINEL_SIGNATURE) 防 400
-                let (chosen_sig, is_fresh) = if let Some(ref sig) = turn_real_sig {
+                let (resolved_sig, is_fresh) = if let Some(ref sig) = turn_real_sig {
                     (Some(sig.clone()), true)
                 } else if let Some(ref sig) = cached_tool_sig {
                     (Some(sig.clone()), true)
@@ -1731,6 +1733,8 @@ pub fn finalize_gemini_contents_thinking_with_session(
                 } else {
                     (None, false)
                 };
+
+                chosen_sig = resolved_sig;
 
                 if is_fresh {
                     // 若本轮已有独立的新签名，直接丢弃之前纯思考轮暂存的陈旧签名
@@ -1768,7 +1772,27 @@ pub fn finalize_gemini_contents_thinking_with_session(
                         obj.remove("thought_signature");
                     }
                 }
-                if is_claude_turn || other_parts.is_empty() {
+                if is_claude_turn {
+                    // [SAFEGUARD for Claude on Vertex AI]
+                    // Vertex AI 严格要求 assistant 轮次的所有 thinking 块附带有效的数字签名。
+                    // 若当前轮次未能匹配到有效签名（如因断网导致流中断未获取签名）或无正文锚点承载签名，
+                    // 必须将思考块降级为普通正文部件，严禁输出没有签名的 thought: true 部件，
+                    // 从而根除 Vertex AI 报错 "messages.X.content.0.thinking.signature: Field required"。
+                    if chosen_sig.is_none() || other_parts.is_empty() {
+                        tracing::warn!(
+                            "[Thinking-Sanitizer] Unsigned thought block on Claude model (msg_idx: {}). Downgrading to text to prevent Vertex AI 400 rejection.",
+                            msg_idx
+                        );
+                        for tp in thinking_parts {
+                            let text = tp.get("text").and_then(|t| t.as_str()).unwrap_or("");
+                            if is_meaningful_thought(text) {
+                                parts.push(json!({ "text": text }));
+                            }
+                        }
+                    } else {
+                        parts.extend(thinking_parts);
+                    }
+                } else if other_parts.is_empty() {
                     parts.extend(thinking_parts);
                 }
             } else {

@@ -966,7 +966,7 @@ pub async fn handle_messages(
         let session_id = Some(affinity_key.as_str());
 
         let (access_token, project_id, email, account_id, _wait_ms) = match token_manager
-            .get_token(
+            .get_token_waiting_out_cooldown(
                 &config.request_type,
                 force_rotate,
                 session_id,
@@ -998,6 +998,11 @@ pub async fn handle_messages(
 
         last_email = Some(email.clone());
         info!("✓ Using account: {} (type: {})", email, config.request_type);
+
+        // 与 Gemini / OpenAI 协议一致：按选中账号实际拥有的型号对齐（如 Claude 4.6 <-> 5.5）
+        let mapped_model = token_manager
+            .resolve_dynamic_model_for_account(&account_id, &mapped_model)
+            .await;
 
         // 方案 A：移除后台任务静默降级策略，请求直通客户端指定的模型，与 OpenAI 协议保持一致
         let mut request_with_mapped = request_for_body.clone();

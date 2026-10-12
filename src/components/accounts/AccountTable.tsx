@@ -61,7 +61,7 @@ import { cn } from '../../utils/cn';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { QuotaItem } from './QuotaItem';
 import { getModelQuotaDisplay } from '../../utils/quotaDisplay';
-import { MODEL_CONFIG, sortModels, resolveQuotaModels, ensurePinnedImageSelector, findQuotaModel } from '../../config/modelConfig';
+import { MODEL_CONFIG, sortModels, resolveQuotaModels, ensurePinnedImageSelector, findQuotaModel, getCompactModelLabel, getModelIcon } from '../../config/modelConfig';
 import { categorizeModel, getModelProtectionKey } from '../../utils/modelCategory';
 import { maskEmail, getAccountDisplayName } from '../../utils/format';
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
@@ -345,15 +345,19 @@ function AccountRowContent({
     const weeklyItems = useMemo(() => {
         if (quotaWindow !== 'weekly') return [];
         return (account.quota?.quota_groups || []).flatMap(group => {
-            return (group.buckets || [])
-                .filter(b => b.window.toLowerCase().includes('week') || b.bucket_id.toLowerCase().includes('week'))
+            const weeklyBuckets = (group.buckets || [])
+                .filter(b => b.window.toLowerCase().includes('week') || b.bucket_id.toLowerCase().includes('week'));
+            return weeklyBuckets
                 .map(b => {
                     const shortGroupName = (group.display_name || '')
                         .replace(/ models?$/i, '')
                         .replace(/Claude and GPT/i, 'Claude/GPT');
+                    const fullLabel = b.display_name ? `${shortGroupName} (${b.display_name})` : `${shortGroupName} (周)`;
                     return {
                         id: `${group.display_name}-${b.bucket_id}`,
-                        label: b.display_name ? `${shortGroupName} (${b.display_name})` : `${shortGroupName} (周)`,
+                        // 列头已标明周配额：单桶时只显示分组名，完整名称放进 tooltip
+                        label: weeklyBuckets.length > 1 ? fullLabel : shortGroupName,
+                        title: fullLabel,
                         percentage: Math.round((b.remaining_fraction || 0) * 100),
                         resetTime: b.reset_time,
                         cycleTokens: b.cycle_tokens,
@@ -374,7 +378,7 @@ function AccountRowContent({
         (showAllQuotas
             ? (account.quota?.models || []).map(m => {
                 const config = MODEL_CONFIG[m.name.toLowerCase()];
-                const label = (config?.shortLabel || config?.label) || m.display_name || (config?.i18nKey ? t(config.i18nKey) : m.name);
+                const label = (config?.shortLabel || config?.label) || getCompactModelLabel(m.name, m.display_name);
                 return {
                     id: m.name.toLowerCase(),
                     label: label,
@@ -387,11 +391,9 @@ function AccountRowContent({
                 const resolvedConfig = sel.model ? MODEL_CONFIG[sel.model.name.toLowerCase()] : undefined;
                 if (!selectorConfig && !sel.model) return null;
                 const label = (resolvedConfig?.shortLabel || resolvedConfig?.label)
-                    || sel.model?.display_name
+                    || (sel.model ? getCompactModelLabel(sel.model.name, sel.model.display_name) : undefined)
                     || (selectorConfig?.shortLabel || selectorConfig?.label)
-                    || (resolvedConfig?.i18nKey ? t(resolvedConfig.i18nKey) : undefined)
-                    || (selectorConfig?.i18nKey ? t(selectorConfig.i18nKey) : undefined)
-                    || sel.selectorId;
+                    || getCompactModelLabel(sel.selectorId);
                 return {
                     id: sel.model?.name.toLowerCase() ?? sel.selectorId.toLowerCase(),
                     label,
@@ -619,6 +621,7 @@ function AccountRowContent({
                                     <QuotaItem
                                         key={item.id}
                                         label={item.label}
+                                        title={item.title}
                                         percentage={item.percentage}
                                         resetTime={item.resetTime}
                                         weeklyTokens={item.cycleTokens ?? null}
@@ -652,6 +655,7 @@ function AccountRowContent({
                                 <QuotaItem
                                     label={geminiFlashLabel}
                                     title={geminiFlashTitle}
+                                    modelId={geminiFlashModel?.name}
                                     {...geminiFlashDisplay}
                                     isProtected={isGeminiFlashProtected}
                                     liveLimit={geminiFlashLiveLimit}
@@ -661,6 +665,7 @@ function AccountRowContent({
                                 <QuotaItem
                                     label={claudeLabel}
                                     title={claudeTitle}
+                                    modelId={claudeModel?.name}
                                     {...claudeDisplay}
                                     isProtected={isClaudeProtected}
                                     liveLimit={claudeLiveLimit}
@@ -696,10 +701,11 @@ function AccountRowContent({
                                         key={model.id}
                                         label={model.label}
                                         title={modelData?.display_name || model.label}
+                                        modelId={modelData?.name}
                                         {...display}
                                         isProtected={Boolean(config?.quota_protection?.enabled && isModelProtected(account.protected_models, model.protectedKey))}
                                         liveLimit={getLiveLimitForModel(account, model.id, model.protectedKey)}
-                                        Icon={MODEL_CONFIG[model.id]?.Icon || Bot}
+                                        Icon={getModelIcon(model.id) || Bot}
                                     />
                                 );
                             })
@@ -1047,7 +1053,7 @@ function AccountTable({
                                     onChange={onToggleAll}
                                 />
                             </th>
-                            <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[300px] whitespace-nowrap">
+                            <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[260px] whitespace-nowrap">
                                 <button
                                     type="button"
                                     onClick={handleEmailSortToggle}
@@ -1067,7 +1073,7 @@ function AccountTable({
                                     )}
                                 </button>
                             </th>
-                            <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[340px] whitespace-nowrap relative" ref={quotaPopoverRef}>
+                            <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[380px] whitespace-nowrap relative" ref={quotaPopoverRef}>
                                 <button
                                     type="button"
                                     onClick={() => setIsQuotaPopoverOpen(!isQuotaPopoverOpen)}

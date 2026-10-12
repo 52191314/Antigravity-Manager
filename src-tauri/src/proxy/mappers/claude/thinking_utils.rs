@@ -258,6 +258,23 @@ pub fn filter_invalid_thinking_blocks_with_family(
                 true
             });
 
+            // [CRITICAL FIX for Vertex AI Claude]
+            // Vertex AI strictly requires a signature for every thinking block in assistant messages.
+            // If signature is None (interrupted stream or stripped signature), convert the thinking block
+            // to a regular Text block to satisfy Vertex AI Anthropic schema validation.
+            if target_family == Some("claude") {
+                for block in blocks.iter_mut() {
+                    if let ContentBlock::Thinking { thinking, signature, .. } = block {
+                        if signature.is_none() {
+                            warn!(
+                                "[Thinking-Sanitizer] Unsigned thinking block detected for Claude target. Downgrading to Text block to satisfy Vertex AI schema."
+                            );
+                            *block = ContentBlock::Text { text: thinking.clone() };
+                        }
+                    }
+                }
+            }
+
             // SAFETY: Claude API requires at least one block
             if blocks.is_empty() && original_len > 0 {
                 blocks.push(ContentBlock::Text {

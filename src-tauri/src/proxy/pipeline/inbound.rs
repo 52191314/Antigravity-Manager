@@ -249,16 +249,24 @@ impl InboundThinkingPipeline {
                                 "thought": true,
                             });
                             // 思考块本身不挂签名。签名落到该轮第一个非思考 part。
-                            if let Some(sig) = effective_sig {
+                            if let Some(ref sig) = effective_sig {
                                 if placeholder_sig.is_none() {
-                                    placeholder_sig = Some(sig);
+                                    placeholder_sig = Some(sig.clone());
                                 }
                             }
 
                             // Gemini 历史不回传思考正文（Mac IDE 0 次回传，桌面端回传也能通）。
                             // Claude 两边都回传思考正文，保留。
                             if is_claude {
-                                if thinking_part.is_none() {
+                                if effective_sig.is_none() && placeholder_sig.is_none() {
+                                    // 若该轮没有任何可用签名（因断网导致流中断未获取签名），
+                                    // 思考块直接转为普通文本加入 other_parts，严禁生成无签名 thought: true 部件导致 Vertex AI 400
+                                    tracing::warn!(
+                                        "[InboundPipeline] Unsigned thought block on Claude model ({}). Downgrading to text to prevent Vertex AI 400 rejection.",
+                                        target_model
+                                    );
+                                    other_parts.push(json!({ "text": final_thought_text }));
+                                } else if thinking_part.is_none() {
                                     thinking_part = Some(thought_obj);
                                 } else if !final_thought_text.is_empty() {
                                     extra_thinking_parts

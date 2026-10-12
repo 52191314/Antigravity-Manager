@@ -55,6 +55,21 @@ fn classify_rate_limit_reason(error_body: &str) -> crate::proxy::rate_limit::Rat
 
 const IMAGE_ACCOUNT_RESELECT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// 从 "All accounts limited. Wait 12s." 中解析整池冷却的等待时长；
+/// 仅当冷却能在剩余等待预算内结束时返回 Some，否则交由调用方直接报错。
+fn pool_cooldown_wait(
+    error: &str,
+    remaining_budget: std::time::Duration,
+) -> Option<std::time::Duration> {
+    let secs = error
+        .strip_prefix("All accounts limited. Wait ")?
+        .strip_suffix("s.")?
+        .parse::<u64>()
+        .ok()?;
+    let wait = std::time::Duration::from_secs(secs);
+    (secs > 0 && wait <= remaining_budget).then_some(wait)
+}
+
 async fn wait_for_image_account_change(
     changes: &mut tokio::sync::watch::Receiver<u64>,
     remaining: std::time::Duration,
@@ -994,6 +1009,55 @@ impl TokenManager {
         Some(result)
     }
 
+    /// Claude 两代型号按账号对齐：已迁移到 5.5 的账号不再提供 4.6（上游以 200 返回
+    /// "no longer available" 提示文本），未迁移的账号只有 4.6。Opus / Sonnet 互不串档，
+    /// 4.6 -> 5.5 时沿用请求里的档位后缀，缺省为 high。
+    fn claude_generation_candidates(model: &str) -> Option<Vec<String>> {
+        let (family, legacy_id) = if model.starts_with("claude-opus-") {
+            ("opus", "claude-opus-4-6-thinking")
+        } else if model.starts_with("claude-sonnet-") {
+            ("sonnet", "claude-sonnet-4-6")
+        } else {
+            return None;
+        };
+        let tier = ["high", "medium", "low"]
+            .into_iter()
+            .find(|tier| model.ends_with(&format!("-{}", tier)))
+            .unwrap_or("high");
+
+        let mut out = vec![model.to_string()];
+        for candidate in [
+            format!("claude-{}-5-5-{}", family, tier),
+            legacy_id.to_string(),
+        ] {
+            if !out.contains(&candidate) {
+                out.push(candidate);
+            }
+        }
+        Some(out)
+    }
+
+    /// 账号配额列表里原样列出了所请求 Claude 型号的账号（非 Claude 请求返回空）
+    fn accounts_listing_exact_claude_model(
+        tokens: &[ProxyToken],
+        target_model: &str,
+    ) -> Vec<ProxyToken> {
+        let exact_model = target_model.trim().to_lowercase();
+        if !exact_model.starts_with("claude-") {
+            return Vec::new();
+        }
+        tokens
+            .iter()
+            .filter(|token| {
+                token
+                    .model_limits
+                    .keys()
+                    .any(|name| name.eq_ignore_ascii_case(&exact_model))
+            })
+            .cloned()
+            .collect()
+    }
+
     fn build_dynamic_model_candidates(model_name: &str) -> Option<Vec<String>> {
         let model = model_name.trim().to_lowercase();
         if model.is_empty() {
@@ -1027,6 +1091,10 @@ impl TokenManager {
                 push("gemini-3-flash-image");
             }
             return Some(out);
+        }
+
+        if let Some(candidates) = Self::claude_generation_candidates(&model) {
+            return Some(candidates);
         }
 
         let pro_family = [
@@ -1433,6 +1501,40 @@ impl TokenManager {
         .await
     }
 
+    /// 请求轮换循环专用的 `get_token`：整池账号都处于短暂冷却时原地等待冷却结束，
+    /// 而不是立刻向客户端返回 503。等待总时长受 `scheduling.max_wait_seconds` 约束，
+    /// 超出预算的长锁定（如配额耗尽）仍按原样立即报错。
+    pub async fn get_token_waiting_out_cooldown(
+        &self,
+        quota_group: &str,
+        force_rotate: bool,
+        session_id: Option<&str>,
+        target_model: &str,
+    ) -> Result<(String, String, String, String, u64), String> {
+        let budget_secs = self.sticky_config.read().await.max_wait_seconds;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(budget_secs);
+
+        loop {
+            let error = match self
+                .get_token(quota_group, force_rotate, session_id, target_model)
+                .await
+            {
+                Ok(token) => return Ok(token),
+                Err(error) => error,
+            };
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            let Some(wait) = pool_cooldown_wait(&error, remaining) else {
+                return Err(error);
+            };
+            tracing::warn!(
+                "All accounts cooling down for model {}. Waiting {}s for the shortest cooldown instead of failing the request.",
+                target_model,
+                wait.as_secs()
+            );
+            tokio::time::sleep(wait).await;
+        }
+    }
+
     pub async fn get_image_token(
         &self,
         force_rotate: bool,
@@ -1600,6 +1702,26 @@ impl TokenManager {
                 ));
             }
             return Err("Token pool is empty".to_string());
+        }
+
+        // Claude 两代并存期：请求的精确型号只有部分账号拥有时，优先在这些账号里调度。
+        // 它们全部处于冷却时保留整池，由 resolve_dynamic_model_for_account 对齐到账号实际型号。
+        let exact_capable = Self::accounts_listing_exact_claude_model(&tokens_snapshot, target_model)
+            .into_iter()
+            .filter(|token| {
+                !self
+                    .rate_limit_tracker
+                    .is_rate_limited(&token.account_id, Some(&normalized_target))
+            })
+            .collect::<Vec<_>>();
+        if !exact_capable.is_empty() && exact_capable.len() < tokens_snapshot.len() {
+            tracing::debug!(
+                "[Token Rotation] {} of {} accounts list {} exactly; preferring them",
+                exact_capable.len(),
+                tokens_snapshot.len(),
+                target_model
+            );
+            tokens_snapshot = exact_capable;
         }
 
         tokens_snapshot.sort_by(|a, b| {
@@ -4167,6 +4289,85 @@ mod tests {
         })
     }
 
+    #[test]
+    fn pool_cooldown_wait_only_accepts_cooldowns_within_budget() {
+        let budget = Duration::from_secs(30);
+        assert_eq!(
+            pool_cooldown_wait("All accounts limited. Wait 12s.", budget),
+            Some(Duration::from_secs(12))
+        );
+        assert_eq!(
+            pool_cooldown_wait("All accounts limited. Wait 30s.", budget),
+            Some(Duration::from_secs(30))
+        );
+        // Longer than the budget (quota exhaustion etc.): fail fast as before.
+        assert_eq!(
+            pool_cooldown_wait("All accounts limited. Wait 7200s.", budget),
+            None
+        );
+        assert_eq!(
+            pool_cooldown_wait("All accounts limited. Wait 5s.", Duration::ZERO),
+            None
+        );
+        // Only the pool-wide cooldown message is waitable.
+        for error in [
+            "All accounts failed or unhealthy.",
+            "Token pool is empty",
+            "No accounts available with quota for model: claude",
+            "All accounts failed after optimistic reset.",
+        ] {
+            assert_eq!(pool_cooldown_wait(error, budget), None, "{error}");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_token_waits_out_short_pool_cooldown_within_budget() {
+        let _dir = crate::proxy::monitor::prompt_log_tests::TestDataDir::new();
+        let data_dir = crate::modules::account::get_data_dir().unwrap();
+        let manager = TokenManager::new(data_dir);
+        let mut account = weekly_quota_account(chrono::Utc::now().timestamp());
+        account["id"] = serde_json::json!("solo");
+        account["email"] = serde_json::json!("solo@test.invalid");
+        // Accounts default to proxy-disabled on creation; this one must be in rotation.
+        account["proxy_disabled"] = serde_json::json!(false);
+        let account: crate::models::Account = serde_json::from_value(account).unwrap();
+        crate::modules::account::save_account(&account).unwrap();
+        manager.reload_account("solo").await.unwrap();
+
+        manager.rate_limit_tracker.set_lockout_until(
+            "solo",
+            std::time::SystemTime::now() + Duration::from_secs(4),
+            crate::proxy::rate_limit::RateLimitReason::RateLimitExceeded,
+            Some("claude".to_string()),
+        );
+
+        let plain = manager
+            .get_token("claude", false, None, "claude-sonnet-4-6")
+            .await
+            .unwrap_err();
+        assert!(plain.starts_with("All accounts limited. Wait "), "{plain}");
+
+        // No wait budget: same fail-fast error as plain get_token.
+        manager.sticky_config.write().await.max_wait_seconds = 0;
+        let no_budget = manager
+            .get_token_waiting_out_cooldown("claude", false, None, "claude-sonnet-4-6")
+            .await
+            .unwrap_err();
+        assert!(
+            no_budget.starts_with("All accounts limited. Wait "),
+            "{no_budget}"
+        );
+
+        manager.sticky_config.write().await.max_wait_seconds = 60;
+        let started = std::time::Instant::now();
+        let selected = manager
+            .get_token_waiting_out_cooldown("claude", false, None, "claude-sonnet-4-6")
+            .await
+            .unwrap();
+        assert_eq!(selected.3, "solo");
+        assert!(started.elapsed() >= Duration::from_secs(1));
+    }
+
     #[tokio::test]
     async fn weekly_quota_blocks_by_default_and_survives_reload_and_resets() {
         let _data_dir = crate::proxy::monitor::prompt_log_tests::TestDataDir::new();
@@ -4340,6 +4541,99 @@ mod tests {
             TokenManager::build_dynamic_model_candidates("gemini-3.1-pro-high").unwrap();
         assert_eq!(candidates_high[0], "gemini-3.1-pro-high");
         assert!(candidates_high.contains(&"gemini-pro-agent".to_string()));
+    }
+
+    #[test]
+    fn claude_candidates_bridge_generations_within_the_same_family() {
+        let candidates = |model: &str| TokenManager::build_dynamic_model_candidates(model).unwrap();
+
+        // Requested id first, then the other generation of the same family.
+        assert_eq!(
+            candidates("claude-opus-4-6-thinking"),
+            vec!["claude-opus-4-6-thinking", "claude-opus-5-5-high"]
+        );
+        assert_eq!(
+            candidates("claude-opus-5-5-medium"),
+            vec!["claude-opus-5-5-medium", "claude-opus-4-6-thinking"]
+        );
+        // `claude-sonnet-4-6-thinking` is not an id any account lists: it must fall through
+        // to a real one instead of being sent upstream as-is.
+        assert_eq!(
+            candidates("claude-sonnet-4-6-thinking"),
+            vec![
+                "claude-sonnet-4-6-thinking",
+                "claude-sonnet-5-5-high",
+                "claude-sonnet-4-6"
+            ]
+        );
+        assert_eq!(
+            candidates("claude-sonnet-5-5-low"),
+            vec!["claude-sonnet-5-5-low", "claude-sonnet-4-6"]
+        );
+        assert!(TokenManager::build_dynamic_model_candidates("gpt-oss-120b-medium").is_none());
+    }
+
+    #[test]
+    fn exact_claude_model_filter_only_matches_accounts_listing_that_id() {
+        let mut migrated = create_test_token("migrated", Some("PRO"), 1.0, None, Some(100));
+        migrated
+            .model_limits
+            .insert("claude-opus-5-5-high".to_string(), 128000);
+        let mut legacy = create_test_token("legacy", Some("PRO"), 1.0, None, Some(100));
+        legacy
+            .model_limits
+            .insert("claude-opus-4-6-thinking".to_string(), 64000);
+        let pool = vec![migrated, legacy];
+
+        let ids = |model: &str| {
+            TokenManager::accounts_listing_exact_claude_model(&pool, model)
+                .into_iter()
+                .map(|token| token.account_id)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids("claude-opus-5-5-high"), vec!["migrated"]);
+        assert_eq!(ids("Claude-Opus-4-6-Thinking"), vec!["legacy"]);
+        // Listed by nobody: no preference, the whole pool stays eligible.
+        assert!(ids("claude-opus-5-5-low").is_empty());
+        // Non-Claude requests are never narrowed.
+        assert!(ids("gemini-3.8-flash-tiered").is_empty());
+    }
+
+    #[tokio::test]
+    async fn resolve_dynamic_model_picks_the_claude_id_the_account_actually_has() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = TokenManager::new(dir.path().to_path_buf());
+        for (id, models) in [
+            ("migrated", vec!["claude-opus-5-5-high", "claude-sonnet-5-5-high"]),
+            ("legacy", vec!["claude-opus-4-6-thinking", "claude-sonnet-4-6"]),
+        ] {
+            let path = dir.path().join(format!("{id}.json"));
+            let models: Vec<_> = models
+                .into_iter()
+                .map(|name| serde_json::json!({ "name": name, "percentage": 100 }))
+                .collect();
+            std::fs::write(&path, serde_json::json!({ "quota": { "models": models } }).to_string())
+                .unwrap();
+            let mut token = create_test_token(id, Some("PRO"), 1.0, None, Some(100));
+            token.account_path = path;
+            manager.tokens.insert(id.to_string(), token);
+        }
+
+        for (account, requested, expected) in [
+            ("migrated", "claude-opus-4-6-thinking", "claude-opus-5-5-high"),
+            ("legacy", "claude-opus-4-6-thinking", "claude-opus-4-6-thinking"),
+            ("legacy", "claude-opus-5-5-high", "claude-opus-4-6-thinking"),
+            ("migrated", "claude-sonnet-4-6-thinking", "claude-sonnet-5-5-high"),
+            ("legacy", "claude-sonnet-4-6-thinking", "claude-sonnet-4-6"),
+        ] {
+            assert_eq!(
+                manager
+                    .resolve_dynamic_model_for_account(account, requested)
+                    .await,
+                expected,
+                "{account} / {requested}"
+            );
+        }
     }
 
     #[tokio::test]

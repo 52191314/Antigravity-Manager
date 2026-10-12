@@ -455,6 +455,21 @@ export function inferModelGroup(modelIdOrName: string): string {
 }
 
 /**
+ * 模型图标：优先内置配置，未收录的模型按厂商系列回退 (无法识别时返回 undefined，由调用方兜底)
+ */
+export function getModelIcon(modelId: string): React.ComponentType<any> | undefined {
+    const id = modelId.toLowerCase();
+    const configured = MODEL_CONFIG[id]?.Icon;
+    if (configured) return configured;
+
+    const group = inferModelGroup(id);
+    if (group.startsWith('Gemini')) return Gemini.Color;
+    if (group === 'Claude') return Claude.Color;
+    if (group === 'OpenAI') return OpenAI.Avatar;
+    return undefined;
+}
+
+/**
  * 组排序权威优先级 (保留向后兼容导出)
  */
 export const CANONICAL_GROUP_ORDER = ['Gemini 3', 'Gemini 2.5', 'Gemini', 'Claude', 'OpenAI', 'Other', 'Dynamic'];
@@ -579,6 +594,7 @@ export {
     categorizeModel,
     getModelProtectionKey,
     getModelDisplayName,
+    getCompactModelLabel,
     findQuotaModel,
     findImageQuotaModel,
     ensurePinnedImageSelector,

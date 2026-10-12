@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "code-review-graph": {
+      "command": "uvx",
+      "args": [
+        "code-review-graph",
+        "serve"
+      ],
+      "cwd": "E:\\02_Projects\\Antigravity-Manager",
+      "type": "stdio"
+    }
+  }
+}

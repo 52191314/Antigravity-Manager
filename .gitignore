@@ -76,3 +76,5 @@ testJson/
 *.db
 /WebView2Loader.dll
 /tools/
+# Added by code-review-graph
+.code-review-graph/

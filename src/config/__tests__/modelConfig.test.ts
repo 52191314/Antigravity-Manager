@@ -10,6 +10,7 @@ import {
     categorizeModel,
     getModelProtectionKey,
     getModelDisplayName,
+    getCompactModelLabel,
     findQuotaModel,
     findImageQuotaModel,
     ensurePinnedImageSelector,
@@ -305,6 +306,48 @@ test('quota display: handles undefined/null buckets and groups safely without th
     const display2 = getModelQuotaDisplay(model.name, model, undefined as any);
     assertEqual(display2.percentage, 75);
 });
+
+test('quota display: exposes the tightest weekly window next to the 5h figure', () => {
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const groups = [{
+        display_name: 'Gemini Models',
+        buckets: [
+            { bucket_id: 'gemini-weekly', window: 'weekly', remaining_fraction: 0.707, reset_time: future },
+            { bucket_id: 'gemini-5h', window: '5h', remaining_fraction: 0.996, reset_time: future },
+        ],
+    }] as any;
+    const model = { name: 'gemini-3.1-pro-high', percentage: 71, reset_time: future };
+    const display = getModelQuotaDisplay(model.name, model, groups);
+    assertEqual(display.percentage, 100);
+    assertEqual(display.hasFiveHourWindow, true);
+    assertEqual(display.weeklyQuota?.percentage, 71);
+    assertEqual(display.weeklyQuota?.resetTime, future);
+
+    // Claude models must not pick up the Gemini group's weekly window.
+    const claude = getModelQuotaDisplay('claude-sonnet-4-6', { name: 'claude-sonnet-4-6', percentage: 63, reset_time: future }, groups);
+    assertEqual(claude.hasFiveHourWindow, false);
+    assertEqual(claude.weeklyQuota, undefined);
+});
+
+const compactLabelCases: Array<[string, string | undefined, string]> = [
+    // derived from the upstream display name
+    ['gemini-pro-agent', 'Gemini 3.1 Pro (High)', 'G3.1 Pro High'],
+    ['gemini-3-flash', 'Gemini 3 Flash', 'G3 Flash'],
+    ['gemini-3.6-flash-medium', 'Gemini 3.6 Flash (Medium)', 'G3.6 Flash Med'],
+    ['claude-sonnet-4-6', 'Claude Sonnet 4.6 (Thinking)', 'Sonnet 4.6 TK'],
+    ['gpt-oss-120b-medium', 'GPT-OSS 120B (Medium)', 'GPT-OSS 120B Med'],
+    // derived from the model id when upstream gives no display name
+    ['gemini-3.8-flash-tiered', undefined, 'G3.8 Flash Tiered'],
+    ['claude-opus-4-6-thinking', undefined, 'Opus 4.6 TK'],
+    ['gemini-3-pro-high', undefined, 'G3 Pro High'],
+    ['gemini-pro-agent', undefined, 'Gemini Pro Agent'],
+];
+
+for (const [name, displayName, expected] of compactLabelCases) {
+    test(`getCompactModelLabel("${name}", ${JSON.stringify(displayName)})`, () => {
+        assertEqual(getCompactModelLabel(name, displayName), expected);
+    });
+}
 
 if (failed > 0) {
     throw new Error(`${failed} test(s) failed`);

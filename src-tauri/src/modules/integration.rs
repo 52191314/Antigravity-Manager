@@ -313,6 +313,79 @@ pub async fn execute_system_switch(
         }
     }
 
+    let config = crate::modules::config::load_app_config().ok();
+    let multi_instance = config
+        .as_ref()
+        .map(|c| c.multi_instance_mode)
+        .unwrap_or(false);
+
+    if multi_instance && !is_ide {
+        crate::modules::logger::log_info(&format!(
+            "[System] Multi-instance mode enabled: skipping close_antigravity, launching isolated profile for account: {}",
+            account.email
+        ));
+
+        let data_dir = dirs::data_dir()
+            .ok_or_else(|| "Failed to get system data directory".to_string())?;
+        let profile_dir = data_dir.join("Antigravity-Profiles").join(&account.id);
+        let global_storage_dir = profile_dir.join("User").join("globalStorage");
+        fs::create_dir_all(&global_storage_dir)
+            .map_err(|e| format!("Failed to create profile storage directory {:?}: {}", global_storage_dir, e))?;
+
+        // 1. Prepare launch arguments with isolated user-data-dir
+        let mut launch_args = active_args.unwrap_or_default();
+        launch_args.retain(|a| !a.starts_with("--user-data-dir"));
+        launch_args.push(format!("--user-data-dir={}", profile_dir.display()));
+
+        // 2. Write credentials to system keyring for runtime authentication
+        if let Err(e) = write_to_system_keyring(account) {
+            crate::modules::logger::log_warn(&format!(
+                "[System] Multi-instance: write_to_system_keyring returned: {}, proceeding with profile DB injection",
+                e
+            ));
+        }
+
+        // 3. Write device profile to isolated storage.json
+        let storage_path = global_storage_dir.join("storage.json");
+        if let Some(ref profile) = account.device_profile {
+            let _ = device::write_profile(&storage_path, profile);
+        }
+
+        // 4. Inject token into isolated state.vscdb
+        let db_path = global_storage_dir.join("state.vscdb");
+        if let Err(e) = db::inject_token(
+            &db_path,
+            &account.token.access_token,
+            &account.token.refresh_token,
+            account.token.expiry_timestamp,
+            &account.email,
+            account.token.is_gcp_tos,
+            account.token.project_id.as_deref(),
+            account.token.id_token.as_deref(),
+            account.token.oauth_client_key.as_deref(),
+            effective_target,
+        ) {
+            crate::modules::logger::log_warn(&format!(
+                "[System] Multi-instance: failed to inject token into profile DB {:?}: {}",
+                db_path, e
+            ));
+        }
+        if let Some(ref profile) = account.device_profile {
+            let _ = db::write_service_machine_id(&db_path, &profile.mac_machine_id);
+        }
+
+        // 5. Spawn the isolated Antigravity instance
+        if let Err(e) = process::start_antigravity_with_fallback_path(
+            effective_target,
+            active_exe_path.as_deref(),
+            Some(&launch_args),
+        ) {
+            return Err(format!("Failed to start multi-instance Antigravity: {}", e));
+        }
+
+        return Ok(());
+    }
+
     if !hot_switch && running {
         process::close_antigravity(20, effective_target)?;
     }

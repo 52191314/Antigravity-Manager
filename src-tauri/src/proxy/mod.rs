@@ -31,6 +31,7 @@ pub mod signature_cache; // Signature Cache (v3.3.16)
 pub mod sticky_config; // 粘性调度配置
 pub mod thinking_store; // 服务端完整思考块存储
 pub mod upstream; // 上游客户端
+pub mod vertex; // Vertex AI 直连上游 (用户自有 GCP 项目)
 pub mod video; // 视频处理模块
 
 pub use config::update_global_system_prompt_config;

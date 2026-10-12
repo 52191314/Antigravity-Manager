@@ -65,6 +65,36 @@ export function getModelDisplayName(
     return fallback ?? '';
 }
 
+const COMPACT_TIER_LABELS: Record<string, string> = {
+    high: 'High',
+    medium: 'Med',
+    low: 'Low',
+    thinking: 'TK',
+};
+
+/**
+ * 为没有内置短标签的模型推导紧凑标签，保证窄列里也能区分具体模型。
+ * 例如 "Gemini 3.1 Pro (High)" -> "G3.1 Pro High"，"Claude Sonnet 4.6 (Thinking)" -> "Sonnet 4.6 TK"。
+ * 没有 display_name 时从模型 ID 推导（"claude-opus-4-6-thinking" -> "Opus 4.6 TK"）。
+ */
+export function getCompactModelLabel(name: string, displayName?: string | null): string {
+    const source = displayName?.trim()
+        || name.trim()
+            .replace(/-(\d+)-(\d+)(?=-|$)/, '-$1.$2')
+            .split('-')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+
+    return source
+        .replace(/^Gemini\s+(?=\d)/i, 'G')
+        .replace(/^Claude\s+(?=(?:Sonnet|Opus|Haiku)\b)/i, '')
+        .replace(/[()]/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(word => COMPACT_TIER_LABELS[word.toLowerCase()] ?? word)
+        .join(' ');
+}
+
 /**
  * 按优先级查找配额模型：先精确匹配首选名，再按类别 fallback。
  */

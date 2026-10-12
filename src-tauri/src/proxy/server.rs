@@ -855,6 +855,7 @@ impl AxumServer {
                 "/proxy/preferred-account",
                 get(admin_get_preferred_account).post(admin_set_preferred_account),
             )
+            .route("/proxy/vertex/models", post(admin_fetch_vertex_models))
             .route("/accounts/oauth/prepare", post(admin_prepare_oauth_url))
             .route("/accounts/oauth/start", post(admin_start_oauth_login))
             .route("/accounts/oauth/complete", post(admin_complete_oauth_login))
@@ -1902,6 +1903,7 @@ async fn admin_save_config(
     crate::proxy::update_global_system_prompt_config(new_config.proxy.global_system_prompt.clone());
     crate::proxy::update_image_thinking_mode(new_config.proxy.image_thinking_mode.clone());
     crate::proxy::update_multimodal_config(new_config.proxy.multimodal.clone());
+    crate::proxy::vertex::update_config(new_config.proxy.vertex.clone());
     crate::proxy::config::update_global_audit_config(
         new_config.proxy.experimental.payload_storage_mode.clone(),
         new_config.proxy.experimental.log_retention_days,
@@ -2154,6 +2156,23 @@ async fn admin_set_preferred_account(
         .set_preferred_account(payload.account_id)
         .await;
     StatusCode::OK
+}
+
+#[derive(Deserialize)]
+struct FetchVertexModelsRequest {
+    config: crate::proxy::vertex::VertexConfig,
+}
+
+async fn admin_fetch_vertex_models(
+    Json(payload): Json<FetchVertexModelsRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    crate::proxy::vertex::list_models(
+        &crate::utils::http::get_long_standard_client(),
+        &payload.config,
+    )
+    .await
+    .map(Json)
+    .map_err(|error| (StatusCode::BAD_GATEWAY, Json(ErrorResponse { error })))
 }
 
 async fn admin_set_proxy_monitor_enabled(

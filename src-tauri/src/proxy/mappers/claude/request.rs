@@ -1204,6 +1204,16 @@ fn build_contents(
                                 "thoughtSignature": sig
                             });
                             parts.push(part);
+                        } else if is_claude_model {
+                            // Claude 上游（Vertex AI）强制要求所有思考块附带有效签名。
+                            // 若无签名，降级为普通正文部件，避免 Vertex AI 报错 "thinking.signature: Field required"
+                            tracing::warn!(
+                                "[Thinking-Signature] No signature for thought block on Claude model ({}). Downgrading to text to satisfy Vertex AI schema.",
+                                mapped_model
+                            );
+                            parts.push(json!({
+                                "text": final_thought_text,
+                            }));
                         } else {
                             // 无签名：保留思考块结构（`thought: true`），但**不携带签名字段**。
                             // Gemini 目标的思考块本就不应带签名（铁律 I4：

@@ -29,6 +29,23 @@ export interface ProxyConfig {
     only_raw_quota_models?: boolean; // [NEW] 是否只暴露真实配额模型
     proxy_pool?: ProxyPoolConfig;
     multimodal?: MultimodalConfig;
+    vertex?: VertexConfig;
+}
+
+/** Vertex AI 直连上游：命中映射的模型走用户自己的 GCP 项目 */
+export interface VertexConfig {
+    enabled: boolean;
+    project_id: string;
+    location: string;
+    credentials_path?: string | null;
+    /** 哪些模型走 Vertex：default 只有 Gemini 3.8 Flash，picker 为下面两项自选 */
+    model_mode?: 'default' | 'picker';
+    /** 客户端模型名 -> Vertex 模型 ID（键支持结尾 * 通配）；仅 picker 模式生效 */
+    model_mapping: Record<string, string>;
+    /** 以自身 ID 展示给客户端并直连 Vertex 的模型（从云端列表勾选）；仅 picker 模式生效 */
+    exposed_models?: string[];
+    /** 命中 Vertex 路由的模型先用哪一边；另一边作为回退 */
+    preference?: 'vertex_first' | 'accounts_first';
 }
 
 export interface MultimodalConfig {
@@ -174,6 +191,7 @@ export interface AppConfig {
     antigravity_ide_executable?: string; // [NEW] 手动指定的 Antigravity IDE 程序路径
     antigravity_cli_executable?: string; // [NEW] 手动指定的 Antigravity CLI (agy) 路径
     antigravity_args?: string[]; // [NEW] Antigravity 启动参数
+    multi_instance_mode?: boolean; // [NEW] 多开模式：切换 2.0 GUI 时启动新窗口而不关闭旧窗口
     auto_launch?: boolean; // 开机自动启动
     quiet_autostart?: boolean; // 开机自启时留在托盘。缺省视为开启
     auto_check_update?: boolean; // 自动检查更新

@@ -404,7 +404,11 @@ pub async fn fetch_quota_with_cache(
                 // Parse deprecated model routing rules
                 if let Some(deprecated) = quota_response.deprecated_model_ids {
                     for (old_id, info) in deprecated {
-                        // Register forwarding rules (including those mapping to gemini-pro-agent)
+                        // Register global forwarding rules (including those mapping to gemini-pro-agent or 3.8)
+                        crate::proxy::common::model_mapping::update_dynamic_forwarding_rules(
+                            old_id.clone(),
+                            info.new_model_id.clone(),
+                        );
                         quota_data
                             .model_forwarding_rules
                             .insert(old_id, info.new_model_id);

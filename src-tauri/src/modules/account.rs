@@ -41,13 +41,17 @@ mod tests {
 
     impl TestDataDir {
         fn new() -> Self {
+            // 序号保证同一毫秒内连续创建的两个目录不会重名
+            static NEXT_ID: std::sync::atomic::AtomicUsize =
+                std::sync::atomic::AtomicUsize::new(0);
             let temp_path = std::env::temp_dir().join(format!(
-                "antigravity_test_{}_{}",
+                "antigravity_test_{}_{}_{}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
-                    .as_millis()
+                    .as_millis(),
+                NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             ));
             fs::create_dir_all(&temp_path).expect("Failed to create temp dir");
 

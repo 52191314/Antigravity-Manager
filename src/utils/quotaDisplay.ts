@@ -38,15 +38,22 @@ export function getModelQuotaDisplay(modelId: string, model: ModelQuota | undefi
     const fiveHour = buckets.filter(bucket => /5h|hour/i.test(`${bucket.window} ${bucket.bucket_id}`))
         .reduce<(typeof buckets)[number] | undefined>((chosen, bucket) =>
             !chosen || bucket.remaining_fraction < chosen.remaining_fraction ? bucket : chosen, undefined);
-    const weekly = buckets.filter(bucket => /week|7d/i.test(`${bucket.window} ${bucket.bucket_id}`)
-        && bucket.remaining_fraction <= 0.001 && Date.parse(bucket.reset_time) > Date.now())
+    const weeklyBuckets = buckets.filter(bucket => /week|7d/i.test(`${bucket.window} ${bucket.bucket_id}`));
+    const weekly = weeklyBuckets.filter(bucket => bucket.remaining_fraction <= 0.001 && Date.parse(bucket.reset_time) > Date.now())
         .reduce<(typeof buckets)[number] | undefined>((chosen, bucket) =>
             !chosen || Date.parse(bucket.reset_time) > Date.parse(chosen.reset_time) ? bucket : chosen, undefined);
+    // The tightest weekly bucket, shown next to the 5h figure even when it is not exhausted.
+    const tightestWeekly = weeklyBuckets.reduce<(typeof buckets)[number] | undefined>((chosen, bucket) =>
+        !chosen || bucket.remaining_fraction < chosen.remaining_fraction ? bucket : chosen, undefined);
     return {
         percentage: weekly ? 0 : fiveHour ? Math.round(fiveHour.remaining_fraction * 100) : (model?.percentage ?? 0),
         resetTime: weekly?.reset_time || fiveHour?.reset_time || model?.reset_time,
         isWeeklyConstrained: !!weekly,
         weeklyResetTime: weekly?.reset_time,
+        hasFiveHourWindow: !!fiveHour,
+        weeklyQuota: tightestWeekly
+            ? { percentage: Math.round(tightestWeekly.remaining_fraction * 100), resetTime: tightestWeekly.reset_time }
+            : undefined,
     };
 }
 

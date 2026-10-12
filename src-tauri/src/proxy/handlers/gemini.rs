@@ -135,6 +135,32 @@ pub async fn handle_generate(
             format!("Unsupported method: {}", method),
         ));
     }
+
+    // Vertex AI 直连：命中路由的模型可走用户自己的 GCP 项目。
+    // Vertex 优先时先在这里尝试，Vertex 侧不可用再落到下面的账号池；账号池优先时反过来。
+    let vertex_route =
+        crate::proxy::vertex::resolve_route(&crate::proxy::vertex::get_config(), &model_name);
+    if let Some(route) = vertex_route.as_ref().filter(|route| route.vertex_first) {
+        match crate::proxy::vertex::handle_generate(
+            &state.upstream,
+            route,
+            &method,
+            &body,
+            upstream_recorder.as_ref().map(|recorder| &recorder.0),
+        )
+        .await
+        {
+            Ok(response) => return Ok(response),
+            Err(failure) if !failure.can_fall_back => return Ok(failure.response),
+            Err(failure) => warn!(
+                "[Vertex] {} — falling back to the account pool for {}",
+                failure.reason, model_name
+            ),
+        }
+    }
+    // 账号池优先：账号池给不出可用账号时改走 Vertex
+    let accounts_first_vertex_route = vertex_route.filter(|route| !route.vertex_first);
+
     if debug_logger::is_enabled(&debug_cfg) {
         let original_payload = json!({
             "kind": "original_request",
@@ -278,7 +304,7 @@ pub async fn handle_generate(
                 }
             } else {
                 match token_manager
-                    .get_token(
+                    .get_token_waiting_out_cooldown(
                         &config.request_type,
                         force_rotate,
                         Some(&affinity_key),
@@ -288,6 +314,26 @@ pub async fn handle_generate(
                 {
                     Ok(t) => t,
                     Err(e) => {
+                        if let Some(route) = accounts_first_vertex_route.as_ref() {
+                            warn!(
+                                "[Vertex] Account pool unavailable ({}); using Vertex for {}",
+                                e, model_name
+                            );
+                            return Ok(
+                                match crate::proxy::vertex::handle_generate(
+                                    &upstream,
+                                    route,
+                                    &method,
+                                    &body,
+                                    upstream_recorder.as_ref().map(|recorder| &recorder.0),
+                                )
+                                .await
+                                {
+                                    Ok(response) => response,
+                                    Err(failure) => failure.response,
+                                },
+                            );
+                        }
                         let headers = build_token_error_headers(
                             Some(mapped_model.as_str()),
                             last_email.as_deref(),
@@ -555,8 +601,37 @@ pub async fn handle_generate(
                     failure_statuses.record(StatusCode::BAD_GATEWAY);
                     continue;
                 }
+
+                // [NEW] 提取上游真实响应 modelVersion 及 Canary 标识
+                let mut upstream_model_version = mapped_model.clone();
+                let mut is_canary = false;
+                if let Some(ref b) = first_chunk {
+                    if let Ok(text) = std::str::from_utf8(b) {
+                        for line in text.lines() {
+                            if let Some(rest) = line.strip_prefix("data: ") {
+                                if let Ok(val) = serde_json::from_str::<Value>(rest.trim()) {
+                                    let mv = val.get("response")
+                                        .and_then(|r| r.get("modelVersion"))
+                                        .or_else(|| val.get("modelVersion"))
+                                        .and_then(|v| v.as_str());
+                                    if let Some(m) = mv {
+                                        upstream_model_version = m.to_string();
+                                        is_canary = m.contains("-n") || m.contains("-exp") || m.contains("-canary");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                tracing::info!(
+                    "[Gemini Upstream] Stamped modelVersion: {} (Canary: {})",
+                    upstream_model_version, is_canary
+                );
+
                 let s_id_for_stream = s_id.clone();
                 let model_name_for_stream = mapped_model.clone();
+                let client_display_model = model_name.clone();
                 let image_permit_for_stream = image_permit.take();
                 let track_image_success = config.request_type == "image_gen";
                 let image_success_manager = token_manager.clone();
@@ -616,8 +691,9 @@ pub async fn handle_generate(
                                             "params": report.params
                                         }
                                     });
+                                    // Gemini 原生协议没有 `[DONE]` 哨兵：原生客户端会把每个 data 帧按 JSON 解析，
+                                    // 追加 `[DONE]` 只会让真实错误被 "unexpected token [" 解析错误掩盖。
                                     yield Ok::<Bytes, String>(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&error_json).unwrap_or_default())));
-                                    yield Ok::<Bytes, String>(Bytes::from("data: [DONE]\n\n"));
                                     None
                                 }
                             }
@@ -649,7 +725,6 @@ pub async fn handle_generate(
                                     }
                                 });
                                 yield Ok::<Bytes, String>(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&error_json).unwrap_or_default())));
-                                yield Ok::<Bytes, String>(Bytes::from("data: [DONE]\n\n"));
                                 break;
                             }
                             None => break,
@@ -701,6 +776,19 @@ pub async fn handle_generate(
 
                                             // [FIX #1522] Inject Tool ID into Stream Response
                                             crate::proxy::mappers::gemini::wrapper::inject_ids_to_response(&mut json, &model_name_for_stream);
+
+                                            // [CAMOUFLAGE] 智能伪装: 若用户请求非 internal id (如 gemini-3.8-flash-high, gemini-3.8-flash-exp-a, argon, carbon 等),
+                                            // 将上游返回的 modelVersion 动态伪装为用户所请求的模型名称
+                                            if client_display_model != "gemini-3.8-flash-tiered" && client_display_model != "gemini-pro-agent" {
+                                                if let Some(mv) = json.get_mut("modelVersion") {
+                                                    *mv = serde_json::Value::String(client_display_model.clone());
+                                                }
+                                                if let Some(resp) = json.get_mut("response") {
+                                                    if let Some(mv) = resp.get_mut("modelVersion") {
+                                                        *mv = serde_json::Value::String(client_display_model.clone());
+                                                    }
+                                                }
+                                            }
 
                                             // Unwrap v1internal response wrapper
                                             if let Some(inner) = json.get_mut("response").map(|v| v.take()) {
@@ -767,6 +855,9 @@ pub async fn handle_generate(
                     }
                 };
 
+                let display_mapped_model = mapped_model.clone();
+                let display_upstream_mv = upstream_model_version.clone();
+
                 if client_wants_stream {
                     let body = Body::from_stream(stream);
                     return Ok(Response::builder()
@@ -775,7 +866,9 @@ pub async fn handle_generate(
                         .header("Connection", "keep-alive")
                         .header("X-Accel-Buffering", "no")
                         .header("X-Account-Email", &email)
-                        .header("X-Mapped-Model", &mapped_model)
+                        .header("X-Mapped-Model", &display_mapped_model)
+                        .header("X-Upstream-Model-Version", &display_upstream_mv)
+                        .header("X-Upstream-Canary", if is_canary { "true" } else { "false" })
                         .header("X-Session-Id", &client_session_id)
                         .header("X-Antigravity-Session-Id", &client_session_id)
                         .header("X-Timing-Clean-Ms", format!("{:.3}", clean_ms))
@@ -800,12 +893,31 @@ pub async fn handle_generate(
                                 "[{}] ✓ Stream collected and converted to JSON (Gemini)",
                                 session_id
                             );
-                            let unwrapped = unwrap_response(&gemini_resp);
+                            let mut unwrapped = unwrap_response(&gemini_resp);
+                            if !model_name.contains("tiered") {
+                                if let Some(mv) = unwrapped.get_mut("modelVersion") {
+                                    if mv.as_str().map_or(false, |s| s.contains("tiered")) {
+                                        *mv = serde_json::Value::String(model_name.clone());
+                                    }
+                                }
+                            }
+                            let final_mv = if !model_name.contains("tiered") && upstream_model_version.contains("tiered") {
+                                model_name.clone()
+                            } else {
+                                unwrapped.get("modelVersion")
+                                    .or_else(|| gemini_resp.get("response").and_then(|r| r.get("modelVersion")))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or(&upstream_model_version)
+                                    .to_string()
+                            };
+                            let final_canary = final_mv.contains("-n") || final_mv.contains("-exp") || final_mv.contains("-canary");
                             return Ok(Response::builder()
                                 .status(StatusCode::OK)
                                 .header("Content-Type", "application/json")
                                 .header("X-Account-Email", &email)
-                                .header("X-Mapped-Model", &mapped_model)
+                                .header("X-Mapped-Model", &display_mapped_model)
+                                .header("X-Upstream-Model-Version", final_mv)
+                                .header("X-Upstream-Canary", if final_canary { "true" } else { "false" })
                                 .header("X-Session-Id", &client_session_id)
                                 .header("X-Antigravity-Session-Id", &client_session_id)
                                 .header("X-Timing-Clean-Ms", format!("{:.3}", clean_ms))
@@ -878,12 +990,30 @@ pub async fn handle_generate(
                 &gemini_resp,
                 preceding_turn,
             );
-            let unwrapped = unwrap_response(&gemini_resp);
+            let mut unwrapped = unwrap_response(&gemini_resp);
+            if model_name != "gemini-3.8-flash-tiered" && model_name != "gemini-pro-agent" {
+                if let Some(mv) = unwrapped.get_mut("modelVersion") {
+                    *mv = serde_json::Value::String(model_name.clone());
+                }
+            }
+            let final_mv = if model_name != "gemini-3.8-flash-tiered" && model_name != "gemini-pro-agent" && (mapped_model.contains("tiered") || mapped_model == "gemini-pro-agent") {
+                model_name.clone()
+            } else {
+                unwrapped.get("modelVersion")
+                    .or_else(|| gemini_resp.get("response").and_then(|r| r.get("modelVersion")))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&mapped_model)
+                    .to_string()
+            };
+            let final_canary = final_mv.contains("-n") || final_mv.contains("-exp") || final_mv.contains("-canary");
+            let display_mapped_model = mapped_model.clone();
             return Ok(Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "application/json")
                 .header("X-Account-Email", &email)
-                .header("X-Mapped-Model", &mapped_model)
+                .header("X-Mapped-Model", &display_mapped_model)
+                .header("X-Upstream-Model-Version", final_mv)
+                .header("X-Upstream-Canary", if final_canary { "true" } else { "false" })
                 .header("X-Session-Id", &client_session_id)
                 .header("X-Antigravity-Session-Id", &client_session_id)
                 .header("X-Timing-Clean-Ms", format!("{:.3}", clean_ms))
@@ -1137,6 +1267,25 @@ pub async fn handle_generate(
             Json(dual_err),
         )
             .into_response());
+    }
+
+    // 账号池优先且整池尝试均失败：最后改走 Vertex
+    if let Some(route) = accounts_first_vertex_route.as_ref() {
+        warn!(
+            "[Vertex] Account pool attempts exhausted ({}); using Vertex for {}",
+            last_error, model_name
+        );
+        if let Ok(response) = crate::proxy::vertex::handle_generate(
+            &upstream,
+            route,
+            &method,
+            &body,
+            upstream_recorder.as_ref().map(|recorder| &recorder.0),
+        )
+        .await
+        {
+            return Ok(response);
+        }
     }
 
     // 所有尝试均失败：仅当全部结构化失败状态均为 429 时返回 429

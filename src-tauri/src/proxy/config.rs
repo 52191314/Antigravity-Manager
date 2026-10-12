@@ -864,6 +864,10 @@ pub struct ProxyConfig {
     /// 多模态交互与保鲜滑窗配置
     #[serde(default)]
     pub multimodal: MultimodalConfig,
+
+    /// Vertex AI 直连上游配置（命中映射的模型走用户自己的 GCP 项目）
+    #[serde(default)]
+    pub vertex: crate::proxy::vertex::VertexConfig,
 }
 
 /// Request log retention policy.
@@ -1007,6 +1011,7 @@ impl Default for ProxyConfig {
             global_system_prompt: GlobalSystemPromptConfig::default(),
             proxy_pool: ProxyPoolConfig::default(),
             multimodal: MultimodalConfig::default(),
+            vertex: crate::proxy::vertex::VertexConfig::default(),
             image_thinking_mode: None,
             image_scheduler: ImageSchedulerConfig::default(),
         }

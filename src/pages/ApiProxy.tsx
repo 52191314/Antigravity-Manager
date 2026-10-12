@@ -39,6 +39,7 @@ import ImageThinkingMode from '../components/settings/ImageThinkingMode';
 import ThinkingBudget from '../components/settings/ThinkingBudget';
 import MultimodalSettings from '../components/settings/MultimodalSettings';
 import AgentSettings from '../components/settings/AgentSettings';
+import VertexUpstream, { DEFAULT_VERTEX_CONFIG } from '../components/settings/VertexUpstream';
 import { CircuitBreakerConfig } from '../types/config';
 
 interface ProxyStatus {
@@ -2173,7 +2174,7 @@ print(response.choices[0].message.content)`;
                                                         <HelpTooltip text={t('proxy.config.scheduling.max_wait_tooltip')} />
                                                     </label>
                                                     <span className="text-xs font-mono text-indigo-600 font-bold">
-                                                        {appConfig.proxy.scheduling?.max_wait_seconds || 60}s
+                                                        {appConfig.proxy.scheduling?.max_wait_seconds ?? 60}s
                                                     </span>
                                                 </div>
                                                 <input
@@ -2181,9 +2182,8 @@ print(response.choices[0].message.content)`;
                                                     min="0"
                                                     max="300"
                                                     step="10"
-                                                    disabled={(appConfig.proxy.scheduling?.mode || 'Balance') !== 'CacheFirst'}
                                                     className="range range-indigo range-xs"
-                                                    value={appConfig.proxy.scheduling?.max_wait_seconds || 60}
+                                                    value={appConfig.proxy.scheduling?.max_wait_seconds ?? 60}
                                                     onChange={(e) => updateSchedulingConfig({ max_wait_seconds: parseInt(e.target.value) })}
                                                 />
                                                 <div className="flex justify-between px-1 mt-1 text-[10px] text-gray-400 font-mono">
@@ -2272,6 +2272,20 @@ print(response.choices[0].message.content)`;
                                         </div>
                                     )}
                                 </div>
+                            </CollapsibleCard>
+
+                            {/* Vertex AI 直连上游 */}
+                            <CollapsibleCard
+                                title={t('settings.vertex.title', { defaultValue: 'Vertex AI Upstream (own GCP project)' })}
+                                icon={<Share2 size={18} className="text-blue-500" />}
+                                enabled={(appConfig.proxy.vertex || DEFAULT_VERTEX_CONFIG).enabled}
+                                onToggle={(enabled) => updateProxyConfig({ vertex: { ...(appConfig.proxy.vertex || DEFAULT_VERTEX_CONFIG), enabled } })}
+                                allowInteractionWhenDisabled
+                            >
+                                <VertexUpstream
+                                    config={appConfig.proxy.vertex || DEFAULT_VERTEX_CONFIG}
+                                    onChange={(vertex) => updateProxyConfig({ vertex })}
+                                />
                             </CollapsibleCard>
 
                             {/* 全局提示词与多模态设置 (Global Prompt & Multimodal Config) */}

@@ -2,30 +2,57 @@
 import { AlertTriangle, Clock, Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../utils/cn';
-import { getQuotaColor, formatTimeRemaining, getTimeRemainingColor } from '../../utils/format';
+import { getQuotaColor, formatTimeRemaining, getTimeRemainingColor, parseFlexibleDate } from '../../utils/format';
 import type { LiveLimitStatus } from '../../types/account';
 import { formatCompactDuration, getLiveLimitState } from '../../utils/liveLimit';
 
 interface QuotaItemProps {
     label: string;
     title?: string;
+    /** Model id clients send to the proxy; shown in the tooltip next to the display name */
+    modelId?: string;
     percentage: number;
     resetTime?: string;
     isProtected?: boolean;
     liveLimit?: LiveLimitStatus;
     isWeeklyConstrained?: boolean;
     weeklyResetTime?: string;
+    /** `percentage` comes from the group's 5h window (so the weekly window is the other one) */
+    hasFiveHourWindow?: boolean;
+    /** Tightest weekly window of the model's quota group, drawn as a thin bar under the 5h fill */
+    weeklyQuota?: { percentage: number; resetTime?: string };
     weeklyTokens?: number | null;
     className?: string;
     Icon?: React.ComponentType<{ size?: number; className?: string }>;
 }
 
-export function QuotaItem({ label, title, percentage, resetTime, isProtected, liveLimit, isWeeklyConstrained, weeklyResetTime, weeklyTokens, className, Icon }: QuotaItemProps) {
+export function QuotaItem({ label, title, modelId, percentage, resetTime, isProtected, liveLimit, isWeeklyConstrained, weeklyResetTime, hasFiveHourWindow, weeklyQuota, weeklyTokens, className, Icon }: QuotaItemProps) {
     const { t } = useTranslation();
     const liveState = getLiveLimitState(liveLimit);
     const showLiveIssue = liveState.shouldShow || isWeeklyConstrained;
     const isUnavailable = liveState.isActive || isWeeklyConstrained;
     const liveStatus = isWeeklyConstrained ? t('accounts.quota_window_weekly_short', 'Weekly') : liveLimit?.status || 'ERR';
+
+    const describeWindow = (windowLabel: string | null, windowPercentage: number, windowResetTime?: string) => {
+        const resetAt = windowResetTime ? parseFlexibleDate(windowResetTime) : null;
+        const line = resetAt && resetAt.getTime() > Date.now()
+            ? t('accounts.quota_tooltip_window', '{{percentage}}% left, resets in {{remaining}} ({{at}})', {
+                percentage: windowPercentage,
+                remaining: formatTimeRemaining(windowResetTime!),
+                at: resetAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+            })
+            : t('accounts.quota_tooltip_window_no_reset', '{{percentage}}% left', { percentage: windowPercentage });
+        return windowLabel ? `${windowLabel}: ${line}` : line;
+    };
+    // The weekly bar only adds information when the chip itself shows the 5h window.
+    const weeklyBar = hasFiveHourWindow && !isWeeklyConstrained ? weeklyQuota : undefined;
+    const fullName = title || label;
+    const detailTitle = [
+        modelId && modelId.toLowerCase() !== fullName.toLowerCase() ? `${fullName} (${modelId})` : fullName,
+        describeWindow(weeklyBar ? '5h' : null, percentage, resetTime),
+        weeklyBar ? describeWindow(t('accounts.quota_window_weekly_short', 'Weekly'), weeklyBar.percentage, weeklyBar.resetTime) : null,
+        isProtected ? t('accounts.quota_protected') : null,
+    ].filter(Boolean).join('\n');
     const liveLimitTitle = isWeeklyConstrained
         ? `${label}: ${t('accounts.weekly_exhausted_tooltip', 'Weekly quota exhausted (0%); waiting for weekly reset')} (${weeklyResetTime ? formatTimeRemaining(weeklyResetTime) || weeklyResetTime : ''})`
         : liveLimit
@@ -76,7 +103,7 @@ export function QuotaItem({ label, title, percentage, resetTime, isProtected, li
             isUnavailable && "border-rose-400/70 dark:border-rose-500/70 bg-rose-50/80 dark:bg-rose-950/30 ring-rose-400/30",
             className
         )}
-            title={showLiveIssue ? liveLimitTitle : (title || label)}
+            title={showLiveIssue ? liveLimitTitle : detailTitle}
         >
             {/* Background Progress Bar */}
             <div
@@ -87,6 +114,14 @@ export function QuotaItem({ label, title, percentage, resetTime, isProtected, li
                 style={{ width: `${percentage}%` }}
             />
 
+            {/* Weekly window bar */}
+            {weeklyBar && (
+                <div
+                    className={cn("absolute bottom-0 left-0 h-[2px] transition-all duration-700 ease-out opacity-70", getBgColorClass(weeklyBar.percentage))}
+                    style={{ width: `${weeklyBar.percentage}%` }}
+                />
+            )}
+
             {/* Content */}
             <div className="relative z-10 w-full flex items-center text-[10px] font-mono leading-none gap-1.5">
                 {/* Model Name */}
@@ -94,7 +129,7 @@ export function QuotaItem({ label, title, percentage, resetTime, isProtected, li
                     "flex-1 min-w-0 text-gray-500 dark:text-gray-400 font-bold truncate text-left flex items-center gap-1",
                     showLiveIssue && "text-amber-700 dark:text-amber-300",
                     isUnavailable && "text-rose-700 dark:text-rose-300"
-                )} title={showLiveIssue ? liveLimitTitle : (title || label)}>
+                )} title={showLiveIssue ? liveLimitTitle : detailTitle}>
                     {showLiveIssue && (
                         <AlertTriangle
                             size={12}
@@ -105,15 +140,15 @@ export function QuotaItem({ label, title, percentage, resetTime, isProtected, li
                         />
                     )}
                     {Icon && <Icon size={12} className="shrink-0" />}
-                    {label}
+                    <span className="truncate">{label}</span>
                 </span>
 
-                {/* Reset Time */}
-                <div className="w-[58px] flex justify-start shrink-0">
+                {/* Reset Time: compact ("4h48m") so the model name keeps the room in narrow columns */}
+                <div className="flex justify-end shrink-0">
                     {resetTime ? (
-                        <span className={cn("flex items-center gap-0.5 font-medium transition-colors truncate", getTimeColorClass(resetTime))}>
-                            <Clock className="w-2.5 h-2.5 shrink-0" />
-                            {formatTimeRemaining(resetTime)}
+                        <span className={cn("flex items-center gap-0.5 font-medium transition-colors whitespace-nowrap", getTimeColorClass(resetTime))}>
+                            <Clock className="w-2.5 h-2.5 shrink-0 hidden xl:block" />
+                            {formatTimeRemaining(resetTime).replace(' ', '')}
                         </span>
                     ) : (
                         <span className="text-gray-300 dark:text-gray-600 italic scale-90">N/A</span>

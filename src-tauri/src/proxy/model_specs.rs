@@ -414,6 +414,10 @@ pub fn resolve_bare_flash_route(model: &str, client_effort: Option<&str>) -> Opt
             // HIGH 或未指定档位（默认 high）
             if base_model.contains("3.5") {
                 "gemini-3.5-flash".to_string()
+            } else if base_model == "gemini-3.8-flash" {
+                // [NEW Turbo Mode] 3.8 Flash high 默认升级至 3.8-flash-tiered，
+                // 彻底规避 upstream canary (-n) 导致的吞吐暴跌 (从 79 tok/s 恢复至 648 tok/s)
+                "gemini-3.8-flash-tiered".to_string()
             } else {
                 format!("{}-high", base_model)
             }
@@ -423,18 +427,24 @@ pub fn resolve_bare_flash_route(model: &str, client_effort: Option<&str>) -> Opt
     Some(routed)
 }
 
-/// 检查模型是否匹配 `gemini-3.x-flash` 通配符且 x > 8（例如 gemini-3.9-flash, gemini-3.10-flash 等）。
-/// 若匹配且 x > 8，统一转为 3.x-flash-tiered 模型（如 "gemini-3.9-flash-tiered"）。
-/// 严格要求：x 必须大于 8，对于 3.6 / 3.7 / 3.8 等模型由专用预设接管，3.5 及其以下严格排除。
+/// 检查模型是否匹配 `gemini-3.x-flash` 通配符且 x >= 8（例如 gemini-3.8-flash, gemini-3.8-flash-high, gemini-3.9-flash 等）。
+/// 若匹配且 x >= 8，统一转为 3.x-flash-tiered 模型（如 "gemini-3.8-flash-tiered"）。
+/// 严格要求：x 必须 >= 8，以规避 3.8-n canary 并激活高速推理。
 pub fn resolve_gemini_3x_flash_tiered(model: &str) -> Option<String> {
     let lower = model.to_lowercase();
     let prefix = "gemini-3.";
-    let suffix = "-flash";
-    if lower.starts_with(prefix) && lower.ends_with(suffix) {
-        let middle = &lower[prefix.len()..lower.len() - suffix.len()];
-        if let Ok(x) = middle.parse::<f32>() {
-            if x > 8.0 {
-                return Some(format!("gemini-3.{}-flash-tiered", middle));
+    if lower.starts_with(prefix) {
+        let rest = &lower[prefix.len()..];
+        let version_part: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
+        if let Ok(x) = version_part.parse::<f32>() {
+            if x >= 8.0 {
+                let suffix = &rest[version_part.len()..];
+                if suffix == "-flash" || suffix == "-flash-high" {
+                    return Some(format!("gemini-3.{}-flash-tiered", version_part));
+                }
             }
         }
     }
@@ -978,9 +988,21 @@ mod tests {
 
     #[test]
     fn test_resolve_gemini_3x_flash_tiered_wildcard() {
-        // x > 8 命中转为 3.x-flash-tiered
+        // x >= 8 命中转为 3.x-flash-tiered，且同时支持 bare flash 与 -flash-high 档位
+        assert_eq!(
+            resolve_gemini_3x_flash_tiered("gemini-3.8-flash"),
+            Some("gemini-3.8-flash-tiered".to_string())
+        );
+        assert_eq!(
+            resolve_gemini_3x_flash_tiered("gemini-3.8-flash-high"),
+            Some("gemini-3.8-flash-tiered".to_string())
+        );
         assert_eq!(
             resolve_gemini_3x_flash_tiered("gemini-3.9-flash"),
+            Some("gemini-3.9-flash-tiered".to_string())
+        );
+        assert_eq!(
+            resolve_gemini_3x_flash_tiered("gemini-3.9-flash-high"),
             Some("gemini-3.9-flash-tiered".to_string())
         );
         assert_eq!(
@@ -992,17 +1014,12 @@ mod tests {
             Some("gemini-3.9.1-flash-tiered".to_string())
         );
 
-        // x <= 8 必须返回 None，严格由专用映射接管
-        assert_eq!(resolve_gemini_3x_flash_tiered("gemini-3.8-flash"), None);
+        // x < 8 必须返回 None，严格由专用映射接管
         assert_eq!(resolve_gemini_3x_flash_tiered("gemini-3.7-flash"), None);
         assert_eq!(resolve_gemini_3x_flash_tiered("gemini-3.6-flash"), None);
         assert_eq!(resolve_gemini_3x_flash_tiered("gemini-3.5-flash"), None);
 
-        // 已经带有后缀或非 flash 模型不命中
-        assert_eq!(
-            resolve_gemini_3x_flash_tiered("gemini-3.9-flash-high"),
-            None
-        );
+        // 非 flash 模型不命中
         assert_eq!(resolve_gemini_3x_flash_tiered("gemini-3.9-pro"), None);
     }
 }

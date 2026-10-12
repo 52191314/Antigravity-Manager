@@ -175,6 +175,13 @@ fn inject_new_format(
     use base64::{engine::general_purpose, Engine as _};
     use rusqlite::OptionalExtension;
 
+    // Ensure ItemTable exists (required for newly created profile databases)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT PRIMARY KEY, value TEXT)",
+        [],
+    )
+    .map_err(|e| format!("Failed to initialize ItemTable: {}", e))?;
+
     let current_topic = conn
         .query_row(
             "SELECT value FROM ItemTable WHERE key = ?",

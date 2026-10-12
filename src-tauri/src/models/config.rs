@@ -46,6 +46,8 @@ pub struct AppConfig {
     pub thinking_cleanup_dismissed: Option<bool>, // [NEW] 用户是否已确认/忽略该建议
     #[serde(default)]
     pub dismissed_thinking_cleanup_version: Option<String>, // [NEW] 用户已确认或忽略建议的目标版本号
+    #[serde(default)]
+    pub multi_instance_mode: bool, // [NEW] 多开模式：切换 2.0 GUI 时启动新窗口而不关闭旧窗口
 }
 
 fn default_quiet_autostart() -> bool {
@@ -271,6 +273,7 @@ impl AppConfig {
             suggestion_delete_thinking_store: None,
             thinking_cleanup_dismissed: None,
             dismissed_thinking_cleanup_version: None,
+            multi_instance_mode: false,
         }
     }
 }

@@ -1069,10 +1069,31 @@ pub fn start_antigravity_with_fallback_path(
             .as_ref()
             .and_then(|c| c.antigravity_executable.clone())
     };
-    let raw_args = config
-        .and_then(|c| c.antigravity_args.clone())
-        .or_else(|| preferred_args.map(|a| a.to_vec()));
-    let args = raw_args.map(|a| sanitize_restart_args(&a));
+    let mut merged_args = Vec::new();
+    if let Some(cfg_args) = config.as_ref().and_then(|c| c.antigravity_args.as_ref()) {
+        merged_args.extend(cfg_args.clone());
+    } else if let Some(pref) = preferred_args {
+        merged_args.extend(pref.to_vec());
+    }
+
+    // Ensure any --user-data-dir in preferred_args is maintained even when custom config args exist
+    if let Some(pref) = preferred_args {
+        for arg in pref {
+            if arg.starts_with("--user-data-dir") {
+                merged_args.retain(|a| !a.starts_with("--user-data-dir"));
+                merged_args.push(arg.clone());
+            }
+        }
+    }
+    let args = if !merged_args.is_empty() {
+        Some(sanitize_restart_args(&merged_args))
+    } else {
+        None
+    };
+    let has_user_data_dir = args
+        .as_ref()
+        .map(|a| a.iter().any(|arg| arg.starts_with("--user-data-dir")))
+        .unwrap_or(false);
 
     if let Some(mut path_str) = manual_path {
         let mut path = std::path::PathBuf::from(&path_str);
@@ -1104,6 +1125,9 @@ pub fn start_antigravity_with_fallback_path(
                 // macOS: if .app directory, use open
                 if path_str.ends_with(".app") || path.is_dir() {
                     let mut cmd = Command::new("open");
+                    if has_user_data_dir {
+                        cmd.arg("-n");
+                    }
                     cmd.arg("-a").arg(&path_str);
 
                     // Add startup arguments (must be after --args for macOS open)
@@ -1181,6 +1205,9 @@ pub fn start_antigravity_with_fallback_path(
             {
                 let path_str = pref_path.to_string_lossy();
                 let mut cmd = Command::new("open");
+                if has_user_data_dir {
+                    cmd.arg("-n");
+                }
                 if let Some(app_idx) = path_str.find(".app") {
                     cmd.arg("-a").arg(&path_str[..app_idx + 4]);
                 } else {
@@ -1254,6 +1281,9 @@ pub fn start_antigravity_with_fallback_path(
         };
 
         let mut cmd = Command::new("open");
+        if has_user_data_dir {
+            cmd.arg("-n");
+        }
         if app_target.ends_with(".app") {
             cmd.arg(&app_target);
         } else {

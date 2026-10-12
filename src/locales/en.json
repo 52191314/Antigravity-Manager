@@ -311,6 +311,8 @@
     "weekly_tokens": "Cycle tokens",
     "weekly_tokens_tooltip": "Tokens recorded by this instance in this quota cycle (input + output)",
     "quota_protected": "Protected",
+    "quota_tooltip_window": "{{percentage}}% left, resets in {{remaining}} ({{at}})",
+    "quota_tooltip_window_no_reset": "{{percentage}}% left",
     "details": {
       "title": "Quota Details",
       "model_quota": "Model Quota",
@@ -644,6 +646,8 @@
       "detect_args_btn": "Detect",
       "antigravity_args_detected": "Startup arguments updated",
       "antigravity_args_detect_error": "Failed to detect startup arguments",
+      "multi_instance_mode": "Multi-Instance Mode (Antigravity 2.0 GUI)",
+      "multi_instance_mode_desc": "When switching accounts via the 2.0 GUI button, start a new window in an isolated profile instead of terminating the previous window.",
       "accounts_page_size": "Accounts Page Size",
       "page_size_auto": "Auto Calculate (Recommended)",
       "page_size_desc": "Set the number of accounts displayed per page. Select 'Auto Calculate' to dynamically adjust based on window size.",
@@ -973,7 +977,7 @@
           "PerformanceFirst": "No session binding, pure round-robin rotation (Best for high concurrency)."
         },
         "max_wait": "Max Wait (sec)",
-        "max_wait_tooltip": "Only used in 'Cache First' mode: wait instead of switching if the rate limit reset time is below this value.",
+        "max_wait_tooltip": "When every account is in a short rate-limit cooldown, the request waits up to this long for the first account to recover instead of failing with 503. Set to 0 to fail immediately.",
         "clear_bindings": "Clear Session Bindings",
         "clear_bindings_tooltip": "Hard reset all session-account bindings, forcing accounts to be re-assigned on next request.",
         "clear_rate_limits": "Clear Rate Limit Records",

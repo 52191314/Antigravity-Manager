@@ -309,6 +309,8 @@
     "weekly_tokens": "本周期 Token",
     "weekly_tokens_tooltip": "本实例在此配额周期记录的 Token 用量（输入 + 输出）",
     "quota_protected": "受保护",
+    "quota_tooltip_window": "剩余 {{percentage}}%，{{remaining}} 后重置 ({{at}})",
+    "quota_tooltip_window_no_reset": "剩余 {{percentage}}%",
     "details": {
       "title": "配额详情",
       "model_quota": "模型配额",
@@ -642,6 +644,8 @@
       "detect_args_btn": "检测",
       "antigravity_args_detected": "启动参数已更新",
       "antigravity_args_detect_error": "检测启动参数失败",
+      "multi_instance_mode": "多开模式 (Antigravity 2.0 GUI)",
+      "multi_instance_mode_desc": "使用 2.0 GUI 按钮切换账号时，通过独立 Profile 启动新窗口，而不是关闭已打开的旧窗口。",
       "accounts_page_size": "账号列表分页大小",
       "page_size_auto": "自动计算 (推荐)",
       "page_size_desc": "设置每页显示的账号数量。选择自动计算将根据窗口大小动态调整。",
@@ -964,7 +968,7 @@
           "PerformanceFirst": "无会话绑定，纯随机轮换（适合高并发，不考虑缓存）。"
         },
         "max_wait": "最大等待时长 (秒)",
-        "max_wait_tooltip": "仅在“缓存优先”模式下生效：如果账号限流重置时间小于此值，则原地等待而非切换账号。",
+        "max_wait_tooltip": "当所有账号都处于短暂限流冷却时，请求最多原地等待此时长直到最先恢复的账号可用，而不是直接返回 503。设为 0 则立即返回错误。",
         "clear_bindings": "清除会话绑定",
         "clear_bindings_tooltip": "立即断开所有会话与账号的绑定关系，强制下一次请求重新分配账号。",
         "clear_rate_limits": "清除限流记录",

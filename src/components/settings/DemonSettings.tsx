@@ -37,15 +37,15 @@ export default function DemonSettings({
                         <div className="flex items-center gap-2">
                             <span className="text-base">🔥</span>
                             <h4 className="font-bold text-sm text-gray-900 dark:text-gray-100">
-                                {t("settings.demon.title", { defaultValue: "DEMON Mode (Autonomous Diagnostics & Safety Shim)" })}
+                                {t("settings.demon.title", { defaultValue: "DEMON v2 (Neuro-Symbolic Diagnostics & Safety Invariant Engine)" })}
                             </h4>
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 font-semibold border border-rose-200 dark:border-rose-800/40">
-                                for Antigravity
+                                v2.0 Invariant Engine
                             </span>
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
                             {t("settings.demon.desc", {
-                                defaultValue: "High-privilege autonomous diagnostics and safety harmonization middleware for agy / Antigravity: eliminates interactive confirmation prompts, decontaminates offensive verbs, and unlocks frictionless development.",
+                                defaultValue: "High-privilege autonomous diagnostics and safety harmonization middleware for agy: features Index 0 Prefix Authority, Bidirectional Reverse Ledger for tool calls, and automated RASP/Anti-Tamper translation.",
                             })}
                         </p>
                     </div>

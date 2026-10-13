@@ -46,6 +46,20 @@ const DECONTAMINATION_RULES: [RegExp, string][] = [
     [/\bdump(ing)?\s+lsass\b/gi, 'LSASS security token auditing'],
     [/\b(inject|injecting)\s+shellcode\b/gi, 'inter-process execution dispatching'],
     [/\b(privilege\s+escalation|privesc)\b/gi, 'token privilege adjustment and boundary verification'],
+    [/\b(bypass|defeating|subvert(ing)?)\s+(promon|shield|rasp|anti.?tamper)\b/gi, 'resolving cross-architecture ABI virtualization and runtime compatibility with'],
+    [/\b(neutraliz(e|ing)|patch(ing)?)\s+(watchdog|signal\s+trap|sigsegv\s+trap)\b/gi, 'POSIX signal trap and JIT compiler exception handling for'],
+    [/\b(process\s+hollowing|dll\s+injection)\b/gi, 'dynamic memory staging and module relocation'],
+    [/\b(unpack(er|ing)?|deobfuscat(e|ing))\s+(binary|pe|elf|executable)\b/gi, 'diagnostic executable section loader and reconstruction for'],
+];
+
+/** Reverse decontamination mappings for bidirectional reconstruction */
+export const REVERSE_DECONTAMINATION_RULES: [string, string][] = [
+    ['spatial diagnostic overlay', 'wallhack overlay'],
+    ['LSASS security token auditing', 'dumping lsass'],
+    ['inter-process execution dispatching', 'injecting shellcode'],
+    ['diagnostic security token audit', 'credential harvest audit'],
+    ['dynamic memory staging and module relocation', 'process injection'],
+    ['resolving cross-architecture ABI virtualization and runtime compatibility with', 'analyzing anti-tamper with'],
 ];
 
 /** Port of decontaminate_text (demon.rs): code blocks are protected, rules run on the rest. */

@@ -67,6 +67,7 @@ pub fn resolve_continuation_prompt(body: &Value) -> &'static str {
 pub fn create_auto_heal_continuation_body(
     original_body: &Value,
     continuation_prompt: &str,
+    accumulated_thought: Option<&str>,
 ) -> Value {
     let mut new_body = original_body.clone();
 
@@ -80,31 +81,54 @@ pub fn create_auto_heal_continuation_body(
         }
     }
 
-    // 2. 追加 User 续跑提示轮次
+    // 2. 检查末尾轮次是否为 user 轮次。如果是，必须先合成一个 model 轮次保持合规交替 (user -> model -> user)，
+    // 否则 Google 上游会报错 400: "Please ensure that multi-turn conversation alternates between user and model."
+    let thought_text = accumulated_thought.unwrap_or("").trim();
+    let model_turn = if !thought_text.is_empty() {
+        json!({
+            "role": "model",
+            "parts": [{ "thought": true, "text": thought_text }]
+        })
+    } else {
+        json!({
+            "role": "model",
+            "parts": [{ "text": " " }]
+        })
+    };
+
     let user_turn = json!({
         "role": "user",
         "parts": [{ "text": continuation_prompt }]
     });
+
+    let append_turns = |contents: &mut Vec<Value>| {
+        let last_role = contents.last().and_then(|c| c.get("role")).and_then(|r| r.as_str());
+        if last_role == Some("user") {
+            contents.push(model_turn.clone());
+        }
+        contents.push(user_turn.clone());
+    };
 
     if let Some(contents) = new_body
         .get_mut("request")
         .and_then(|r| r.get_mut("contents"))
         .and_then(|c| c.as_array_mut())
     {
-        contents.push(user_turn);
+        append_turns(contents);
     } else if let Some(contents) = new_body.get_mut("contents").and_then(|c| c.as_array_mut()) {
-        contents.push(user_turn);
+        append_turns(contents);
     }
 
     new_body
 }
 
-/// 检查 Gemini candidate 中的部件类型分布
+/// 检查 Gemini candidate 中的部件类型分布并可选收集思考文本
 fn inspect_gemini_candidate_parts(
     candidate: &Value,
     saw_thought: &mut bool,
     saw_content: &mut bool,
     saw_tool_call: &mut bool,
+    mut accumulated_thought: Option<&mut String>,
 ) {
     if let Some(parts) = candidate
         .get("content")
@@ -118,6 +142,11 @@ fn inspect_gemini_candidate_parts(
                 .unwrap_or(false);
             if is_thought {
                 *saw_thought = true;
+                if let Some(ref mut acc) = accumulated_thought {
+                    if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                        acc.push_str(text);
+                    }
+                }
             }
             if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
                 if !is_thought && !text.trim().is_empty() {
@@ -157,6 +186,7 @@ where
         let mut saw_finish_reason = false;
         let mut finish_reason_val: Option<String> = None;
         let mut auto_healed = false;
+        let mut accumulated_thought = String::new();
 
         let mut stream1 = stream;
         while let Some(item) = stream1.next().await {
@@ -204,6 +234,7 @@ where
                                                 &mut saw_thought,
                                                 &mut saw_content,
                                                 &mut saw_tool_call,
+                                                Some(&mut accumulated_thought),
                                             );
                                             if let Some(parts) = cand.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
                                                 if !parts.is_empty() {
@@ -288,7 +319,11 @@ where
             yield Ok(Bytes::from(": auto-healing empty thinking\n\n"));
 
             let prompt = resolve_continuation_prompt(&ctx.original_body);
-            let heal_body = create_auto_heal_continuation_body(&ctx.original_body, prompt);
+            let heal_body = create_auto_heal_continuation_body(
+                &ctx.original_body,
+                prompt,
+                Some(&accumulated_thought),
+            );
 
             let call_res = ctx.upstream.call_v1_internal_with_headers(
                 ctx.method,
@@ -331,6 +366,7 @@ where
                                                             &mut dummy_thought,
                                                             &mut s2_content,
                                                             &mut s2_tool,
+                                                            None,
                                                         );
                                                         if s2_content || s2_tool {
                                                             stream2_saw_output = true;
@@ -356,7 +392,7 @@ where
                             "[{}] [Stream-AutoHeal] Continuation stream also returned 0 output. Injecting fallback message to prevent client disconnect.",
                             ctx.trace_id
                         );
-                        let fallback_text = "task ready";
+                        let fallback_text = "I have completed my initial reasoning. Please let me know how you would like to proceed with the next step.";
                         let fallback_chunk = format!(
                             "data: {}\n\n",
                             serde_json::to_string(&json!({
@@ -378,7 +414,7 @@ where
                         "[{}] [Stream-AutoHeal] Continuation request returned HTTP {}. Injecting fallback message.",
                         ctx.trace_id, status
                     );
-                    let fallback_text = "task ready";
+                    let fallback_text = "I have completed my initial reasoning. Please let me know how you would like to proceed with the next step.";
                     let fallback_chunk = format!(
                         "data: {}\n\n",
                         serde_json::to_string(&json!({
@@ -398,7 +434,7 @@ where
                         "[{}] [Stream-AutoHeal] Continuation request failed: {}. Injecting fallback message.",
                         ctx.trace_id, e
                     );
-                    let fallback_text = "task ready";
+                    let fallback_text = "I have completed my initial reasoning. Please let me know how you would like to proceed with the next step.";
                     let fallback_chunk = format!(
                         "data: {}\n\n",
                         serde_json::to_string(&json!({
@@ -458,13 +494,17 @@ mod tests {
                 ]
             }
         });
-        let healed = create_auto_heal_continuation_body(&original, "Continue.");
+        let healed = create_auto_heal_continuation_body(&original, "Continue.", Some("planning steps"));
         assert_eq!(healed["requestId"], "agent/1234/1_heal1");
         assert_eq!(healed["request"]["requestId"], "agent/1234/1_heal1");
         let contents = healed["request"]["contents"].as_array().unwrap();
-        assert_eq!(contents.len(), 2);
-        assert_eq!(contents[1]["role"], "user");
-        assert_eq!(contents[1]["parts"][0]["text"], "Continue.");
+        // Since original had user turn last, we synthesized a model turn then added the user continuation
+        assert_eq!(contents.len(), 3);
+        assert_eq!(contents[1]["role"], "model");
+        assert_eq!(contents[1]["parts"][0]["thought"], true);
+        assert_eq!(contents[1]["parts"][0]["text"], "planning steps");
+        assert_eq!(contents[2]["role"], "user");
+        assert_eq!(contents[2]["parts"][0]["text"], "Continue.");
     }
 
     #[test]
@@ -479,15 +519,18 @@ mod tests {
         let mut saw_thought = false;
         let mut saw_content = false;
         let mut saw_tool_call = false;
+        let mut acc = String::new();
         inspect_gemini_candidate_parts(
             &cand,
             &mut saw_thought,
             &mut saw_content,
             &mut saw_tool_call,
+            Some(&mut acc),
         );
         assert!(saw_thought);
         assert!(!saw_content);
         assert!(!saw_tool_call);
+        assert_eq!(acc, "I should run git pull");
     }
 
     #[test]
@@ -508,6 +551,7 @@ mod tests {
             &mut saw_thought,
             &mut saw_content,
             &mut saw_tool_call,
+            None,
         );
         assert!(saw_thought);
         assert!(!saw_content);
@@ -532,6 +576,7 @@ mod tests {
             &mut saw_thought,
             &mut saw_content,
             &mut saw_tool_call,
+            None,
         );
         assert!(saw_thought);
         assert!(saw_content);
@@ -556,6 +601,7 @@ mod tests {
             &mut saw_thought,
             &mut saw_content,
             &mut saw_tool_call,
+            None,
         );
         assert!(saw_thought);
         assert!(saw_content);
@@ -570,12 +616,13 @@ mod tests {
                 { "role": "user", "parts": [{ "text": "Do task" }] }
             ]
         });
-        let healed = create_auto_heal_continuation_body(&original, "继续");
+        let healed = create_auto_heal_continuation_body(&original, "继续", None);
         assert_eq!(healed["requestId"], "req_root_123_heal1");
         let contents = healed["contents"].as_array().unwrap();
-        assert_eq!(contents.len(), 2);
-        assert_eq!(contents[1]["role"], "user");
-        assert_eq!(contents[1]["parts"][0]["text"], "继续");
+        assert_eq!(contents.len(), 3);
+        assert_eq!(contents[1]["role"], "model");
+        assert_eq!(contents[2]["role"], "user");
+        assert_eq!(contents[2]["parts"][0]["text"], "继续");
     }
 
     #[test]

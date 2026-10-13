@@ -8,6 +8,9 @@ import ApiProxy from './pages/ApiProxy';
 import Monitor from './pages/Monitor';
 import TokenStats from './pages/TokenStats';
 import Readme from './pages/Readme';
+import PromonHud from './pages/PromonHud';
+import AgyChats from './pages/AgyChats';
+import ClaudeChats from './pages/ClaudeChats';
 import ThemeManager from './components/common/ThemeManager';
 import { UpdateNotification } from './components/UpdateNotification';
 import SuggestionDeleteThinkingModal from './components/common/SuggestionDeleteThinkingModal';
@@ -23,6 +26,10 @@ import { AdminAuthGuard } from './components/common/AdminAuthGuard';
 
 const router = createBrowserRouter([
   {
+    path: '/hud',
+    element: <PromonHud />,
+  },
+  {
     path: '/',
     element: <Layout />,
     children: [
@@ -33,6 +40,14 @@ const router = createBrowserRouter([
       {
         path: 'accounts',
         element: <Accounts />,
+      },
+      {
+        path: 'chats/agy',
+        element: <AgyChats />,
+      },
+      {
+        path: 'chats/claude',
+        element: <ClaudeChats />,
       },
       {
         path: 'api-proxy',

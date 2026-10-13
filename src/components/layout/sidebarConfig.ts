@@ -8,6 +8,8 @@ import {
     Bot,
     Eye,
     BookOpen,
+    MessageSquareText,
+    Terminal,
     type LucideIcon,
 } from 'lucide-react';
 
@@ -43,6 +45,16 @@ export const SIDEBAR_HUBS: SidebarHub[] = [
             { path: '/', labelKey: 'nav.dashboard', defaultLabel: 'Dashboard', icon: LayoutDashboard },
             { path: '/accounts', labelKey: 'nav.accounts', defaultLabel: 'Accounts', icon: Users },
             { path: '/readme', labelKey: 'nav.readme', defaultLabel: 'Readme', icon: BookOpen },
+        ],
+    },
+    {
+        id: 'chat-studio',
+        labelKey: 'nav.hub_chat_studio',
+        defaultLabel: 'Chat Studio',
+        icon: MessageSquareText,
+        items: [
+            { path: '/chats/agy', labelKey: 'nav.agy_chats', defaultLabel: 'AGy-chats', icon: Bot },
+            { path: '/chats/claude', labelKey: 'nav.claude_chats', defaultLabel: 'Claude-chats', icon: Terminal },
         ],
     },
     {

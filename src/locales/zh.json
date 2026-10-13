@@ -66,6 +66,9 @@
   },
   "nav": {
     "hub_overview": "总览",
+    "hub_chat_studio": "对话工作室",
+    "agy_chats": "AGy 对话",
+    "claude_chats": "Claude 对话",
     "hub_agent_proxy": "智能体代理",
     "hub_fleet": "集群",
     "hub_observability": "可观测性",

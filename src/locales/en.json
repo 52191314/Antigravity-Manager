@@ -68,6 +68,9 @@
   },
   "nav": {
     "hub_overview": "Hub",
+    "hub_chat_studio": "Chat Studio",
+    "agy_chats": "AGy-chats",
+    "claude_chats": "Claude-chats",
     "hub_agent_proxy": "Agent Proxy",
     "hub_fleet": "Fleet",
     "hub_observability": "Observability",

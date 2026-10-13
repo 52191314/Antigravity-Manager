@@ -647,14 +647,15 @@ pub async fn handle_generate(
                 let mut buffer = BytesMut::new();
                 let s_id = session_id.clone(); // Clone for stream closure
 
-                // [FIX #859] Implement peek logic for Gemini stream to prevent 0-token 200 OK
+                // [FIX #859 & CLI Header Timeout] Implement safe peek logic for Gemini stream.
+                // Downstream clients (such as `agy` Go HTTP client) enforce a 60s ResponseHeaderTimeout.
+                // We peek for up to 20s. If the first chunk takes longer than 20s (due to heavy context prefill),
+                // we release HTTP 200 headers with SSE keepalive rather than holding headers until downstream client timeout.
                 let mut first_chunk = None;
                 let mut retry_gemini = false;
 
-                // [NEW] 实施双阶段超时：第一阶段为 FirstChunkTimeout (300s / 5min)
-                // 这精准对齐了官方 Worker 在模型冷启动（Initialization）阶段的极度耐心
                 match tokio::time::timeout(
-                    std::time::Duration::from_secs(300),
+                    std::time::Duration::from_secs(20),
                     response_stream.next(),
                 )
                 .await
@@ -679,9 +680,9 @@ pub async fn handle_generate(
                         retry_gemini = true;
                     }
                     Err(_) => {
-                        tracing::warn!("[Gemini] First chunk timeout after 300s, retrying...");
-                        last_error = "First chunk timeout".to_string();
-                        retry_gemini = true;
+                        tracing::warn!("[Gemini] First chunk peek window (20s) elapsed. Releasing HTTP 200 headers with SSE keepalive to prevent downstream client header timeout");
+                        // Don't retry: upstream is still actively calculating prefill/thinking, release headers to downstream client!
+                        first_chunk = None;
                     }
                 }
 
@@ -746,6 +747,9 @@ pub async fn handle_generate(
                                     }
                                 });
                                 yield Ok::<Bytes, String>(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&meta_pkg).unwrap())));
+                            }
+                            if first_data.is_none() {
+                                yield Ok::<Bytes, String>(Bytes::from(": keepalive\n\n"));
                             }
                             meta_sent = true;
                         }

@@ -219,3 +219,93 @@ pub async fn launch_claude_cli(
     .await
     .map_err(|e| format!("Launch task panicked: {}", e))?
 }
+
+/// Initialize native Windows global hotkey (Win + Shift + P) to toggle Promon HUD
+#[cfg(target_os = "windows")]
+pub fn init_global_promon_hud_hotkey(app_handle: AppHandle) {
+    std::thread::spawn(move || {
+        use std::ptr::null_mut;
+
+        #[derive(Clone, Copy)]
+        #[repr(C)]
+        struct POINT {
+            x: i32,
+            y: i32,
+        }
+
+        #[derive(Clone, Copy)]
+        #[repr(C)]
+        struct MSG {
+            hwnd: *mut std::ffi::c_void,
+            message: u32,
+            w_param: usize,
+            l_param: isize,
+            time: u32,
+            pt: POINT,
+        }
+
+        #[link(name = "user32")]
+        extern "system" {
+            fn RegisterHotKey(h_wnd: *mut std::ffi::c_void, id: i32, fs_modifiers: u32, vk: u32) -> i32;
+            fn GetMessageW(
+                lp_msg: *mut MSG,
+                h_wnd: *mut std::ffi::c_void,
+                w_msg_filter_min: u32,
+                w_msg_filter_max: u32,
+            ) -> i32;
+        }
+
+        const MOD_CONTROL: u32 = 0x0002;
+        const MOD_SHIFT: u32 = 0x0004;
+        const MOD_WIN: u32 = 0x0008;
+        const MOD_NOREPEAT: u32 = 0x4000;
+        const VK_P: u32 = 0x50;
+        const WM_HOTKEY: u32 = 0x0312;
+        const HOTKEY_ID: i32 = 0x5052; // 'PR'
+
+        // Register Win + Shift + P with NOREPEAT
+        let mut reg = unsafe {
+            RegisterHotKey(null_mut(), HOTKEY_ID, MOD_WIN | MOD_SHIFT | MOD_NOREPEAT, VK_P)
+        };
+
+        if reg == 0 {
+            // Fallback: Ctrl + Shift + P if Win+Shift+P is already registered by OS
+            reg = unsafe {
+                RegisterHotKey(
+                    null_mut(),
+                    HOTKEY_ID,
+                    MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
+                    VK_P,
+                )
+            };
+        }
+
+        if reg != 0 {
+            info!("Global PROMON HUD hotkey successfully registered (Win+Shift+P / Ctrl+Shift+P)");
+        } else {
+            tracing::warn!("Could not register global hotkey for PROMON HUD");
+            return;
+        }
+
+        let mut msg: MSG = unsafe { std::mem::zeroed() };
+        while unsafe { GetMessageW(&mut msg, null_mut(), 0, 0) } > 0 {
+            if msg.message == WM_HOTKEY && msg.w_param == HOTKEY_ID as usize {
+                if let Some(window) = app_handle.get_webview_window("promon-hud") {
+                    if let Ok(visible) = window.is_visible() {
+                        if visible {
+                            let _ = window.hide();
+                        } else {
+                            let _ = window.unminimize();
+                            let _ = window.show();
+                            let _ = window.center();
+                            let _ = window.set_focus();
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn init_global_promon_hud_hotkey(_app_handle: AppHandle) {}

@@ -561,6 +561,7 @@ pub fn run() {
                 std::thread::spawn(|| {
                     crate::utils::win_shortcut::heal_shortcuts_native();
                 });
+                commands::promon::init_global_promon_hud_hotkey(app.handle().clone());
             }
 
             // Linux: Workaround for transparent window crash/freeze

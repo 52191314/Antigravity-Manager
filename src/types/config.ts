@@ -203,6 +203,14 @@ export interface AntigravityLabConfig {
     enable_battle_mode: boolean;
     enable_subagent_hub: boolean;
     enable_programmatic_tools: boolean;
+    enable_battle_mode_custom_agents: boolean;
+    enable_persistent_terminals: boolean;
+    enable_browser_subagent_v2: boolean;
+    enable_command_antivirus: boolean;
+    enable_fork_with_subagents: boolean;
+    enable_swarm_narrator: boolean;
+    enable_voice_activity_events: boolean;
+    disable_stained_loas2_creds: boolean;
 }
 
 export interface AppConfig {

@@ -846,7 +846,23 @@
       "subagent_hub_title": "子智能体集线器 (Subagent Hub)",
       "subagent_hub_desc": "提供子智能体生命周期集中监控面板，统一管理分布式子智能体运行状态与对话日志。",
       "programmatic_tools_title": "编程式工具执行 (Programmatic Tools)",
-      "programmatic_tools_desc": "启用基于脚本的高性能工具链管道，支持无头批量数据处理与编程式工具链调用。"
+      "programmatic_tools_desc": "启用基于脚本的高性能工具链管道，支持无头批量数据处理与编程式工具链调用。",
+      "enable_battle_mode_custom_agents_title": "对决模式自定义智能体 (竞技场)",
+      "enable_battle_mode_custom_agents_desc": "允许在角斗场对决模式中将用户自定义的智能体（自定义 YAML 或 Prompt）进行对抗性竞技与代码优化对比。",
+      "enable_persistent_terminals_title": "持久化终端会话与沙盒",
+      "enable_persistent_terminals_desc": "使用长生命周期 ConPTY 虚拟终端替代单次子进程执行，跨对话轮次保持环境变量、后台守护进程与工作状态。",
+      "enable_browser_subagent_v2_title": "新一代浏览器子智能体 v2 (CDP 原生驱动)",
+      "enable_browser_subagent_v2_desc": "激活通过 Chrome DevTools 协议 (CDP) 直接驱动的无头浏览器自动化，支持深度 DOM 与网络流追踪。",
+      "enable_command_antivirus_title": "命令执行安全防毒与沙箱拦截",
+      "enable_command_antivirus_desc": "在终端命令执行前进行启发式扫描，拦截破坏性指令（如递归强制删除或容器越权）以防灾难性事故。",
+      "enable_fork_with_subagents_title": "对话轨迹与全量子智能体分叉",
+      "enable_fork_with_subagents_desc": "支持将当前对话完整历史及所有活跃的子智能体整体派生分叉至独立的分支与工作区。",
+      "enable_swarm_narrator_title": "蜂群遥测旁白叙述者",
+      "enable_swarm_narrator_desc": "后台实时监听多智能体蜂群的协作交流，生成直观生动的协作脉络与决策旁白概览。",
+      "enable_voice_activity_events_title": "语音活动事件与麦克风中继",
+      "enable_voice_activity_events_desc": "激活内置语音事件触发器及远程麦克风广播服务 (agy mic-serve) 支持。",
+      "disable_stained_loas2_creds_title": "禁用 Google LOAS2 内部凭据校验",
+      "disable_stained_loas2_creds_desc": "绕过 Google 内部低开销鉴权服务 (LOAS2) 的凭据状态检查，消除开发环境残留凭据校验。"
     }
   },
   "tray": {

@@ -14,6 +14,13 @@ import {
     RefreshCw,
     ArrowRightLeft,
     Share2,
+    Trophy,
+    Globe,
+    ShieldCheck,
+    GitFork,
+    Radio,
+    Mic,
+    KeyRound,
     LucideIcon
 } from 'lucide-react';
 import { AntigravityLabConfig } from '../../types/config';
@@ -35,11 +42,23 @@ export const DEFAULT_LAB_CONFIG: AntigravityLabConfig = {
     enable_battle_mode: false,
     enable_subagent_hub: false,
     enable_programmatic_tools: false,
+    enable_battle_mode_custom_agents: false,
+    enable_persistent_terminals: false,
+    enable_browser_subagent_v2: false,
+    enable_command_antivirus: false,
+    enable_fork_with_subagents: false,
+    enable_swarm_narrator: false,
+    enable_voice_activity_events: false,
+    disable_stained_loas2_creds: false,
 };
 
-interface LabExperimentItem {
+export interface LabExperimentItem {
     key: keyof AntigravityLabConfig;
+    cliKey: string;
     cliFlag: string;
+    badge: string;
+    badgeZh?: string;
+    badgeEn?: string;
     titleKey: string;
     descKey: string;
     defaultTitle: string;
@@ -48,10 +67,14 @@ interface LabExperimentItem {
     colorClasses: string;
 }
 
-export const EXPERIMENT_ITEMS: LabExperimentItem[] = [
+export const FEATURE_KEYS: LabExperimentItem[] = [
     {
         key: 'enable_owl_slash_command',
+        cliKey: 'enable-owl-slash-command',
         cliFlag: '--enable-owl-slash-command',
+        badge: 'Explorer',
+        badgeZh: '指令探索',
+        badgeEn: 'Explorer',
         titleKey: 'settings.lab.owl_slash_command_title',
         descKey: 'settings.lab.owl_slash_command_desc',
         defaultTitle: 'Owl Slash Command',
@@ -61,7 +84,11 @@ export const EXPERIMENT_ITEMS: LabExperimentItem[] = [
     },
     {
         key: 'jetski_autonomous_mode',
+        cliKey: 'jetski-autonomous-mode',
         cliFlag: '--jetski-autonomous-mode',
+        badge: 'Autonomous',
+        badgeZh: '自主模式',
+        badgeEn: 'Autonomous',
         titleKey: 'settings.lab.jetski_autonomous_mode_title',
         descKey: 'settings.lab.jetski_autonomous_mode_desc',
         defaultTitle: 'Jetski Autonomous Mode',
@@ -71,7 +98,11 @@ export const EXPERIMENT_ITEMS: LabExperimentItem[] = [
     },
     {
         key: 'disable_teamwork_forced_flash_model',
+        cliKey: 'disable-teamwork-forced-flash-model',
         cliFlag: '--disable-teamwork-forced-flash-model',
+        badge: 'Teamwork',
+        badgeZh: '协作模型',
+        badgeEn: 'Teamwork',
         titleKey: 'settings.lab.disable_teamwork_forced_flash_model_title',
         descKey: 'settings.lab.disable_teamwork_forced_flash_model_desc',
         defaultTitle: 'Disable Teamwork Forced Flash Model',
@@ -81,7 +112,11 @@ export const EXPERIMENT_ITEMS: LabExperimentItem[] = [
     },
     {
         key: 'jetski_generative_ui',
+        cliKey: 'jetski-generative-ui',
         cliFlag: '--jetski-generative-ui',
+        badge: 'Generative UI',
+        badgeZh: '动态界面',
+        badgeEn: 'Generative UI',
         titleKey: 'settings.lab.jetski_generative_ui_title',
         descKey: 'settings.lab.jetski_generative_ui_desc',
         defaultTitle: 'Jetski Generative UI',
@@ -91,7 +126,11 @@ export const EXPERIMENT_ITEMS: LabExperimentItem[] = [
     },
     {
         key: 'enable_battle_mode',
+        cliKey: 'enable-battle-mode',
         cliFlag: '--enable-battle-mode',
+        badge: 'Arena',
+        badgeZh: '竞技对决',
+        badgeEn: 'Arena',
         titleKey: 'settings.lab.battle_mode_title',
         descKey: 'settings.lab.battle_mode_desc',
         defaultTitle: 'Battle Mode (Multi-Agent Arena)',
@@ -101,7 +140,11 @@ export const EXPERIMENT_ITEMS: LabExperimentItem[] = [
     },
     {
         key: 'enable_subagent_hub',
+        cliKey: 'enable-subagent-hub',
         cliFlag: '--enable-subagent-hub',
+        badge: 'Subagents',
+        badgeZh: '智能体中心',
+        badgeEn: 'Subagents',
         titleKey: 'settings.lab.subagent_hub_title',
         descKey: 'settings.lab.subagent_hub_desc',
         defaultTitle: 'Subagent Hub',
@@ -111,7 +154,11 @@ export const EXPERIMENT_ITEMS: LabExperimentItem[] = [
     },
     {
         key: 'enable_programmatic_tools',
+        cliKey: 'enable-programmatic-tools',
         cliFlag: '--enable-programmatic-tools',
+        badge: 'Tools',
+        badgeZh: '编程式工具',
+        badgeEn: 'Tools',
         titleKey: 'settings.lab.programmatic_tools_title',
         descKey: 'settings.lab.programmatic_tools_desc',
         defaultTitle: 'Programmatic Tools Execution',
@@ -119,11 +166,125 @@ export const EXPERIMENT_ITEMS: LabExperimentItem[] = [
         icon: Code2,
         colorClasses: 'text-indigo-500 bg-indigo-500/10 border-indigo-500/30',
     },
+    {
+        key: 'enable_battle_mode_custom_agents',
+        cliKey: 'enable-battle-mode-custom-agents',
+        cliFlag: '--enable-battle-mode-custom-agents',
+        badge: 'Arena',
+        badgeZh: '竞技场',
+        badgeEn: 'Arena',
+        titleKey: 'settings.lab.enable_battle_mode_custom_agents_title',
+        descKey: 'settings.lab.enable_battle_mode_custom_agents_desc',
+        defaultTitle: 'Battle Mode Custom Agents (Arena)',
+        defaultDesc: 'Enables pitting user-defined custom agent personas (custom YAML or prompts) against each other in the Colosseum arena.',
+        icon: Trophy,
+        colorClasses: 'text-amber-600 bg-amber-600/10 border-amber-600/30',
+    },
+    {
+        key: 'enable_persistent_terminals',
+        cliKey: 'enable-persistent-terminals',
+        cliFlag: '--enable-persistent-terminals',
+        badge: 'Terminal',
+        badgeZh: '终端核心',
+        badgeEn: 'Terminal',
+        titleKey: 'settings.lab.enable_persistent_terminals_title',
+        descKey: 'settings.lab.enable_persistent_terminals_desc',
+        defaultTitle: 'Persistent Terminals & Sandbox',
+        defaultDesc: 'Replaces one-off subshell processes with long-lived ConPTY pseudo-terminals that persist environment variables, background daemons, and state across conversation turns.',
+        icon: Terminal,
+        colorClasses: 'text-lime-600 bg-lime-600/10 border-lime-600/30',
+    },
+    {
+        key: 'enable_browser_subagent_v2',
+        cliKey: 'enable-browser-subagent-v2',
+        cliFlag: '--enable-browser-subagent-v2',
+        badge: 'Browser',
+        badgeZh: '自动化',
+        badgeEn: 'Browser',
+        titleKey: 'settings.lab.enable_browser_subagent_v2_title',
+        descKey: 'settings.lab.enable_browser_subagent_v2_desc',
+        defaultTitle: 'Browser Subagent v2 (CDP Automation)',
+        defaultDesc: 'Activates next-generation headless browser automation connecting directly via Chrome DevTools Protocol (CDP) for full DOM/network tracing instead of static page scraping.',
+        icon: Globe,
+        colorClasses: 'text-sky-500 bg-sky-500/10 border-sky-500/30',
+    },
+    {
+        key: 'enable_command_antivirus',
+        cliKey: 'enable-command-antivirus',
+        cliFlag: '--enable-command-antivirus',
+        badge: 'Security',
+        badgeZh: '安全防毒',
+        badgeEn: 'Security',
+        titleKey: 'settings.lab.enable_command_antivirus_title',
+        descKey: 'settings.lab.enable_command_antivirus_desc',
+        defaultTitle: 'Command Execution Antivirus & Sandbox',
+        defaultDesc: 'Interceptors and heuristically evaluates proposed shell commands against known destructive patterns (e.g. recursive wipes or sandbox escapes) before execution.',
+        icon: ShieldCheck,
+        colorClasses: 'text-red-500 bg-red-500/10 border-red-500/30',
+    },
+    {
+        key: 'enable_fork_with_subagents',
+        cliKey: 'enable-fork-with-subagents',
+        cliFlag: '--enable-fork-with-subagents',
+        badge: 'Branching',
+        badgeZh: '分叉分支',
+        badgeEn: 'Branching',
+        titleKey: 'settings.lab.enable_fork_with_subagents_title',
+        descKey: 'settings.lab.enable_fork_with_subagents_desc',
+        defaultTitle: 'Fork Conversation with Subagents',
+        defaultDesc: 'Allows branching and forking the entire conversation trajectory along with all active child subagents into isolated worktrees.',
+        icon: GitFork,
+        colorClasses: 'text-violet-500 bg-violet-500/10 border-violet-500/30',
+    },
+    {
+        key: 'enable_swarm_narrator',
+        cliKey: 'enable-swarm-narrator',
+        cliFlag: '--enable-swarm-narrator',
+        badge: 'Swarm',
+        badgeZh: '蜂群遥测',
+        badgeEn: 'Swarm',
+        titleKey: 'settings.lab.enable_swarm_narrator_title',
+        descKey: 'settings.lab.enable_swarm_narrator_desc',
+        defaultTitle: 'Swarm Telemetry Narrator',
+        defaultDesc: 'Enables an internal telemetry narrator that monitors multi-agent swarms in the background and writes real-time narrative summaries of agent interactions.',
+        icon: Radio,
+        colorClasses: 'text-teal-500 bg-teal-500/10 border-teal-500/30',
+    },
+    {
+        key: 'enable_voice_activity_events',
+        cliKey: 'enable-voice-activity-events',
+        cliFlag: '--enable-voice-activity-events',
+        badge: 'Audio',
+        badgeZh: '语音音频',
+        badgeEn: 'Audio',
+        titleKey: 'settings.lab.enable_voice_activity_events_title',
+        descKey: 'settings.lab.enable_voice_activity_events_desc',
+        defaultTitle: 'Voice Activity Events & Mic-Serve',
+        defaultDesc: 'Activates built-in voice event triggers and audio streamer daemon support for broadcasting host microphones to remote CLI sessions.',
+        icon: Mic,
+        colorClasses: 'text-fuchsia-500 bg-fuchsia-500/10 border-fuchsia-500/30',
+    },
+    {
+        key: 'disable_stained_loas2_creds',
+        cliKey: 'disable-stained-loas2-creds',
+        cliFlag: '--disable-stained-loas2-creds',
+        badge: 'Internal',
+        badgeZh: '底层协议',
+        badgeEn: 'Internal',
+        titleKey: 'settings.lab.disable_stained_loas2_creds_title',
+        descKey: 'settings.lab.disable_stained_loas2_creds_desc',
+        defaultTitle: 'Bypass Stained LOAS2 Credentials',
+        defaultDesc: 'Bypasses Google corporate-internal Low Overhead Authentication Service (LOAS2) credential checks leftover from internal development builds.',
+        icon: KeyRound,
+        colorClasses: 'text-yellow-600 bg-yellow-600/10 border-yellow-600/30',
+    },
 ];
+
+export const EXPERIMENT_ITEMS: LabExperimentItem[] = FEATURE_KEYS;
 
 export function syncArgsWithLabConfig(currentArgs: string[] = [], labConfig: AntigravityLabConfig): string[] {
     let result = [...currentArgs];
-    for (const item of EXPERIMENT_ITEMS) {
+    for (const item of FEATURE_KEYS) {
         const flag = item.cliFlag;
         const isEnabled = !!labConfig[item.key];
 
@@ -147,7 +308,8 @@ export default function AntigravityLabSettings({
     antigravityArgs = [],
     onArgsChange,
 }: AntigravityLabSettingsProps) {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
+    const isZh = i18n.language?.startsWith('zh');
     const currentConfig: AntigravityLabConfig = {
         ...DEFAULT_LAB_CONFIG,
         ...config,
@@ -160,7 +322,7 @@ export default function AntigravityLabSettings({
         return saved !== 'false';
     });
 
-    const activeCount = EXPERIMENT_ITEMS.filter(item => currentConfig[item.key]).length;
+    const activeCount = FEATURE_KEYS.filter(item => currentConfig[item.key]).length;
 
     const handleToggle = (key: keyof AntigravityLabConfig, enabled: boolean) => {
         const nextConfig: AntigravityLabConfig = {
@@ -184,6 +346,14 @@ export default function AntigravityLabSettings({
             enable_battle_mode: true,
             enable_subagent_hub: true,
             enable_programmatic_tools: true,
+            enable_battle_mode_custom_agents: true,
+            enable_persistent_terminals: true,
+            enable_browser_subagent_v2: true,
+            enable_command_antivirus: true,
+            enable_fork_with_subagents: true,
+            enable_swarm_narrator: true,
+            enable_voice_activity_events: true,
+            disable_stained_loas2_creds: true,
         };
         onChange(nextConfig);
 
@@ -202,6 +372,14 @@ export default function AntigravityLabSettings({
             enable_battle_mode: false,
             enable_subagent_hub: false,
             enable_programmatic_tools: false,
+            enable_battle_mode_custom_agents: false,
+            enable_persistent_terminals: false,
+            enable_browser_subagent_v2: false,
+            enable_command_antivirus: false,
+            enable_fork_with_subagents: false,
+            enable_swarm_narrator: false,
+            enable_voice_activity_events: false,
+            disable_stained_loas2_creds: false,
         };
         onChange(nextConfig);
 
@@ -284,7 +462,7 @@ export default function AntigravityLabSettings({
                                 {t('settings.lab.badge', { defaultValue: 'Experimental Lab' })}
                             </span>
                             <span className="text-[11px] px-2 py-0.5 rounded bg-base-200 dark:bg-base-300 text-base-content/70 font-mono">
-                                {activeCount} / {EXPERIMENT_ITEMS.length} Active
+                                {activeCount} / {FEATURE_KEYS.length} Active
                             </span>
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-2xl">
@@ -390,11 +568,12 @@ export default function AntigravityLabSettings({
                 </div>
             </div>
 
-            {/* 3. Seven Experimental Toggles */}
+            {/* 3. Experimental Feature Toggles (15 items) */}
             <div className="space-y-2.5">
-                {EXPERIMENT_ITEMS.map((item) => {
+                {FEATURE_KEYS.map((item) => {
                     const isEnabled = !!currentConfig[item.key];
                     const IconComponent = item.icon;
+                    const badgeText = isZh ? (item.badgeZh || item.badge) : (item.badgeEn || item.badge);
 
                     return (
                         <div
@@ -414,6 +593,11 @@ export default function AntigravityLabSettings({
                                         <span className="font-semibold text-xs text-gray-900 dark:text-gray-100">
                                             {t(item.titleKey, { defaultValue: item.defaultTitle })}
                                         </span>
+                                        {badgeText && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-purple-100/70 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200/50 dark:border-purple-800/40">
+                                                {badgeText}
+                                            </span>
+                                        )}
                                         <code className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-base-200 dark:bg-base-300 text-purple-700 dark:text-purple-300 border border-purple-200/50 dark:border-purple-800/40">
                                             {item.cliFlag}
                                         </code>

@@ -264,6 +264,22 @@ pub struct AntigravityLabConfig {
     pub enable_subagent_hub: bool,
     #[serde(default)]
     pub enable_programmatic_tools: bool,
+    #[serde(default)]
+    pub enable_battle_mode_custom_agents: bool,
+    #[serde(default)]
+    pub enable_persistent_terminals: bool,
+    #[serde(default)]
+    pub enable_browser_subagent_v2: bool,
+    #[serde(default)]
+    pub enable_command_antivirus: bool,
+    #[serde(default)]
+    pub enable_fork_with_subagents: bool,
+    #[serde(default)]
+    pub enable_swarm_narrator: bool,
+    #[serde(default)]
+    pub enable_voice_activity_events: bool,
+    #[serde(default)]
+    pub disable_stained_loas2_creds: bool,
 }
 
 impl Default for AntigravityLabConfig {
@@ -276,6 +292,14 @@ impl Default for AntigravityLabConfig {
             enable_battle_mode: false,
             enable_subagent_hub: false,
             enable_programmatic_tools: false,
+            enable_battle_mode_custom_agents: false,
+            enable_persistent_terminals: false,
+            enable_browser_subagent_v2: false,
+            enable_command_antivirus: false,
+            enable_fork_with_subagents: false,
+            enable_swarm_narrator: false,
+            enable_voice_activity_events: false,
+            disable_stained_loas2_creds: false,
         }
     }
 }

@@ -46,7 +46,6 @@ import {
     BatteryLow,
     Bot,
     Repeat2,
-    Terminal,
     ArrowUpDown,
     ArrowUp,
     ArrowDown,
@@ -677,8 +676,8 @@ function AccountRowContent({
             <td className="px-2 py-3 align-middle">
                 <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
                     <IconAction
-                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_classic', '切换到 Antigravity (经典版)'))}
-                        onClick={(e) => { e.stopPropagation(); onSwitch('classic'); }}
+                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_agy', '切换到 Antigravity CLI (agy)'))}
+                        onClick={(e) => { e.stopPropagation(); onSwitch('agy'); }}
                         disabled={isSwitching || isDisabled}
                         busy={isSwitching}
                     >
@@ -717,11 +716,11 @@ function AccountRowContent({
                                 disabled: isSwitching || isDisabled,
                             },
                             {
-                                key: 'switch-agy',
-                                label: t('accounts.switch_to_agy', '切换到 Antigravity CLI (agy)'),
+                                key: 'switch-classic',
+                                label: t('accounts.switch_to_classic', '切换到 Antigravity (经典版)'),
                                 title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
-                                icon: <Terminal className="w-3.5 h-3.5" />,
-                                onClick: () => onSwitch('agy'),
+                                icon: <Repeat2 className="w-3.5 h-3.5" />,
+                                onClick: () => onSwitch('classic'),
                                 disabled: isSwitching || isDisabled,
                             },
                             {

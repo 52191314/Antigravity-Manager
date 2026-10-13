@@ -813,7 +813,7 @@
     },
     "gemini": {
       "allow_standard_models_title": "允许获取标准 Gemini 官方模型列表",
-      "allow_standard_models_desc": "允许 agy 获取并调用官方标准 Gemini 模型列表 (如 gemini-2.5-pro, gemini-2.5-flash 等)，避免被 Antigravity 配额/基准线过滤强制拦截，便于停用反代轮换的账号正常路由。"
+      "allow_standard_models_desc": "决定 agy 启动器如何运行原生 `agy`。关闭：agy 通过此代理运行（网关模式、固定账号、动态模型列表）。开启：agy 恢复原生登录模式并使用官方标准 Gemini 模型（如 gemini-2.5-pro）。"
     },
     "lab": {
       "title": "Antigravity Lab (实验性特性开关)",

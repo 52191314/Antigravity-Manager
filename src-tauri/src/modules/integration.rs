@@ -20,6 +20,26 @@ pub trait SystemIntegration: Send + Sync {
     fn show_notification(&self, title: &str, body: &str);
 }
 
+/// How plain `agy` is launched by the `agy` shim (`scripts/agy_gateway.ps1`).
+///
+/// - `allow_standard_gemini_models` OFF (default): agy runs through this proxy (gateway env).
+/// - `allow_standard_gemini_models` ON: agy runs as normal, with the user's native login.
+///
+/// `PROXYMATEUR_AGY_MODE=gateway|native` overrides the toggle (headless/CLI parity with the shim).
+/// An unreadable config falls back to native, which is the previous behavior of the agy switch.
+pub fn agy_uses_gateway() -> bool {
+    if let Ok(mode) = std::env::var("PROXYMATEUR_AGY_MODE") {
+        match mode.trim().to_ascii_lowercase().as_str() {
+            "gateway" => return true,
+            "native" => return false,
+            _ => {}
+        }
+    }
+    crate::modules::config::load_app_config()
+        .map(|c| !c.proxy.allow_standard_gemini_models)
+        .unwrap_or(false)
+}
+
 /// 根据目标参数、进程运行态及可执行文件存在性决策最终切换环境
 pub fn resolve_effective_target(
     target_ide: Option<&str>,
@@ -229,6 +249,15 @@ pub async fn execute_system_switch(
     ));
 
     if target_ide == Some("agy") {
+        // Gateway mode: agy talks to this proxy, so the native keyring login is irrelevant.
+        // Pin the account in the proxy config instead of overwriting the user's native login.
+        if agy_uses_gateway() {
+            let mut cfg = crate::modules::config::load_app_config()?;
+            cfg.proxy.preferred_account_id = Some(account.id.clone());
+            crate::modules::config::save_app_config(&cfg)?;
+            return Ok(());
+        }
+
         write_to_system_keyring(account)?;
 
         if let Ok(storage_path) = device::get_storage_path(target_ide) {
@@ -448,8 +477,12 @@ impl SystemIntegration for DesktopIntegration {
         execute_system_switch(account, target_ide).await?;
 
         if target_ide == Some("agy") {
-            let is_running = process::is_process_running_by_name("agy");
-            let msg = if is_running {
+            let msg = if agy_uses_gateway() {
+                format!(
+                    "Account {} pinned in the proxy. agy runs through the gateway, so no native login was changed.",
+                    account.email
+                )
+            } else if process::is_process_running_by_name("agy") {
                 format!(
                     "Account {} activated. Agy is running, token will be picked up automatically.",
                     account.email

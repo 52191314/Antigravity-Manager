@@ -171,7 +171,17 @@ pub async fn switch_account(
     crate::modules::tray::update_tray_menus(&app);
 
     // [FIX #820] Notify proxy to clear stale session bindings and reload accounts
-    let _ = crate::commands::proxy::reload_proxy_accounts(proxy_state).await;
+    let _ = crate::commands::proxy::reload_proxy_accounts(proxy_state.clone()).await;
+
+    // Gateway-mode agy switch: execute_system_switch persisted the pin; apply it to the running proxy.
+    if target_ide.as_deref() == Some("agy") && crate::modules::integration::agy_uses_gateway() {
+        if let Some(instance) = proxy_state.instance.read().await.as_ref() {
+            instance
+                .token_manager
+                .set_preferred_account(Some(account_id.clone()))
+                .await;
+        }
+    }
 
     Ok(())
 }

@@ -140,7 +140,7 @@ export default function DemonSettings({
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
                         {t("settings.gemini.allow_standard_models_desc", {
-                            defaultValue: "Allows agy to discover and call standard official Gemini models (e.g. gemini-2.5-pro, gemini-2.5-flash) without being filtered by Antigravity quota baselines, enabling native routing for proxy-disabled accounts.",
+                            defaultValue: "Chooses how plain `agy` runs through the agy launcher. Off: agy goes through this proxy (gateway, pinned account, live model list). On: agy runs as normal with your native login and the standard official Gemini models (e.g. gemini-2.5-pro).",
                         })}
                     </p>
                 </div>

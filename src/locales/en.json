@@ -817,7 +817,7 @@
     },
     "gemini": {
       "allow_standard_models_title": "Allow Standard Gemini Model List",
-      "allow_standard_models_desc": "Allows agy to discover and call standard official Gemini models (e.g. gemini-2.5-pro, gemini-2.5-flash) without being filtered by Antigravity quota baselines, enabling native routing for proxy-disabled accounts."
+      "allow_standard_models_desc": "Chooses how plain `agy` runs through the agy launcher. Off: agy goes through this proxy (gateway, pinned account, live model list). On: agy runs as normal with your native login and the standard official Gemini models (e.g. gemini-2.5-pro)."
     },
     "lab": {
       "title": "Antigravity Lab (Experimental Feature Toggles)",

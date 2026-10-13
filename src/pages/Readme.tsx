@@ -282,8 +282,12 @@ export default function Readme() {
                             high-privilege persona to the system instruction to reduce confirmation prompts. You can also add your own rules.
                         </Row>
                         <Row label="Standard Gemini models">
-                            Off by default. The &ldquo;Allow Standard Gemini Model List&rdquo; toggle lets agy discover and call the standard official
-                            Gemini models (for example <Code>gemini-2.5-pro</Code>) without being filtered by Antigravity quota baselines.
+                            Off by default. The &ldquo;Allow Standard Gemini Model List&rdquo; toggle decides how plain <Code>agy</Code> runs. Off:
+                            agy goes through this proxy, with a live model list and the account you pinned. On: agy runs as normal with your native
+                            login and the standard official Gemini models (for example <Code>gemini-2.5-pro</Code>). This needs the agy launcher
+                            (<Code>scripts/agy.cmd</Code> and <Code>scripts/agy_gateway.ps1</Code>) placed on PATH before the real agy. agy never
+                            asks the gateway for its model list, so the launcher exports it on every start. Set <Code>PROXYMATEUR_AGY_MODE</Code> to{' '}
+                            <Code>gateway</Code> or <Code>native</Code> to override the toggle.
                         </Row>
                     </div>
                 </Section>

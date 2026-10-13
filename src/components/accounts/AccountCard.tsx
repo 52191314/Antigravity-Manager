@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ArrowRightLeft, RefreshCw, Trash2, Download, Info, Lock, Ban, Diamond, Gem, Circle, Fingerprint, Sparkles, Tag, X, Check, Clock, Bot, Repeat2, Terminal, ToggleLeft, ToggleRight } from 'lucide-react';
+import { ArrowRightLeft, RefreshCw, Trash2, Download, Info, Lock, Ban, Diamond, Gem, Circle, Fingerprint, Sparkles, Tag, X, Check, Clock, Bot, Repeat2, ToggleLeft, ToggleRight } from 'lucide-react';
 import { Account, ModelQuota, getAccountTier } from '../../types/account';
 import { cn } from '../../utils/cn';
 import { useTranslation } from 'react-i18next';
@@ -312,8 +312,8 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                 )}
                 <div className="flex items-center gap-0.5 w-full">
                     <IconAction
-                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_classic', '切换到 Antigravity (经典版)'))}
-                        onClick={(e) => { e.stopPropagation(); onSwitch('classic'); }}
+                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_agy', '切换到 Antigravity CLI (agy)'))}
+                        onClick={(e) => { e.stopPropagation(); onSwitch('agy'); }}
                         disabled={isSwitching || isDisabled}
                         busy={isSwitching}
                     >
@@ -353,11 +353,11 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                                 disabled: isSwitching || isDisabled,
                             },
                             {
-                                key: 'switch-agy',
-                                label: t('accounts.switch_to_agy', '切换到 Antigravity CLI (agy)'),
+                                key: 'switch-classic',
+                                label: t('accounts.switch_to_classic', '切换到 Antigravity (经典版)'),
                                 title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
-                                icon: <Terminal className="w-3.5 h-3.5" />,
-                                onClick: () => onSwitch('agy'),
+                                icon: <Repeat2 className="w-3.5 h-3.5" />,
+                                onClick: () => onSwitch('classic'),
                                 disabled: isSwitching || isDisabled,
                             },
                             {

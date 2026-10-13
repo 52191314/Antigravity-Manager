@@ -48,6 +48,8 @@ pub struct AppConfig {
     pub dismissed_thinking_cleanup_version: Option<String>, // [NEW] 用户已确认或忽略建议的目标版本号
     #[serde(default)]
     pub multi_instance_mode: bool, // [NEW] 多开模式：切换 2.0 GUI 时启动新窗口而不关闭旧窗口
+    #[serde(default)]
+    pub antigravity_lab: AntigravityLabConfig,
 }
 
 fn default_quiet_autostart() -> bool {
@@ -245,6 +247,39 @@ impl Default for LowQuotaAlertConfig {
     }
 }
 
+/// Antigravity Lab configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AntigravityLabConfig {
+    #[serde(default)]
+    pub enable_owl_slash_command: bool,
+    #[serde(default)]
+    pub jetski_autonomous_mode: bool,
+    #[serde(default)]
+    pub disable_teamwork_forced_flash_model: bool,
+    #[serde(default)]
+    pub jetski_generative_ui: bool,
+    #[serde(default)]
+    pub enable_battle_mode: bool,
+    #[serde(default)]
+    pub enable_subagent_hub: bool,
+    #[serde(default)]
+    pub enable_programmatic_tools: bool,
+}
+
+impl Default for AntigravityLabConfig {
+    fn default() -> Self {
+        Self {
+            enable_owl_slash_command: false,
+            jetski_autonomous_mode: false,
+            disable_teamwork_forced_flash_model: false,
+            jetski_generative_ui: false,
+            enable_battle_mode: false,
+            enable_subagent_hub: false,
+            enable_programmatic_tools: false,
+        }
+    }
+}
+
 impl AppConfig {
     pub fn new() -> Self {
         Self {
@@ -274,6 +309,7 @@ impl AppConfig {
             thinking_cleanup_dismissed: None,
             dismissed_thinking_cleanup_version: None,
             multi_instance_mode: false,
+            antigravity_lab: AntigravityLabConfig::default(),
         }
     }
 }

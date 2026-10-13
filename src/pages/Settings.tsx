@@ -10,6 +10,7 @@ import QuotaProtection from '../components/settings/QuotaProtection';
 import SmartWarmup from '../components/settings/SmartWarmup';
 import PinnedQuotaModels from '../components/settings/PinnedQuotaModels';
 import LowQuotaAlertSettings from '../components/settings/LowQuotaAlertSettings';
+import AntigravityLabSettings from '../components/settings/AntigravityLabSettings';
 import { useDebugConsole } from '../stores/useDebugConsole';
 
 import { useTranslation } from 'react-i18next';
@@ -1252,6 +1253,14 @@ function Settings() {
                                         {t('settings.advanced.antigravity_args_desc')}
                                     </p>
                                 </div>
+
+                                {/* Antigravity 实验室与实验性特性开关 */}
+                                <AntigravityLabSettings
+                                    config={formData.antigravity_lab}
+                                    onChange={(labConfig) => setFormData(prev => ({ ...prev, antigravity_lab: labConfig }))}
+                                    antigravityArgs={formData.antigravity_args}
+                                    onArgsChange={(args) => setFormData(prev => ({ ...prev, antigravity_args: args }))}
+                                />
 
                                 {/* 多开模式 (Multi-Instance Mode) */}
                                 <div className="flex items-center justify-between gap-4 py-3 border-b border-base-content/20">

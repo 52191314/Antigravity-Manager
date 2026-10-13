@@ -982,6 +982,8 @@ impl AxumServer {
             )
             .route("/system/antigravity/path", get(admin_get_antigravity_path))
             .route("/system/antigravity/args", get(admin_get_antigravity_args))
+            .route("/system/antigravity/experiments", get(admin_get_antigravity_experiments))
+            .route("/system/antigravity/experiments/sync", post(admin_sync_antigravity_experiments))
             .route("/system/cache/clear", post(admin_clear_antigravity_cache))
             .route(
                 "/system/cache/paths",
@@ -2562,6 +2564,29 @@ async fn admin_get_antigravity_args() -> Result<impl IntoResponse, (StatusCode, 
         )
     })?;
     Ok(Json(args))
+}
+
+async fn admin_get_antigravity_experiments() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)>
+{
+    let exps = crate::commands::get_cli_experiments().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+    Ok(Json(exps))
+}
+
+async fn admin_sync_antigravity_experiments(
+    Json(payload): Json<std::collections::HashMap<String, bool>>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let msg = crate::commands::sync_cli_experiments(payload).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+    Ok(Json(serde_json::json!({ "message": msg })))
 }
 
 async fn admin_clear_antigravity_cache(

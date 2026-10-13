@@ -124,6 +124,8 @@ const COMMAND_MAPPING: Record<string, { url: string; method: 'GET' | 'POST' | 'D
   'save_http_api_settings': { url: '/api/system/http-api/settings', method: 'POST' },
   'get_antigravity_path': { url: '/api/system/antigravity/path', method: 'GET' },
   'get_antigravity_args': { url: '/api/system/antigravity/args', method: 'GET' },
+  'get_cli_experiments': { url: '/api/system/antigravity/experiments', method: 'GET' },
+  'sync_cli_experiments': { url: '/api/system/antigravity/experiments/sync', method: 'POST' },
 
   // Cloudflared
   'cloudflared_install': { url: '/api/proxy/cloudflared/install', method: 'POST' },

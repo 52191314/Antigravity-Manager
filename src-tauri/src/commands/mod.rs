@@ -1104,6 +1104,88 @@ pub async fn get_antigravity_args() -> Result<Vec<String>, String> {
     }
 }
 
+/// 获取 ~/.gemini/antigravity-cli/settings.json 路径
+fn get_cli_settings_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".gemini").join("antigravity-cli").join("settings.json"))
+}
+
+/// 读取 CLI settings.json 中的实验性特性配置
+#[tauri::command]
+pub async fn get_cli_experiments() -> Result<std::collections::HashMap<String, bool>, String> {
+    let settings_path = get_cli_settings_path()
+        .ok_or_else(|| "Failed to determine user home directory".to_string())?;
+
+    if !settings_path.exists() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let content = std::fs::read_to_string(&settings_path)
+        .map_err(|e| format!("Failed to read CLI settings.json: {}", e))?;
+
+    let json_val: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse CLI settings.json: {}", e))?;
+
+    let mut result = std::collections::HashMap::new();
+    if let Some(experiments) = json_val.get("experiments").and_then(|v| v.as_object()) {
+        for (k, v) in experiments {
+            if let Some(b) = v.as_bool() {
+                result.insert(k.clone(), b);
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// 同步实验性特性配置到 ~/.gemini/antigravity-cli/settings.json
+#[tauri::command]
+pub async fn sync_cli_experiments(
+    experiments: std::collections::HashMap<String, bool>,
+) -> Result<String, String> {
+    let settings_path = get_cli_settings_path()
+        .ok_or_else(|| "Failed to determine user home directory".to_string())?;
+
+    if let Some(parent) = settings_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let mut json_val: serde_json::Value = if settings_path.exists() {
+        let content = std::fs::read_to_string(&settings_path)
+            .map_err(|e| format!("Failed to read CLI settings.json: {}", e))?;
+        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    if !json_val.is_object() {
+        json_val = serde_json::json!({});
+    }
+
+    let exp_obj = json_val
+        .as_object_mut()
+        .unwrap()
+        .entry("experiments")
+        .or_insert_with(|| serde_json::json!({}));
+
+    if !exp_obj.is_object() {
+        *exp_obj = serde_json::json!({});
+    }
+
+    let map = exp_obj.as_object_mut().unwrap();
+    let count = experiments.len();
+    for (k, v) in experiments {
+        map.insert(k, serde_json::Value::Bool(v));
+    }
+
+    let formatted = serde_json::to_string_pretty(&json_val)
+        .map_err(|e| format!("Failed to serialize CLI settings.json: {}", e))?;
+
+    std::fs::write(&settings_path, formatted)
+        .map_err(|e| format!("Failed to write CLI settings.json: {}", e))?;
+
+    Ok(format!("Successfully synchronized {} experiment flags to CLI settings", count))
+}
+
 /// 检测更新响应结构
 pub use crate::modules::update_checker::UpdateInfo;
 

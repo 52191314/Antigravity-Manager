@@ -195,6 +195,16 @@ export interface LowQuotaAlertConfig {
     notify_system: boolean;
 }
 
+export interface AntigravityLabConfig {
+    enable_owl_slash_command: boolean;
+    jetski_autonomous_mode: boolean;
+    disable_teamwork_forced_flash_model: boolean;
+    jetski_generative_ui: boolean;
+    enable_battle_mode: boolean;
+    enable_subagent_hub: boolean;
+    enable_programmatic_tools: boolean;
+}
+
 export interface AppConfig {
     language: string;
     theme: string;
@@ -207,6 +217,7 @@ export interface AppConfig {
     antigravity_ide_executable?: string; // [NEW] 手动指定的 Antigravity IDE 程序路径
     antigravity_cli_executable?: string; // [NEW] 手动指定的 Antigravity CLI (agy) 路径
     antigravity_args?: string[]; // [NEW] Antigravity 启动参数
+    antigravity_lab?: AntigravityLabConfig; // [NEW] Antigravity 实验性特性开关
     multi_instance_mode?: boolean; // [NEW] 多开模式：切换 2.0 GUI 时启动新窗口而不关闭旧窗口
     auto_launch?: boolean; // 开机自动启动
     quiet_autostart?: boolean; // 开机自启时留在托盘。缺省视为开启

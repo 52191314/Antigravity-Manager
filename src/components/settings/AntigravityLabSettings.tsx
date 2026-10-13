@@ -496,6 +496,41 @@ export default function AntigravityLabSettings({
                 </div>
             </div>
 
+            {/* Quick Slash Commands Cheatsheet */}
+            <div className="bg-purple-100/40 dark:bg-purple-900/20 border border-purple-200/50 dark:border-purple-800/30 rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
+                        <Terminal size={13} className="text-purple-600 dark:text-purple-400" />
+                        {isZh ? '快捷斜杠指令 (CLI Slash Commands)' : 'CLI Slash Commands & Workflows'}
+                    </span>
+                    <span className="text-[10px] text-purple-700 dark:text-purple-300 font-mono">
+                        ~/.gemini/config/skills/
+                    </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
+                    <div className="p-2 rounded bg-base-100/60 dark:bg-base-200/60 border border-purple-100 dark:border-purple-900/30 space-y-0.5">
+                        <div className="font-mono font-bold text-purple-600 dark:text-purple-400">/owl &lt;task&gt;</div>
+                        <div className="text-[11px] text-gray-500 dark:text-gray-400">{isZh ? '深度架构探究与代码合成 (DeepInvestigator + DeepCoder)' : 'Deep architectural synthesis & investigation (Pro tier)'}</div>
+                    </div>
+                    <div className="p-2 rounded bg-base-100/60 dark:bg-base-200/60 border border-purple-100 dark:border-purple-900/30 space-y-0.5">
+                        <div className="font-mono font-bold text-amber-600 dark:text-amber-400">/battle &lt;task&gt;</div>
+                        <div className="text-[11px] text-gray-500 dark:text-gray-400">{isZh ? '角斗场对抗竞技：双智能体辩论与基准测速' : 'Colosseum arena duel: 2 rival agents debate & benchmark'}</div>
+                    </div>
+                    <div className="p-2 rounded bg-base-100/60 dark:bg-base-200/60 border border-purple-100 dark:border-purple-900/30 space-y-0.5">
+                        <div className="font-mono font-bold text-emerald-600 dark:text-emerald-400">/swarm &lt;task&gt;</div>
+                        <div className="text-[11px] text-gray-500 dark:text-gray-400">{isZh ? '蜂群枢纽免确认全自主多智能体团队开发' : 'Autonomous multi-agent swarm building hands-free'}</div>
+                    </div>
+                    <div className="p-2 rounded bg-base-100/60 dark:bg-base-200/60 border border-purple-100 dark:border-purple-900/30 space-y-0.5">
+                        <div className="font-mono font-bold text-blue-600 dark:text-blue-400">/benchmark &lt;task&gt;</div>
+                        <div className="text-[11px] text-gray-500 dark:text-gray-400">{isZh ? '编程式动态工具合成：自动化压测与帧率分析' : 'Programmatic tool synthesis & performance profiling'}</div>
+                    </div>
+                    <div className="p-2 rounded bg-base-100/60 dark:bg-base-200/60 border border-purple-100 dark:border-purple-900/30 space-y-0.5">
+                        <div className="font-mono font-bold text-pink-600 dark:text-pink-400">/generative_ui &lt;task&gt;</div>
+                        <div className="text-[11px] text-gray-500 dark:text-gray-400">{isZh ? '生成式交互 UI：在对话 Artifact 中嵌入可玩控件' : 'Interactive UI widgets rendered directly inside artifacts'}</div>
+                    </div>
+                </div>
+            </div>
+
             {/* 2. Startup Arguments & CLI Synchronization Hub */}
             <div className="bg-base-100/70 dark:bg-base-200/50 border border-purple-100 dark:border-purple-900/20 rounded-lg p-3 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

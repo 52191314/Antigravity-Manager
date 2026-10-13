@@ -23,6 +23,7 @@ const SECTIONS = [
     { id: 'pages', label: 'The pages' },
     { id: 'quotas', label: 'Accounts and quotas' },
     { id: 'demon', label: 'DEMON mode and Gemini routing' },
+    { id: 'lab', label: 'Antigravity Lab & Experimental Features' },
     { id: 'files', label: 'Where things live' },
     { id: 'troubleshooting', label: 'Troubleshooting' },
     { id: 'shortcuts', label: 'Keyboard shortcuts' },
@@ -293,7 +294,38 @@ export default function Readme() {
                 </Section>
 
                 {/* 07 */}
-                <Section id="files" index="07" label="Where things live">
+                <Section id="lab" index="07" label="Antigravity Lab & Experimental Features">
+                    <P>
+                        Located in <InlineLink to="/settings">Settings</InlineLink>, on the Advanced tab. Manages 15 cutting-edge experimental
+                        flags discovered through reverse engineering of <Code>language_server.exe</Code> and <Code>agy.exe</Code>.
+                        Changes sync directly to <Code>~/.gemini/antigravity-cli/settings.json</Code>.
+                    </P>
+                    <div>
+                        <Row label="Native Slash Commands">
+                            <div className="space-y-1.5 text-xs text-base-content/80">
+                                <div><Code>/owl &lt;task&gt;</Code> &mdash; Deep architectural synthesis via DeepInvestigator &amp; DeepCoder on full Gemini Pro.</div>
+                                <div><Code>/battle &lt;task&gt;</Code> &mdash; Colosseum Arena pitting two rival subagents against each other to debate code, benchmark performance, and crown a winner.</div>
+                                <div><Code>/swarm &lt;task&gt;</Code> &mdash; Autonomous Multi-Agent Swarm Hub executing end-to-end hands-free builds without confirmation stalls.</div>
+                                <div><Code>/benchmark &lt;task&gt;</Code> &mdash; Programmatic dynamic tool synthesis to generate stress tests and measure frame budgets/latency.</div>
+                                <div><Code>/generative_ui &lt;task&gt;</Code> &mdash; Interactive HTML5/JS/Canvas widgets rendered live inside chat artifacts.</div>
+                            </div>
+                        </Row>
+                        <Row label="15 Experimental Flags">
+                            Toggles include Autonomous Mode (<Code>jetski-autonomous-mode</Code>), Subagent Pro Reasoning (<Code>disable-teamwork-forced-flash-model</Code>),
+                            Persistent Terminals (<Code>enable-persistent-terminals</Code>), CDP Browser Subagent v2 (<Code>enable-browser-subagent-v2</Code>),
+                            Command Antivirus (<Code>enable-command-antivirus</Code>), Swarm Narrator (<Code>enable-swarm-narrator</Code>),
+                            Trajectory Forking (<Code>enable-fork-with-subagents</Code>), Audio Streaming (<Code>enable-voice-activity-events</Code>),
+                            and LOAS2 Bypass (<Code>disable-stained-loas2-creds</Code>).
+                        </Row>
+                        <Row label="Skills Architecture">
+                            In <Code>agy</Code>, slash commands are dynamically discovered from <Code>~/.gemini/config/skills/&lt;name&gt;/SKILL.md</Code>.
+                            The Lab settings synchronize with the local CLI configuration on startup and when toggled.
+                        </Row>
+                    </div>
+                </Section>
+
+                {/* 08 */}
+                <Section id="files" index="08" label="Where things live">
                     <P>
                         By default everything is stored in <Code>~/.proxymateur</Code>.
                     </P>
@@ -317,8 +349,8 @@ export default function Readme() {
                     </P>
                 </Section>
 
-                {/* 08 */}
-                <Section id="troubleshooting" index="08" label="Troubleshooting">
+                {/* 09 */}
+                <Section id="troubleshooting" index="09" label="Troubleshooting">
                     <div>
                         <Row label="Sessions loop on &ldquo;generating&rdquo;">
                             Look for red rows in Traffic Logs, or search <Code>error.log</Code> for <Code>stream interrupted</Code>. This is usually the
@@ -345,8 +377,8 @@ export default function Readme() {
                     </div>
                 </Section>
 
-                {/* 09 */}
-                <Section id="shortcuts" index="09" label="Keyboard shortcuts">
+                {/* 10 */}
+                <Section id="shortcuts" index="10" label="Keyboard shortcuts">
                     <div>
                         <Row label={<><Kbd>Ctrl</Kbd> + <Kbd>K</Kbd></>}>
                             Quick jump to any page. Use the arrow keys and <Kbd>Enter</Kbd> to choose, and <Kbd>Esc</Kbd> to close. On macOS use <Kbd>Cmd</Kbd>.

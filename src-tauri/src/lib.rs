@@ -890,10 +890,14 @@ pub fn run() {
             commands::query_transit_info,
             // Patch commands
             commands::patch_agy_binary,
-            // PROMON & Claude commands
+            // PROMON, AGy-chats, and Claude-chats commands
             commands::promon::execute_promon_model,
             commands::promon::toggle_promon_hud,
-            commands::promon::get_claude_history,
+            commands::promon::get_agy_sessions,
+            commands::promon::resume_agy_session,
+            commands::promon::get_claude_sessions,
+            commands::promon::resume_claude_session,
+            commands::promon::unhide_claude_sessions,
             commands::promon::launch_claude_cli,
         ])
         .build(tauri::generate_context!())

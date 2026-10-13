@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 use tracing::{error, info};
+use rusqlite::{params, Connection, OpenFlags};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PromonExecutionResult {
@@ -16,11 +15,31 @@ pub struct PromonExecutionResult {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ClaudeHistoryItem {
-    pub display: String,
-    pub timestamp: u64,
-    pub project: Option<String>,
-    pub session_id: Option<String>,
+pub struct AgySessionItem {
+    pub conversation_id: String,
+    pub title: String,
+    pub preview: String,
+    pub step_count: u32,
+    pub last_modified_time: String,
+    pub workspace: String,
+    pub agent_name: Option<String>,
+    pub nesting_depth: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ClaudeSessionItem {
+    pub session_id: String,
+    pub cwd: String,
+    pub project: String,
+    pub model: String,
+    pub entrypoint: String,
+    pub first_prompt: String,
+    pub last_prompt: String,
+    pub user_turns_count: u32,
+    pub total_steps: u32,
+    pub total_cost: f64,
+    pub total_duration_ms: u64,
+    pub last_timestamp: String,
 }
 
 /// Execute the local RTX A5500 fine-tuned model via E:\JB\promon_dual_role.py
@@ -52,7 +71,6 @@ pub async fn execute_promon_model(
 
         if role == "auditor" {
             if let Some(code_snippet) = code {
-                // Write code snippet to a temp file to avoid Windows command line length limits
                 let temp_dir = std::env::temp_dir();
                 let file_path = temp_dir.join(format!("promon_audit_{}.tmp", uuid::Uuid::new_v4()));
                 if let Err(e) = std::fs::write(&file_path, &code_snippet) {
@@ -77,7 +95,6 @@ pub async fn execute_promon_model(
 
         let output = cmd.output().map_err(|e| format!("Failed to spawn Python process: {}", e))?;
 
-        // Cleanup temporary audit file if created
         if let Some(p) = temp_file_path {
             let _ = std::fs::remove_file(p);
         }
@@ -127,58 +144,268 @@ pub async fn toggle_promon_hud(app: AppHandle, show: bool) -> Result<(), String>
     }
 }
 
-/// Parse Claude Code session history from ~/.claude/history.jsonl
+/// Query real Antigravity sessions from ~/.gemini/antigravity-cli/conversation_summaries.db
+/// (Backing E:\02_Projects\agy-chats)
 #[tauri::command]
-pub async fn get_claude_history(limit: Option<usize>) -> Result<Vec<ClaudeHistoryItem>, String> {
+pub async fn get_agy_sessions(
+    limit: Option<usize>,
+    search: Option<String>,
+    all: Option<bool>,
+) -> Result<Vec<AgySessionItem>, String> {
     tokio::task::spawn_blocking(move || {
-        let max_items = limit.unwrap_or(100);
         let user_profile = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\X".to_string());
-        let history_path = PathBuf::from(user_profile).join(".claude").join("history.jsonl");
+        let db_path = PathBuf::from(user_profile)
+            .join(".gemini")
+            .join("antigravity-cli")
+            .join("conversation_summaries.db");
 
-        if !history_path.exists() {
+        if !db_path.exists() {
             return Ok(Vec::new());
         }
 
-        let file = File::open(&history_path).map_err(|e| format!("Cannot open history.jsonl: {}", e))?;
-        let reader = BufReader::new(file);
+        let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| format!("Failed to open conversation_summaries.db: {}", e))?;
 
-        let mut items: Vec<ClaudeHistoryItem> = Vec::new();
+        let max_items = limit.unwrap_or(50) as i64;
+        let show_all = all.unwrap_or(false);
+        let search_pattern = search.map(|s| format!("%{}%", s));
 
-        for line_res in reader.lines() {
-            if let Ok(line) = line_res {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                    let display = val.get("display").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let timestamp = val.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let project = val.get("project").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    let session_id = val.get("sessionId").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let mut stmt = conn
+            .prepare(
+                "SELECT conversation_id, title, preview, step_count, last_modified_time, workspace_uris, agent_name, nesting_depth \
+                 FROM conversation_summaries \
+                 WHERE (?1 IS TRUE OR nesting_depth = 0) \
+                   AND (?2 IS NULL OR title LIKE ?2 OR preview LIKE ?2 OR workspace_uris LIKE ?2) \
+                 ORDER BY last_modified_time DESC \
+                 LIMIT ?3",
+            )
+            .map_err(|e| format!("Prepare query failed: {}", e))?;
 
-                    if !display.is_empty() {
-                        items.push(ClaudeHistoryItem {
-                            display,
-                            timestamp,
-                            project,
-                            session_id,
-                        });
+        let rows = stmt
+            .query_map(params![show_all, search_pattern, max_items], |row| {
+                let raw_uris: Option<String> = row.get(5)?;
+                let mut workspace = String::new();
+                if let Some(uris) = raw_uris {
+                    if let Ok(parsed) = serde_json::from_str::<Vec<String>>(&uris) {
+                        if let Some(first) = parsed.first() {
+                            workspace = first
+                                .replace("file:///", "")
+                                .replace("file://", "")
+                                .replace('/', "\\");
+                        }
+                    } else {
+                        workspace = uris;
                     }
                 }
+
+                Ok(AgySessionItem {
+                    conversation_id: row.get(0)?,
+                    title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    preview: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    step_count: row.get::<_, Option<u32>>(3)?.unwrap_or(0),
+                    last_modified_time: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    workspace,
+                    agent_name: row.get(6)?,
+                    nesting_depth: row.get::<_, Option<i32>>(7)?.unwrap_or(0),
+                })
+            })
+            .map_err(|e| format!("Query failed: {}", e))?;
+
+        let mut sessions = Vec::new();
+        for r in rows {
+            if let Ok(item) = r {
+                sessions.push(item);
             }
         }
 
-        // Return latest items first (reversed) up to limit
-        items.reverse();
-        items.truncate(max_items);
-
-        Ok(items)
+        Ok(sessions)
     })
     .await
-    .map_err(|e| format!("History parse task panicked: {}", e))?
+    .map_err(|e| format!("Task execution panicked: {}", e))?
 }
 
-/// Launch Claude Code interactive CLI in a target workspace
+/// Resume an Antigravity conversation in a terminal (matching E:\02_Projects\agy-chats)
+#[tauri::command]
+pub async fn resume_agy_session(
+    conversation_id: String,
+    workspace: Option<String>,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let target_dir = workspace.unwrap_or_else(|| r"C:\Users\X".to_string());
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NEW_CONSOLE: u32 = 0x00000010;
+
+            let mut cmd = Command::new("powershell.exe");
+            cmd.arg("-NoExit");
+
+            let script = format!(
+                "Set-Location -Path '{}'; agy --conversation {}",
+                target_dir, conversation_id
+            );
+            cmd.arg("-Command").arg(&script);
+            cmd.creation_flags(CREATE_NEW_CONSOLE);
+
+            cmd.spawn()
+                .map_err(|e| format!("Failed to spawn Antigravity CLI process: {}", e))?;
+
+            Ok(format!("Antigravity session {} resumed in {}", conversation_id, target_dir))
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            Err("Terminal launching is only configured for Windows".to_string())
+        }
+    })
+    .await
+    .map_err(|e| format!("Launch task panicked: {}", e))?
+}
+
+/// Query real Claude Code sessions from ~/.claude/claude_chats_cache.db
+/// (Backing E:\02_Projects\claude-chats)
+#[tauri::command]
+pub async fn get_claude_sessions(
+    limit: Option<usize>,
+    search: Option<String>,
+    all: Option<bool>,
+) -> Result<Vec<ClaudeSessionItem>, String> {
+    tokio::task::spawn_blocking(move || {
+        let user_profile = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\X".to_string());
+        let db_path = PathBuf::from(user_profile)
+            .join(".claude")
+            .join("claude_chats_cache.db");
+
+        if !db_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|e| format!("Failed to open claude_chats_cache.db: {}", e))?;
+
+        let max_items = limit.unwrap_or(50) as i64;
+        let show_all = all.unwrap_or(false);
+        let search_pattern = search.map(|s| format!("%{}%", s));
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT session_id, cwd, project, model, entrypoint, first_prompt, last_prompt, \
+                        user_turns_count, total_steps, total_cost, total_duration_ms, last_timestamp \
+                 FROM sessions \
+                 WHERE (?1 IS TRUE OR entrypoint = 'cli') \
+                   AND (?2 IS NULL OR first_prompt LIKE ?2 OR last_prompt LIKE ?2 OR cwd LIKE ?2 OR project LIKE ?2) \
+                 ORDER BY last_timestamp DESC \
+                 LIMIT ?3",
+            )
+            .map_err(|e| format!("Prepare query failed: {}", e))?;
+
+        let rows = stmt
+            .query_map(params![show_all, search_pattern, max_items], |row| {
+                Ok(ClaudeSessionItem {
+                    session_id: row.get(0)?,
+                    cwd: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    project: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    model: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                    entrypoint: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    first_prompt: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                    last_prompt: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                    user_turns_count: row.get::<_, Option<u32>>(7)?.unwrap_or(0),
+                    total_steps: row.get::<_, Option<u32>>(8)?.unwrap_or(0),
+                    total_cost: row.get::<_, Option<f64>>(9)?.unwrap_or(0.0),
+                    total_duration_ms: row.get::<_, Option<u64>>(10)?.unwrap_or(0),
+                    last_timestamp: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                })
+            })
+            .map_err(|e| format!("Query failed: {}", e))?;
+
+        let mut sessions = Vec::new();
+        for r in rows {
+            if let Ok(item) = r {
+                sessions.push(item);
+            }
+        }
+
+        Ok(sessions)
+    })
+    .await
+    .map_err(|e| format!("Task execution panicked: {}", e))?
+}
+
+/// Resume a Claude Code session in a terminal (matching E:\02_Projects\claude-chats)
+#[tauri::command]
+pub async fn resume_claude_session(
+    session_id: String,
+    cwd: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let target_dir = if cwd.is_empty() { r"E:\Claude".to_string() } else { cwd };
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NEW_CONSOLE: u32 = 0x00000010;
+
+            let mut cmd = Command::new("powershell.exe");
+            cmd.arg("-NoExit");
+
+            let script = format!(
+                "Set-Location -Path '{}'; claude --resume {} --setting-sources project",
+                target_dir, session_id
+            );
+            cmd.arg("-Command").arg(&script);
+            cmd.creation_flags(CREATE_NEW_CONSOLE);
+
+            cmd.spawn()
+                .map_err(|e| format!("Failed to spawn Claude Code process: {}", e))?;
+
+            Ok(format!("Claude Code session {} resumed in {}", session_id, target_dir))
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            Err("Terminal launching is only configured for Windows".to_string())
+        }
+    })
+    .await
+    .map_err(|e| format!("Launch task panicked: {}", e))?
+}
+
+/// Unhide all SDK sessions using E:\02_Projects\claude-chats\claude_chats.py -u
+#[tauri::command]
+pub async fn unhide_claude_sessions() -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let script_path = PathBuf::from(r"E:\02_Projects\claude-chats\claude_chats.py");
+        if !script_path.exists() {
+            return Err(format!("claude_chats.py not found at {:?}", script_path));
+        }
+
+        let mut cmd = Command::new("python");
+        cmd.arg(&script_path);
+        cmd.arg("-u");
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let output = cmd.output().map_err(|e| format!("Failed to spawn python process: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            return Err(stderr);
+        }
+
+        Ok(stdout.trim().to_string())
+    })
+    .await
+    .map_err(|e| format!("Task execution panicked: {}", e))?
+}
+
+/// Launch a new Claude Code interactive CLI in a target workspace
 #[tauri::command]
 pub async fn launch_claude_cli(
     workspace: Option<String>,
@@ -263,13 +490,11 @@ pub fn init_global_promon_hud_hotkey(app_handle: AppHandle) {
         const WM_HOTKEY: u32 = 0x0312;
         const HOTKEY_ID: i32 = 0x5052; // 'PR'
 
-        // Register Win + Shift + P with NOREPEAT
         let mut reg = unsafe {
             RegisterHotKey(null_mut(), HOTKEY_ID, MOD_WIN | MOD_SHIFT | MOD_NOREPEAT, VK_P)
         };
 
         if reg == 0 {
-            // Fallback: Ctrl + Shift + P if Win+Shift+P is already registered by OS
             reg = unsafe {
                 RegisterHotKey(
                     null_mut(),

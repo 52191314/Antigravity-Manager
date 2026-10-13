@@ -1,428 +1,359 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import {
-  Send,
   Bot,
-  User,
-  Plus,
-  Trash2,
-  Sparkles,
+  Play,
   Copy,
   Check,
+  Search,
+  FolderOpen,
+  RefreshCw,
+  Sparkles,
   Loader2,
-  MessageSquare
+  Clock
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import { useAccountStore } from '../stores/useAccountStore';
-import { useConfigStore } from '../stores/useConfigStore';
 import { copyToClipboard } from '../utils/clipboard';
 
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: number;
-}
-
-interface ChatSession {
-  id: string;
+interface AgySessionItem {
+  conversation_id: string;
   title: string;
-  model: string;
-  createdAt: number;
-  messages: ChatMessage[];
+  preview: string;
+  step_count: number;
+  last_modified_time: string;
+  workspace: string;
+  agent_name?: string;
+  nesting_depth: number;
 }
-
-const AVAILABLE_MODELS = [
-  { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)' },
-  { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)' },
-  { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)' },
-  { id: 'claude-sonnet-4-6', label: 'Claude 3.7 Sonnet' },
-  { id: 'claude-opus-4-6-thinking', label: 'Claude 3.7 Opus (Thinking)' },
-  { id: 'gpt-oss-120b-medium', label: 'Strata 120B / Codex' },
-];
 
 export default function AgyChats() {
-  const { currentAccount } = useAccountStore();
-  const { config } = useConfigStore();
-
-  const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    try {
-      const saved = localStorage.getItem('agy_chat_sessions');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.8-flash-high');
-  const [inputPrompt, setInputPrompt] = useState<string>('');
-  const [isSending, setIsSending] = useState(false);
-  const [isPhrasing, setIsPhrasing] = useState(false);
+  const [sessions, setSessions] = useState<AgySessionItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAll, setShowAll] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [statusMsg, setStatusMsg] = useState('');
+  const [selectedWorkspace, setSelectedWorkspace] = useState('ALL');
 
-  // Sync sessions to localStorage
-  useEffect(() => {
-    localStorage.setItem('agy_chat_sessions', JSON.stringify(sessions));
-  }, [sessions]);
+  // PROMON Phraser modal / assistance state
+  const [showPhraserBar, setShowPhraserBar] = useState(false);
+  const [phraserPrompt, setPhraserPrompt] = useState('');
+  const [isPhrasing, setIsPhrasing] = useState(false);
+  const [phraserResult, setPhraserResult] = useState('');
 
-  // Handle prompt injected from the Promon HUD
-  useEffect(() => {
-    const injected = sessionStorage.getItem('agy_injected_prompt');
-    if (injected) {
-      setInputPrompt(injected);
-      sessionStorage.removeItem('agy_injected_prompt');
-    }
-  }, []);
-
-  // Ensure an active session exists
-  useEffect(() => {
-    if (sessions.length === 0) {
-      createNewSession();
-    } else if (!activeSessionId) {
-      setActiveSessionId(sessions[0].id);
-    }
-  }, [sessions.length, activeSessionId]);
-
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [sessions, activeSessionId]);
-
-  const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
-
-  const createNewSession = () => {
-    const newSession: ChatSession = {
-      id: `session_${Date.now()}`,
-      title: 'New Conversation',
-      model: selectedModel,
-      createdAt: Date.now(),
-      messages: [
-        {
-          id: `msg_${Date.now()}`,
-          role: 'assistant',
-          content: 'Hello! I am your Antigravity (AGy) Systems Assistant. How can I assist with your low-level architecture, cache coherence, or reverse engineering today?',
-          timestamp: Date.now(),
-        },
-      ],
-    };
-    setSessions((prev) => [newSession, ...prev]);
-    setActiveSessionId(newSession.id);
-  };
-
-  const deleteSession = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = sessions.filter((s) => s.id !== id);
-    setSessions(updated);
-    if (activeSessionId === id && updated.length > 0) {
-      setActiveSessionId(updated[0].id);
+  const fetchSessions = async () => {
+    setIsLoading(true);
+    try {
+      const items = await invoke<AgySessionItem[]>('get_agy_sessions', {
+        limit: 100,
+        search: searchQuery.trim() ? searchQuery.trim() : null,
+        all: showAll,
+      });
+      setSessions(items);
+    } catch (err) {
+      console.error('Failed to load Antigravity sessions:', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Run RTX A5500 prompt phraser on the current input prompt
-  const handlePhraserAssist = async () => {
-    if (!inputPrompt.trim() || isPhrasing) return;
+  useEffect(() => {
+    fetchSessions();
+  }, [searchQuery, showAll]);
+
+  const handleResume = async (session: AgySessionItem) => {
+    setStatusMsg(`Resuming session in ${session.workspace || 'default workspace'}...`);
+    try {
+      const res = await invoke<string>('resume_agy_session', {
+        conversationId: session.conversation_id,
+        workspace: session.workspace || null,
+      });
+      setStatusMsg(res);
+      setTimeout(() => setStatusMsg(''), 4000);
+    } catch (err: any) {
+      console.error('Failed to resume Antigravity session:', err);
+      setStatusMsg(`Error: ${err.toString()}`);
+    }
+  };
+
+  const handleCopyCmd = async (id: string) => {
+    const cmd = `agy --conversation ${id}`;
+    await copyToClipboard(cmd);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleRunPhraser = async () => {
+    if (!phraserPrompt.trim() || isPhrasing) return;
     setIsPhrasing(true);
+    setPhraserResult('');
     try {
       const res = await invoke<{ success: boolean; output: string }>('execute_promon_model', {
         role: 'phraser',
-        query: inputPrompt.trim(),
+        query: phraserPrompt.trim(),
         code: null,
       });
       if (res.success && res.output) {
-        setInputPrompt(res.output);
+        setPhraserResult(res.output);
+        await copyToClipboard(res.output);
+        setStatusMsg('Synthesized 3-Tier prompt copied to clipboard!');
       }
     } catch (err) {
-      console.error('Failed to run Phraser Assist:', err);
+      console.error('Failed to run PROMON Phraser:', err);
     } finally {
       setIsPhrasing(false);
     }
   };
 
-  // Send message to local Proxymateur API proxy
-  const handleSendMessage = async () => {
-    if (!inputPrompt.trim() || isSending || !activeSession) return;
+  // Extract unique workspaces for filtering
+  const workspaces = Array.from(
+    new Set(sessions.map((s) => s.workspace).filter(Boolean))
+  );
 
-    const userMsg: ChatMessage = {
-      id: `msg_${Date.now()}`,
-      role: 'user',
-      content: inputPrompt.trim(),
-      timestamp: Date.now(),
-    };
-
-    const updatedMessages = [...activeSession.messages, userMsg];
-
-    // Update session title on first user message
-    let title = activeSession.title;
-    if (activeSession.messages.length <= 1) {
-      title = userMsg.content.slice(0, 32) + (userMsg.content.length > 32 ? '...' : '');
+  const filteredSessions = sessions.filter((s) => {
+    if (selectedWorkspace !== 'ALL' && s.workspace !== selectedWorkspace) {
+      return false;
     }
+    return true;
+  });
 
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === activeSession.id ? { ...s, title, messages: updatedMessages } : s
-      )
-    );
-
-    setInputPrompt('');
-    setIsSending(true);
-
+  const formatRelativeTime = (isoString: string) => {
+    if (!isoString) return '';
     try {
-      const proxyPort = config?.proxy?.port || 8045;
-      const proxyUrl = `http://127.0.0.1:${proxyPort}/v1/chat/completions`;
-      const apiKey = config?.proxy?.api_key || 'sk-736ad8956af54d4da0fa686c3f80fb16';
-
-      const response = await fetch(proxyUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: selectedModel,
-          messages: updatedMessages.map((m) => ({ role: m.role, content: m.content })),
-          stream: false,
-        }),
+      const date = new Date(isoString);
+      return date.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
       });
-
-      if (!response.ok) {
-        throw new Error(`Proxy returned HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      const assistantText = data?.choices?.[0]?.message?.content || 'No response generated.';
-
-      const assistantMsg: ChatMessage = {
-        id: `msg_${Date.now()}`,
-        role: 'assistant',
-        content: assistantText,
-        timestamp: Date.now(),
-      };
-
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === activeSession.id
-            ? { ...s, messages: [...updatedMessages, assistantMsg] }
-            : s
-        )
-      );
-    } catch (err: any) {
-      console.error('Chat request error:', err);
-      const errorMsg: ChatMessage = {
-        id: `msg_${Date.now()}`,
-        role: 'system',
-        content: `Connection Error: ${err.message || 'Unable to communicate with local proxy'}. Check that Proxymateur proxy is running.`,
-        timestamp: Date.now(),
-      };
-
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === activeSession.id
-            ? { ...s, messages: [...updatedMessages, errorMsg] }
-            : s
-        )
-      );
-    } finally {
-      setIsSending(false);
+    } catch {
+      return isoString;
     }
-  };
-
-  const handleCopyMessage = async (id: string, text: string) => {
-    await copyToClipboard(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
   };
 
   return (
-    <div className="flex-1 h-full flex flex-row overflow-hidden bg-base-100 text-base-content">
-      {/* Session Drawer */}
-      <div className="w-64 border-r border-base-200 bg-base-200/50 flex flex-col justify-between shrink-0">
-        <div className="p-3 border-b border-base-200 flex items-center justify-between">
+    <div className="flex-1 h-full flex flex-col overflow-hidden bg-base-100 text-base-content">
+      {/* Top Header & Toolbar */}
+      <div className="p-4 border-b border-base-200 bg-base-200/40 flex flex-col gap-3 shrink-0">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-primary/20 text-primary flex items-center justify-center">
+              <Bot className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold tracking-wide">AGy-chats Suite</h2>
+                <span className="badge badge-xs badge-outline font-mono text-[10px]">
+                  E:\02_Projects\agy-chats
+                </span>
+              </div>
+              <p className="text-[11px] text-base-content/60">
+                Browse, search, resume, and inspect Antigravity agent conversations
+              </p>
+            </div>
+          </div>
+
           <div className="flex items-center gap-2">
-            <Bot className="w-5 h-5 text-primary" />
-            <span className="font-bold text-sm tracking-wide">AGy-chats</span>
-          </div>
-          <button
-            onClick={createNewSession}
-            className="btn btn-xs btn-primary btn-outline flex items-center gap-1"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New</span>
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {sessions.map((s) => (
-            <div
-              key={s.id}
-              onClick={() => setActiveSessionId(s.id)}
-              className={`group flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer text-xs transition-all ${
-                s.id === activeSession?.id
-                  ? 'bg-primary text-primary-content font-medium shadow-sm'
-                  : 'hover:bg-base-200 text-base-content/80'
+            <button
+              onClick={() => setShowPhraserBar(!showPhraserBar)}
+              className={`btn btn-sm gap-1.5 ${
+                showPhraserBar ? 'btn-primary' : 'btn-outline btn-primary'
               }`}
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <MessageSquare className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                <span className="truncate">{s.title}</span>
-              </div>
-              <button
-                onClick={(e) => deleteSession(s.id, e)}
-                className="opacity-0 group-hover:opacity-100 p-1 hover:text-error transition-opacity"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-
-        {/* Telemetry Footer */}
-        <div className="p-3 border-t border-base-200 bg-base-200 text-[11px] text-base-content/70">
-          <div className="flex items-center justify-between mb-1">
-            <span>Account:</span>
-            <span className="font-mono font-medium truncate max-w-[120px]">
-              {currentAccount?.email || 'Default'}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span>Proxy Status:</span>
-            <span className="badge badge-xs badge-success">Online</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Conversation Thread */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Thread Header */}
-        <div className="px-6 py-3 border-b border-base-200 bg-base-100 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold">{activeSession?.title}</span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Model Selector */}
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="select select-bordered select-xs text-xs font-mono"
+              <Sparkles className="w-4 h-4" />
+              <span>⚡ PROMON Phraser</span>
+            </button>
+            <button
+              onClick={fetchSessions}
+              disabled={isLoading}
+              className="btn btn-sm btn-ghost btn-square"
+              title="Refresh Sessions"
             >
-              {AVAILABLE_MODELS.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
           </div>
         </div>
 
-        {/* Messages Stream */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {activeSession?.messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex gap-3 ${
-                msg.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              {msg.role !== 'user' && (
-                <div className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center shrink-0 mt-0.5">
-                  <Bot className="w-4 h-4" />
-                </div>
-              )}
-
-              <div
-                className={`max-w-[75%] rounded-2xl px-4 py-3 text-xs leading-relaxed group relative ${
-                  msg.role === 'user'
-                    ? 'bg-primary text-primary-content font-sans'
-                    : msg.role === 'system'
-                    ? 'bg-error/10 border border-error/20 text-error'
-                    : 'bg-base-200 border border-base-300 font-mono select-text'
-                }`}
-              >
-                <div className="whitespace-pre-wrap">{msg.content}</div>
-
-                {msg.role !== 'system' && (
-                  <button
-                    onClick={() => handleCopyMessage(msg.id, msg.content)}
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded bg-base-100/60 hover:bg-base-100 transition-opacity text-base-content/70"
-                  >
-                    {copiedId === msg.id ? (
-                      <Check className="w-3 h-3 text-success" />
-                    ) : (
-                      <Copy className="w-3 h-3" />
-                    )}
-                  </button>
-                )}
-              </div>
-
-              {msg.role === 'user' && (
-                <div className="w-7 h-7 rounded-lg bg-base-300 text-base-content/70 flex items-center justify-center shrink-0 mt-0.5">
-                  <User className="w-4 h-4" />
-                </div>
-              )}
-            </div>
-          ))}
-
-          {isSending && (
-            <div className="flex gap-3 justify-start items-center">
-              <div className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center shrink-0">
-                <Loader2 className="w-4 h-4 animate-spin" />
-              </div>
-              <span className="text-xs text-base-content/60 italic">
-                Thinking via {selectedModel}...
+        {/* Collapsible PROMON Phraser Bar */}
+        {showPhraserBar && (
+          <div className="p-3 bg-base-300/40 border border-primary/20 rounded-xl flex flex-col gap-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-primary">
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>RTX A5500 Systems Phraser (Pre-Prompt Synthesizer)</span>
+              </span>
+              <span className="text-[10px] font-mono text-base-content/60">
+                Pure Offline BF16
               </span>
             </div>
-          )}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={phraserPrompt}
+                onChange={(e) => setPhraserPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRunPhraser();
+                }}
+                placeholder="Enter intent (e.g. ARM64 memory barrier enforcement and cache coherency)..."
+                className="input input-sm input-bordered flex-1 text-xs font-mono"
+              />
+              <button
+                onClick={handleRunPhraser}
+                disabled={isPhrasing || !phraserPrompt.trim()}
+                className="btn btn-sm btn-primary gap-1"
+              >
+                {isPhrasing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                <span>Synthesize & Copy</span>
+              </button>
+            </div>
+            {phraserResult && (
+              <div className="max-h-28 overflow-y-auto p-2 bg-base-100 rounded-lg text-[11px] font-mono text-base-content whitespace-pre-wrap select-text border border-base-300">
+                {phraserResult}
+              </div>
+            )}
+          </div>
+        )}
 
-          <div ref={messagesEndRef} />
-        </div>
+        {/* Filters and Controls */}
+        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between">
+          <div className="flex items-center gap-2 flex-1 max-w-md">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-base-content/50" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search conversation titles, prompts, or workspaces..."
+                className="input input-sm input-bordered w-full pl-8 text-xs font-mono"
+              />
+            </div>
+          </div>
 
-        {/* Input Composer */}
-        <div className="p-4 border-t border-base-200 bg-base-100 flex flex-col gap-2">
-          {/* Quick Action Badges */}
           <div className="flex items-center gap-2">
-            <button
-              onClick={handlePhraserAssist}
-              disabled={isPhrasing || !inputPrompt.trim()}
-              className="btn btn-xs btn-outline btn-primary gap-1"
-            >
-              {isPhrasing ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Sparkles className="w-3 h-3" />
-              )}
-              <span>⚡ Phraser Assist (RTX A5500)</span>
-            </button>
-          </div>
+            {/* Workspace Filter */}
+            <div className="flex items-center gap-1.5 bg-base-100 px-2.5 py-1 rounded-lg border border-base-300 text-xs">
+              <FolderOpen className="w-3.5 h-3.5 text-base-content/60" />
+              <select
+                value={selectedWorkspace}
+                onChange={(e) => setSelectedWorkspace(e.target.value)}
+                className="bg-transparent font-mono text-xs outline-none cursor-pointer max-w-[160px] truncate"
+              >
+                <option value="ALL">All Workspaces</option>
+                {workspaces.map((w) => (
+                  <option key={w} value={w}>
+                    {w}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Text Input & Send */}
-          <div className="flex gap-2 items-end">
-            <textarea
-              rows={2}
-              value={inputPrompt}
-              onChange={(e) => setInputPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-              placeholder="Ask anything or request low-level systems architectures (Enter to send, Shift+Enter for new line)..."
-              className="textarea textarea-bordered flex-1 text-xs resize-none font-mono"
-            />
-            <button
-              onClick={handleSendMessage}
-              disabled={isSending || !inputPrompt.trim()}
-              className="btn btn-primary btn-md h-[58px] px-5"
-            >
-              {isSending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-            </button>
+            {/* Show Subagents Toggle */}
+            <label className="label cursor-pointer gap-1.5 bg-base-100 px-2.5 py-1 rounded-lg border border-base-300 text-xs">
+              <input
+                type="checkbox"
+                checked={showAll}
+                onChange={(e) => setShowAll(e.target.checked)}
+                className="checkbox checkbox-xs checkbox-primary"
+              />
+              <span className="text-[11px]">Include Subagents (-a)</span>
+            </label>
           </div>
         </div>
+
+        {statusMsg && (
+          <div className="text-[11px] font-mono text-info flex items-center gap-1.5">
+            <Clock className="w-3 h-3" />
+            <span>{statusMsg}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Main Sessions List */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
+        {filteredSessions.length === 0 ? (
+          <div className="h-48 flex flex-col items-center justify-center text-base-content/50 text-xs">
+            <Bot className="w-8 h-8 opacity-40 mb-2" />
+            <span>No Antigravity conversations found matching search criteria</span>
+          </div>
+        ) : (
+          filteredSessions.map((session) => (
+            <div
+              key={session.conversation_id}
+              className="p-3.5 rounded-xl bg-base-200/50 hover:bg-base-200 border border-base-300 transition-all flex flex-col gap-2 group shadow-sm"
+            >
+              {/* Card Header */}
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-semibold text-base-content truncate max-w-md">
+                    {session.title || 'Untitled Session'}
+                  </span>
+                  {session.nesting_depth > 0 && (
+                    <span className="badge badge-xs badge-ghost text-[10px]">
+                      Subagent (depth {session.nesting_depth})
+                    </span>
+                  )}
+                  {session.step_count > 0 && (
+                    <span className="badge badge-xs badge-primary/20 text-primary font-mono text-[10px]">
+                      {session.step_count} steps
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] text-base-content/60 font-mono">
+                    {formatRelativeTime(session.last_modified_time)}
+                  </span>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => handleCopyCmd(session.conversation_id)}
+                      className="btn btn-xs btn-ghost gap-1"
+                      title="Copy Resume Command"
+                    >
+                      {copiedId === session.conversation_id ? (
+                        <>
+                          <Check className="w-3 h-3 text-success" />
+                          <span className="text-success text-[10px]">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span className="text-[10px]">Copy</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleResume(session)}
+                      className="btn btn-xs btn-primary gap-1 shadow-sm"
+                      title="Resume in Terminal"
+                    >
+                      <Play className="w-3 h-3 fill-current" />
+                      <span className="text-[10px]">Resume agy</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Workspace Badge */}
+              {session.workspace && (
+                <div className="flex items-center gap-1.5 text-[11px] text-base-content/60 font-mono">
+                  <FolderOpen className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{session.workspace}</span>
+                </div>
+              )}
+
+              {/* Prompt / Preview */}
+              {session.preview && (
+                <div className="text-xs text-base-content/80 font-mono bg-base-100/70 p-2 rounded-lg border border-base-300/50 line-clamp-2 select-text">
+                  {session.preview}
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

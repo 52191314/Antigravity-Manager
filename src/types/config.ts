@@ -211,6 +211,26 @@ export interface AntigravityLabConfig {
     enable_swarm_narrator: boolean;
     enable_voice_activity_events: boolean;
     disable_stained_loas2_creds: boolean;
+    enable_deepagent: boolean;
+    enable_review: boolean;
+    enable_image_generator_subagent: boolean;
+    enable_sidecars: boolean;
+    enable_ui_sidecars: boolean;
+    enable_sidecar_sdk: boolean;
+    sidecar_gateway: boolean;
+    sidecar_iframe_prewarm: boolean;
+    enable_swarm_monitor: boolean;
+    enable_ripgrep_path_search: boolean;
+    enable_pty: boolean;
+    enable_wait_tool: boolean;
+    cortex_snapshot_recording: boolean;
+    cortex_snapshot_revert: boolean;
+    enable_remote_agent_fastpush_pin: boolean;
+    enable_conversation_search_v2: boolean;
+    cascade_enable_notebook_edit_tool: boolean;
+    cascade_use_sed_edit_tool: boolean;
+    enable_model_capacity_exhausted_retries: boolean;
+    enable_mcp_non_blocking_turn_load: boolean;
 }
 
 export interface AppConfig {

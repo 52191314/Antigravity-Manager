@@ -280,6 +280,46 @@ pub struct AntigravityLabConfig {
     pub enable_voice_activity_events: bool,
     #[serde(default)]
     pub disable_stained_loas2_creds: bool,
+    #[serde(default)]
+    pub enable_deepagent: bool,
+    #[serde(default)]
+    pub enable_review: bool,
+    #[serde(default)]
+    pub enable_image_generator_subagent: bool,
+    #[serde(default)]
+    pub enable_sidecars: bool,
+    #[serde(default)]
+    pub enable_ui_sidecars: bool,
+    #[serde(default)]
+    pub enable_sidecar_sdk: bool,
+    #[serde(default)]
+    pub sidecar_gateway: bool,
+    #[serde(default)]
+    pub sidecar_iframe_prewarm: bool,
+    #[serde(default)]
+    pub enable_swarm_monitor: bool,
+    #[serde(default)]
+    pub enable_ripgrep_path_search: bool,
+    #[serde(default)]
+    pub enable_pty: bool,
+    #[serde(default)]
+    pub enable_wait_tool: bool,
+    #[serde(default)]
+    pub cortex_snapshot_recording: bool,
+    #[serde(default)]
+    pub cortex_snapshot_revert: bool,
+    #[serde(default)]
+    pub enable_remote_agent_fastpush_pin: bool,
+    #[serde(default)]
+    pub enable_conversation_search_v2: bool,
+    #[serde(default)]
+    pub cascade_enable_notebook_edit_tool: bool,
+    #[serde(default)]
+    pub cascade_use_sed_edit_tool: bool,
+    #[serde(default)]
+    pub enable_model_capacity_exhausted_retries: bool,
+    #[serde(default)]
+    pub enable_mcp_non_blocking_turn_load: bool,
 }
 
 impl Default for AntigravityLabConfig {
@@ -300,6 +340,26 @@ impl Default for AntigravityLabConfig {
             enable_swarm_narrator: false,
             enable_voice_activity_events: false,
             disable_stained_loas2_creds: false,
+            enable_deepagent: false,
+            enable_review: false,
+            enable_image_generator_subagent: false,
+            enable_sidecars: false,
+            enable_ui_sidecars: false,
+            enable_sidecar_sdk: false,
+            sidecar_gateway: false,
+            sidecar_iframe_prewarm: false,
+            enable_swarm_monitor: false,
+            enable_ripgrep_path_search: false,
+            enable_pty: false,
+            enable_wait_tool: false,
+            cortex_snapshot_recording: false,
+            cortex_snapshot_revert: false,
+            enable_remote_agent_fastpush_pin: false,
+            enable_conversation_search_v2: false,
+            cascade_enable_notebook_edit_tool: false,
+            cascade_use_sed_edit_tool: false,
+            enable_model_capacity_exhausted_retries: false,
+            enable_mcp_non_blocking_turn_load: false,
         }
     }
 }

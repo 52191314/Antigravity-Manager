@@ -2105,13 +2105,43 @@ impl TokenManager {
                             .rate_limit_tracker
                             .get_remaining_wait(&key, Some(&normalized_target));
                         if reset_sec > 0 {
-                            // 【修复 Issue #284】立即解绑并切换账号，不再阻塞等待
-                            // 原因：阻塞等待会导致并发请求时客户端 socket 超时 (UND_ERR_SOCKET)
-                            tracing::debug!(
-                                "Sticky Session: Bound account {} is rate-limited for {} ({}s), unbinding and switching.",
-                                bound_token.email, normalized_target, reset_sec
-                            );
-                            self.session_accounts.remove(sid);
+                            if scheduling.mode == SchedulingMode::CacheFirst
+                                && reset_sec <= scheduling.max_wait_seconds
+                                && !attempted.contains(&bound_id)
+                            {
+                                tracing::info!(
+                                    "Sticky Session (CacheFirst): Bound account {} is rate-limited for {} ({}s). Waiting to preserve prompt cache (budget: {}s)...",
+                                    bound_token.email, normalized_target, reset_sec, scheduling.max_wait_seconds
+                                );
+                                tokio::time::sleep(std::time::Duration::from_secs(reset_sec)).await;
+                                let remaining = self
+                                    .rate_limit_tracker
+                                    .get_remaining_wait(&key, Some(&normalized_target));
+                                if remaining == 0
+                                    && !(quota_protection_enabled
+                                        && bound_token.protected_models.contains(&normalized_target))
+                                {
+                                    tracing::info!(
+                                        "Sticky Session (CacheFirst): Successfully waited out cooldown for bound account {}. Reusing for session {}",
+                                        bound_token.email, sid
+                                    );
+                                    target_token = Some(bound_token.clone());
+                                    need_update_last_used =
+                                        Some((bound_token.account_id.clone(), std::time::Instant::now()));
+                                } else {
+                                    tracing::warn!(
+                                        "Sticky Session (CacheFirst): Account {} still unavailable after waiting {}s, unbinding and switching.",
+                                        bound_token.email, reset_sec
+                                    );
+                                    self.session_accounts.remove(sid);
+                                }
+                            } else {
+                                tracing::debug!(
+                                    "Sticky Session: Bound account {} is rate-limited for {} ({}s, mode={:?}, max_wait={}s), unbinding and switching.",
+                                    bound_token.email, normalized_target, reset_sec, scheduling.mode, scheduling.max_wait_seconds
+                                );
+                                self.session_accounts.remove(sid);
+                            }
                         } else if !attempted.contains(&bound_id)
                             && !(quota_protection_enabled
                                 && bound_token.protected_models.contains(&normalized_target))

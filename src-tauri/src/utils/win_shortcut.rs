@@ -216,8 +216,9 @@ fn scan_and_heal_dir(dir: &Path, changed: &mut bool) {
                 scan_and_heal_dir(&path, changed);
             } else if path.is_file() {
                 if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                    if file_name.to_lowercase().contains("antigravity")
-                        && file_name.to_lowercase().ends_with(".lnk")
+                    let lower_name = file_name.to_lowercase();
+                    if (lower_name.contains("antigravity") || lower_name.contains("proxymateur"))
+                        && lower_name.ends_with(".lnk")
                     {
                         if heal_single_shortcut(&path) {
                             *changed = true;

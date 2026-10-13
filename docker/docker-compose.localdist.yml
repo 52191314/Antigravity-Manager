@@ -1,5 +1,5 @@
 services:
-  antigravity-manager:
+  proxymateur:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend.localdist

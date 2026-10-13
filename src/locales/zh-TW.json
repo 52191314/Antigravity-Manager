@@ -63,9 +63,16 @@
     "selected": "已選擇",
     "claude_series": "Claude 系列",
     "maximize": "最大化",
-    "app_name": "Antigravity Tools"
+    "app_name": "Proxymateur"
   },
   "nav": {
+    "hub_overview": "總覽",
+    "hub_agent_proxy": "智慧體代理",
+    "hub_fleet": "叢集",
+    "hub_observability": "可觀測性",
+    "quick_jump": "快速跳轉...",
+    "expand_sidebar": "展開側邊欄",
+    "collapse_sidebar": "收合側邊欄",
     "dashboard": "儀表板",
     "accounts": "帳號管理",
     "proxy": "API 反向代理",
@@ -428,7 +435,7 @@
       "auto_launch": "開機自動啟動",
       "auto_launch_enabled": "啟用",
       "auto_launch_disabled": "停用",
-      "auto_launch_desc": "系統啟動時自動執行 Antigravity Tools",
+      "auto_launch_desc": "系統啟動時自動執行 Proxymateur",
       "quiet_autostart": "免打擾啟動（留在系統匣）",
       "quiet_autostart_desc": "開機自啟時不彈出主視窗。同時開啟輕量模式時，會直接釋放前端行程。手動開啟軟體仍會顯示主視窗；系統沒有系統匣時會改為顯示視窗。",
       "quiet_autostart_enabled": "已開啟免打擾啟動",
@@ -724,6 +731,20 @@
       "placeholder": "輸入全局系統提示詞...\n例如：你是一位資深的全棧開發工程師，擅長 React 和 Rust。請使用繁體中文回复。",
       "char_count": "{{count}} 字符",
       "long_prompt_warning": "提示詞較長（超過 2000 字符），可能會佔用較多的上下文窗口空間。"
+    },
+    "demon": {
+      "title": "DEMON 模式 (Autonomous Diagnostics & Safety Shim)",
+      "desc": "面向 agy / Antigravity 的高權限自主診斷與安全調諧中間件：解除反復確認，自動詞元淨化，實現無阻滯自主工程開發。",
+      "decontaminate_title": "詞元自動淨化 (Token Decontamination)",
+      "decontaminate_desc": "保護代碼塊的同時，將 bypass, dump, hook 等敏感詞自動轉換為中性系統診斷術語。",
+      "persona_title": "自主工程身份注入 (Autonomous Persona)",
+      "persona_desc": "向 systemInstruction 注入高權限自主執行身份，解除命令反復確認提示與過度謹慎。",
+      "custom_rules": "自定義附加 DEMON 規則 (可選)",
+      "custom_rules_placeholder": "例如：專注於 ARM64 逆向與 Frida 腳本開發，優先輸出完整可運行的彙編與 C++ 源碼..."
+    },
+    "gemini": {
+      "allow_standard_models_title": "允許獲取標準 Gemini 官方模型列表",
+      "allow_standard_models_desc": "允許 agy 獲取並調用官方標準 Gemini 模型列表 (如 gemini-2.5-pro, gemini-2.5-flash 等)，避免被 Antigravity 配額/基準線過濾強制攔截，便於停用反代輪換的帳號正常路由。"
     }
   },
   "tray": {
@@ -1287,8 +1308,16 @@
       "default_suffix": "（預設）",
       "select_target_model": "選擇目標模型",
       "original_placeholder": "原始名 (如 gemini-3.x-flash，x 必須大於 8)",
+      "select_source_model": "選取或輸入原始模型/規則...",
+      "default_rules_group": "內建預設規則與萬用字元",
+      "registered_models_group": "當前已註冊模型",
       "wildcard_rule_notice": "通配符規則（x 必須大於 8，如 3.9、3.10 自動轉為 3.x-flash-tiered）",
       "wildcard_only_gemini_3x": "僅允許內建通配符 gemini-3.x-flash（x 必須大於 8），其他請填寫具體模型 ID",
+      "gemini_38_flash_native": "Gemini 3.8 Flash 原生直連路由",
+      "gemini_38_flash_native_tooltip": "啟用後，3.8 Flash 請求直接路由至 Google 官方原生上游 (gemini-3.8-flash-high)，不再強制升級為 tiered。",
+      "rule_enabled": "已啟用",
+      "rule_disabled": "已停用",
+      "toggle_rule": "切換啟用/停用狀態",
       "only_raw_quota_models": "Only Expose Quota Models",
       "only_raw_quota_models_tooltip": "When enabled, /v1/models only lists active quota models fetched from connected accounts, hiding built-in alias models (like gpt-4o) and image ratio variants.",
       "gemini3_group_label": "Gemini 3 (Recommended)",
@@ -1353,7 +1382,7 @@
       "model_select": "Select Model"
     },
     "hermes_sync": {
-      "modal_title": "在 Hermes 中配置 Antigravity Manager",
+      "modal_title": "在 Hermes 中配置 Proxymateur",
       "endpoint_title": "連線位址",
       "local_endpoint": "本地代理",
       "custom_endpoint": "自訂位址",
@@ -1364,19 +1393,19 @@
       "discover_models_desc": "Hermes 透過 /v1/models 獲取即時模型清單",
       "selected_models": "僅使用選取的模型",
       "models_required": "請至少選取一個模型",
-      "activate_provider": "將 Antigravity Manager 設為 Hermes 預設提供商",
+      "activate_provider": "將 Proxymateur 設為 Hermes 預設提供商",
       "activate_provider_desc": "預設關閉，以避免更改當前的 Hermes 提供商。",
       "default_model": "預設模型",
       "select_default_model": "選取模型",
       "default_model_required": "請選取預設模型",
-      "default_model_invalid": "請選取 Antigravity Manager 提供的可用模型",
+      "default_model_invalid": "請選取 Proxymateur 提供的可用模型",
       "currently_active": "當前已在 Hermes 中啟用",
       "btn_confirm_sync": "儲存到 Hermes",
       "btn_view": "檢視配置",
       "btn_restore": "恢復",
       "btn_clear": "清除",
       "clear_confirm_title": "清除 Hermes 配置",
-      "clear_confirm_message": "此操作將從 Hermes 中移除 Antigravity Manager 提供商。確定要繼續嗎？",
+      "clear_confirm_message": "此操作將從 Hermes 中移除 Proxymateur 提供商。確定要繼續嗎？",
       "toast": {
         "sync_success": "Hermes 配置同步成功",
         "clear_success": "Hermes 配置已成功清除",
@@ -1384,7 +1413,7 @@
       }
     },
     "openclaw_sync": {
-      "modal_title": "在 OpenClaw 中配置 Antigravity Manager",
+      "modal_title": "在 OpenClaw 中配置 Proxymateur",
       "version_title": "OpenClaw SDK 版本規範",
       "detected_hint": "環境已檢測: {{target}}",
       "v2_label": "≥ 2026.8.1 (v2.0 規範)",
@@ -1413,7 +1442,7 @@
       "btn_restore": "恢復",
       "btn_clear": "清除",
       "clear_confirm_title": "清除 OpenClaw 配置",
-      "clear_confirm_message": "此操作將從 OpenClaw 中移除 Antigravity Manager 提供商及模型白名單。確定要繼續嗎？",
+      "clear_confirm_message": "此操作將從 OpenClaw 中移除 Proxymateur 提供商及模型白名單。確定要繼續嗎？",
       "toast": {
         "sync_success": "OpenClaw ({{version}}) 配置同步成功",
         "clear_success": "OpenClaw 配置已成功清除",
@@ -1810,7 +1839,7 @@
   "apiKeyFun": {
     "title": "APIKEY.FUN 中轉站",
     "eyebrow": "中轉站",
-    "description": "Antigravity Tools 官方合作中轉站，提供穩定、開放、高性價比的大模型 API 服務。支援 Claude、OpenAI、Gemini 等主流模型。透過專屬連結註冊，可享最高充值永久 95 折優惠。",
+    "description": "Proxymateur 官方合作中轉站，提供穩定、開放、高性價比的大模型 API 服務。支援 Claude、OpenAI、Gemini 等主流模型。透過專屬連結註冊，可享最高充值永久 95 折優惠。",
     "viewNow": "立即查看",
     "usage": {
       "remainingAmount": "剩餘額度",

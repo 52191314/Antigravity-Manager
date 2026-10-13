@@ -52,19 +52,19 @@
 ```bash
 # 运行所有安全相关测试
 cd src-tauri
-cargo test --package antigravity-manager --lib proxy::tests::security
+cargo test --package proxymateur --lib proxy::tests::security
 
 # 运行单元测试
-cargo test --package antigravity-manager --lib proxy::tests::security_ip_tests
+cargo test --package proxymateur --lib proxy::tests::security_ip_tests
 
 # 运行集成测试
-cargo test --package antigravity-manager --lib proxy::tests::security_integration_tests
+cargo test --package proxymateur --lib proxy::tests::security_integration_tests
 
 # 运行性能基准测试 (带输出)
-cargo test --package antigravity-manager --lib benchmark -- --nocapture
+cargo test --package proxymateur --lib benchmark -- --nocapture
 
 # 运行压力测试 (带输出)
-cargo test --package antigravity-manager --lib stress -- --nocapture
+cargo test --package proxymateur --lib stress -- --nocapture
 ```
 
 ## 测试结果

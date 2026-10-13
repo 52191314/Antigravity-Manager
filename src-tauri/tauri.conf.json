@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Antigravity Tools",
+  "productName": "Proxymateur",
   "version": "4.9.5",
-  "identifier": "com.lbjlaq.antigravity-tools",
+  "identifier": "com.proxymateur.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -14,13 +14,28 @@
     "windows": [
       {
         "label": "main",
-        "title": "Antigravity Tools",
+        "title": "Proxymateur",
         "width": 1024,
         "height": 700,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "transparent": true,
         "visible": true
+      },
+      {
+        "label": "promon-hud",
+        "title": "Promon HUD",
+        "url": "/hud",
+        "width": 780,
+        "height": 340,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "center": true,
+        "visible": false,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false
       }
     ],
     "security": {
@@ -57,8 +72,8 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://github.com/lbjlaq/Antigravity-Manager/releases/latest/download/updater.json",
-        "https://github.com/lbjlaq/Antigravity-Manager/releases/download/preview/updater.json"
+        "https://github.com/52191314/Antigravity-Manager/releases/latest/download/updater.json",
+        "https://github.com/52191314/Antigravity-Manager/releases/download/preview/updater.json"
       ],
       "dialog": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFRjVDRjdCREE1Rjg2NkYKUldSdmhsL2FlOC8xdnJuTzBtaTRhZkk1VWJ1cW5QWGU3ZWEwU20yZHRlZStxMnRWcUIzc3FwT2IK"

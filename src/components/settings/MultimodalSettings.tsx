@@ -47,11 +47,11 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
                 await onSave();
             }
             setSavedSuccessfully(true);
-            showToast(t("common.success", { defaultValue: "设置已保存" }), "success");
+            showToast(t("common.success", { defaultValue: "Success" }), "success");
             setTimeout(() => setSavedSuccessfully(false), 2000);
         } catch (error: any) {
-            console.error("保存多模态设置失败:", error);
-            showToast(t("common.error", { defaultValue: "保存失败" }), "error");
+            console.error("Failed to save multimodal settings:", error);
+            showToast(t("common.error", { defaultValue: "Error" }), "error");
         } finally {
             setIsSaving(false);
         }
@@ -63,11 +63,11 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
             <div className="p-3.5 bg-blue-50/70 dark:bg-blue-950/20 rounded-xl border border-blue-200/70 dark:border-blue-800/40 text-xs leading-relaxed space-y-1">
                 <div className="font-semibold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
                     <Sparkles size={14} className="text-blue-600 dark:text-blue-400" />
-                    {t("proxy.multimodal.banner_title", { defaultValue: "多模态交互与长程保鲜治理 (Pipeline First)" })}
+                    {t("proxy.multimodal.banner_title", { defaultValue: "Multimodal Interaction & Longevity Governance (Pipeline First)" })}
                 </div>
                 <p className="text-gray-600 dark:text-gray-400">
                     {t("proxy.multimodal.banner_desc", {
-                        defaultValue: "针对长程多模态 Agent（如 Codex、Claude Code、Cursor）频繁查看截图或文档的场景，提供协议无关的多模态历史保鲜滑窗与独立策略治理，彻底根治会话历史因累积图片过多引发的 400 阻断崩溃与 Token 急速膨胀。"
+                        defaultValue: "Designed for long-horizon multimodal agents (Codex, Claude Code, Cursor) that frequently inspect screenshots and files. Provides protocol-agnostic sliding-window freshness and memory explosion safeguards, preventing 400 errors and token inflation from accumulated historical images."
                     })}
                 </p>
             </div>
@@ -79,15 +79,15 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
                         <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
                                 <Layers size={14} className="text-purple-500" />
-                                {t("proxy.multimodal.sliding_window_title", { defaultValue: "多模态历史保鲜滑动窗口" })}
+                                {t("proxy.multimodal.sliding_window_title", { defaultValue: "Multimodal History Freshness Sliding Window" })}
                             </span>
                             <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300">
-                                {t("proxy.multimodal.opt_in_tag", { defaultValue: "长程 Agent 推荐 (默认关闭)" })}
+                                {t("proxy.multimodal.opt_in_tag", { defaultValue: "Recommended for Long-Horizon Agents (Disabled by default)" })}
                             </span>
                         </div>
                         <p className="text-[11px] text-gray-500 dark:text-gray-400">
                             {t("proxy.multimodal.sliding_window_desc", {
-                                defaultValue: "默认关闭（100% 原始透传所有图片）。开启后，网关在请求流水线中自动执行独立保鲜策略，对超出配额的更早历史图片剔除 Base64 并替换为结构化占位符。"
+                                defaultValue: "Disabled by default (100% transparent forwarding). When enabled, the gateway preserves full multimodal embeddings for the latest N images, stripping Base64 from older history and replacing them with structured placeholders."
                             })}
                         </p>
                     </div>
@@ -107,7 +107,7 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
                     {/* 策略模式选择切换器 */}
                     <div className="space-y-1.5">
                         <label className="text-xs font-semibold text-gray-800 dark:text-gray-200">
-                            {t("proxy.multimodal.strategy_select_label", { defaultValue: "保鲜治理策略模式 (二选一独立策略，互不干扰)" })}
+                            {t("proxy.multimodal.strategy_select_label", { defaultValue: "Freshness Strategy Mode (Choose one independent strategy)" })}
                         </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                             {/* 策略一：按张数 */}
@@ -129,10 +129,10 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
                                 <div className="space-y-0.5">
                                     <div className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
                                         <ImageIcon size={13} className="text-purple-600 dark:text-purple-400" />
-                                        {t("proxy.multimodal.strategy_count_title", { defaultValue: "按图片张数保鲜 (Count-Based)" })}
+                                        {t("proxy.multimodal.strategy_count_title", { defaultValue: "Count-Based Freshness" })}
                                     </div>
                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                                        {t("proxy.multimodal.strategy_count_desc", { defaultValue: "固定保留最近 N 张图片，不管单图大小。操作直观，严格与对话轮数对应。" })}
+                                        {t("proxy.multimodal.strategy_count_desc", { defaultValue: "Preserves the latest N images regardless of size. Intuitive and strictly maps to conversation turns." })}
                                     </p>
                                 </div>
                             </div>
@@ -156,10 +156,10 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
                                 <div className="space-y-0.5">
                                     <div className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
                                         <HardDrive size={13} className="text-purple-600 dark:text-purple-400" />
-                                        {t("proxy.multimodal.strategy_memory_title", { defaultValue: "按累积内存保鲜 (Memory-Based)" })}
+                                        {t("proxy.multimodal.strategy_memory_title", { defaultValue: "Memory-Based Freshness" })}
                                     </div>
                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                                        {t("proxy.multimodal.strategy_memory_desc", { defaultValue: "自最新轮次往前回溯计算 Base64 体积，配额内全保留，超出配额的更早旧图自动剔除。" })}
+                                        {t("proxy.multimodal.strategy_memory_desc", { defaultValue: "Scans backward from latest turn by Base64 volume. Retains images within budget, evicts older ones." })}
                                     </p>
                                 </div>
                             </div>
@@ -174,11 +174,11 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
                                 <div className="sm:col-span-2 space-y-0.5">
                                     <label className="text-xs font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
                                         <ImageIcon size={13} className="text-blue-500" />
-                                        {t("proxy.multimodal.max_fresh_images_label", { defaultValue: "保鲜图片最大张数" })}
+                                        {t("proxy.multimodal.max_fresh_images_label", { defaultValue: "Max Fresh Images in Window" })}
                                     </label>
                                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
                                         {t("proxy.multimodal.max_fresh_images_hint", {
-                                            defaultValue: "仅保留最新的 N 张图片完整多模态视觉嵌入。更早的历史图片将自动剥离 Base64 并替换为结构化占位符。填 0 表示不限制张数。"
+                                            defaultValue: "Retains full visual multimodal embeddings for the latest N images. Older images have their Base64 stripped and replaced by placeholders. Set 0 for unlimited image count (bounded only by total capacity)."
                                         })}
                                     </p>
                                 </div>
@@ -195,7 +195,7 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
                                             placeholder="10"
                                         />
                                         <span className="absolute right-3 top-1.5 text-xs text-gray-400 pointer-events-none">
-                                            {t("proxy.multimodal.unit_images", { defaultValue: "张" })}
+                                            {t("proxy.multimodal.unit_images", { defaultValue: "images" })}
                                         </span>
                                     </div>
                                 </div>
@@ -206,11 +206,11 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
                                 <div className="sm:col-span-2 space-y-0.5">
                                     <label className="text-xs font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
                                         <ShieldAlert size={13} className="text-amber-500" />
-                                        {t("proxy.multimodal.memory_budget_label", { defaultValue: "累积内存保鲜上限" })}
+                                        {t("proxy.multimodal.memory_budget_label", { defaultValue: "Cumulative Memory Freshness Limit" })}
                                     </label>
                                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
                                         {t("proxy.multimodal.memory_budget_hint", {
-                                            defaultValue: "以 Base64 总解码体积为限额。从最新轮次往前回溯，只要累积在限额内的图片完整保留，更早超额旧图剥离降级为占位符。"
+                                            defaultValue: "Sets total decoded Base64 volume budget. Scans backward from latest turn; images within budget are kept, earlier excess images are replaced with placeholders."
                                         })}
                                     </p>
                                 </div>
@@ -246,11 +246,11 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
                             />
                             <label htmlFor="strip_remote_urls" className="cursor-pointer space-y-0.5 select-none">
                                 <div className="text-xs font-semibold text-gray-800 dark:text-gray-200">
-                                    {t("proxy.multimodal.strip_remote_urls_label", { defaultValue: "同时剥离历史远程 / OSS 图片直链" })}
+                                    {t("proxy.multimodal.strip_remote_urls_label", { defaultValue: "Also strip historical remote / OSS image direct links" })}
                                 </div>
                                 <p className="text-[11px] text-gray-500 dark:text-gray-400">
                                     {t("proxy.multimodal.strip_remote_urls_hint", {
-                                        defaultValue: "默认不勾选（仅剥离过往 Base64 实体，保留轻量 HTTP/HTTPS 直链）。勾选此项后，历史轮次中的远程图片直链也将一并剥离为占位符，极致节省视觉 Token。"
+                                        defaultValue: "Disabled by default (only strips heavy Base64 payloads, preserving lightweight HTTP/HTTPS URLs). When checked, historical remote direct links are also replaced with placeholders to maximize token savings."
                                     })}
                                 </p>
                             </label>
@@ -262,7 +262,7 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
             {/* 保存按钮 */}
             <div className="flex items-center justify-between pt-2">
                 <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                    {t("proxy.multimodal.hot_reload_hint", { defaultValue: "多模态配置保存后立即热生效，无需重启反代服务。" })}
+                    {t("proxy.multimodal.hot_reload_hint", { defaultValue: "Settings take effect immediately upon saving without restarting proxy service." })}
                 </span>
                 <button
                     onClick={handleSave}
@@ -276,12 +276,12 @@ export const MultimodalSettings: React.FC<MultimodalSettingsProps> = ({
                     {savedSuccessfully ? (
                         <>
                             <Check size={14} />
-                            {t("common.saved", { defaultValue: "已保存" })}
+                            {t("common.saved", { defaultValue: "Saved successfully" })}
                         </>
                     ) : (
                         <>
                             <Save size={14} />
-                            {isSaving ? t("common.saving", { defaultValue: "保存中..." }) : t("proxy.multimodal.save_btn", { defaultValue: "保存多模态设置" })}
+                            {isSaving ? t("common.saving", { defaultValue: "Saving..." }) : t("proxy.multimodal.save_btn", { defaultValue: "Save Multimodal Settings" })}
                         </>
                     )}
                 </button>

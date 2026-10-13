@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Antigravity Tools - 一键版本升级与多文件原子化同步脚本
+ * Proxymateur -一键版本升级与多文件原子化同步脚本
  *
  * 用法:
  *   npm run bump patch                 # 自动自增补丁版本号 (例如 4.7.13 -> 4.7.14)
@@ -89,7 +89,7 @@ const targetArg = args.find(a => !a.startsWith('--'));
 
 if (!targetArg) {
     console.log(`
-${colors.bold}Antigravity Tools 一键打版与双版本发布工具${colors.reset}
+${colors.bold}Proxymateur 一键打版与双版本发布工具${colors.reset}
 
 当前版本: ${colors.green}${currentVersion}${colors.reset}
 
@@ -257,13 +257,13 @@ const TARGET_FILES = [
         name: 'src-tauri/Cargo.lock',
         relPath: 'src-tauri/Cargo.lock',
         replace: (content) => content.replace(
-            /(\[\[package\]\]\r?\nname = "antigravity-tools"\r?\nversion = )"[^"]+"/,
+            /(\[\[package\]\]\r?\nname = "proxymateur"\r?\nversion = )"[^"]+"/,
             `$1"${newVersion}"`
         ),
     },
     {
-        name: 'Casks/antigravity-tools.rb',
-        relPath: 'Casks/antigravity-tools.rb',
+        name: 'Casks/proxymateur.rb',
+        relPath: 'Casks/proxymateur.rb',
         replace: (content) => content.replace(
             `version "${currentVersion}"`,
             `version "${newVersion}"`

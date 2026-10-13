@@ -64,9 +64,16 @@
     "selected": "Selected",
     "claude_series": "Claude Series",
     "maximize": "Maximize",
-    "app_name": "Antigravity Tools"
+    "app_name": "Proxymateur"
   },
   "nav": {
+    "hub_overview": "Hub",
+    "hub_agent_proxy": "Agent Proxy",
+    "hub_fleet": "Fleet",
+    "hub_observability": "Observability",
+    "quick_jump": "Jump to...",
+    "expand_sidebar": "Expand sidebar",
+    "collapse_sidebar": "Collapse sidebar",
     "dashboard": "Dashboard",
     "accounts": "Accounts",
     "proxy": "API Proxy",
@@ -297,7 +304,8 @@
       "restored": "Restored",
       "deleted": "Deleted",
       "directory_opened": "Storage directory opened",
-      "original_fingerprint_not_found": "Original fingerprint not found"
+      "original_fingerprint_not_found": "Original fingerprint not found",
+      "storage_json_not_found": "storage.json not found. Make sure Antigravity has been launched at least once."
     },
     "warmup_all": "One-click Warmup",
     "warmup_selected": "Warmup ({{count}})",
@@ -373,7 +381,8 @@
       "oauth_error": "OAuth failed: {{error}}",
       "status": {
         "error_token": "Please enter Refresh Token"
-      }
+      },
+      "oauth_success": "Authorization successful"
     },
     "table": {
       "email": "Email",
@@ -472,7 +481,7 @@
       "auto_launch": "Launch at Startup",
       "auto_launch_enabled": "Enabled",
       "auto_launch_disabled": "Disabled",
-      "auto_launch_desc": "Automatically launch Antigravity Tools when system starts",
+      "auto_launch_desc": "Automatically launch Proxymateur when system starts",
       "quiet_autostart": "Quiet Startup (Stay in Tray)",
       "quiet_autostart_desc": "When the app is launched at login, keep the main window hidden. If Lightweight Mode is also on, the webview is released immediately. Opening the app yourself still shows the window. If the system tray is unavailable, the window is shown instead.",
       "quiet_autostart_enabled": "Quiet startup enabled",
@@ -731,10 +740,10 @@
       "brew_upgrade_success": "Homebrew upgrade succeeded. Please restart the app to load the new version.",
       "brew_restart_btn": "Restart Now",
       "brew_restart_failed": "Auto restart failed. Please close and reopen the app manually",
-      "brew_upgrade_failed": "Homebrew upgrade failed. Try running manually: brew upgrade --cask antigravity-tools",
+      "brew_upgrade_failed": "Homebrew upgrade failed. Try running manually: brew upgrade --cask proxymateur",
       "brew_error_brew_not_found": "Homebrew not found. Please ensure brew is installed",
       "brew_error_brew_exec_failed": "Failed to execute brew command. Try running manually in terminal",
-      "brew_error_brew_timeout": "Homebrew upgrade timed out (3min). Try running manually: brew upgrade --cask antigravity-tools",
+      "brew_error_brew_timeout": "Homebrew upgrade timed out (3min). Try running manually: brew upgrade --cask proxymateur",
       "brew_error_brew_already_latest": "Already up to date, no upgrade needed",
       "brew_error_brew_not_supported": "Homebrew update is not supported on this platform",
       "update_check_failed": "Update check failed",
@@ -793,10 +802,25 @@
       "char_count": "{{count}} characters",
       "long_prompt_warning": "Prompt is quite long (over 2000 chars) and may consume significant context space."
     },
+    "demon": {
+      "title": "DEMON Mode (Autonomous Diagnostics & Safety Shim)",
+      "desc": "High-privilege autonomous diagnostics and safety harmonization middleware for agy / Antigravity: eliminates interactive confirmation prompts, decontaminates offensive verbs, and unlocks frictionless development.",
+      "decontaminate_title": "Token Decontamination",
+      "decontaminate_desc": "Protects code blocks while automatically mapping sensitive verbs (bypass, dump, hook) to neutral systems engineering terminology.",
+      "persona_title": "Autonomous Persona Injection",
+      "persona_desc": "Injects an authoritative, high-privilege autonomous persona into systemInstruction to bypass command confirmation prompts and excessive caution.",
+      "custom_rules": "Custom DEMON Rules (Optional)",
+      "custom_rules_placeholder": "e.g., Focus on ARM64 reverse engineering and Frida instrumentation. Always output complete, compilable assembly and C++ source..."
+    },
+    "gemini": {
+      "allow_standard_models_title": "Allow Standard Gemini Model List",
+      "allow_standard_models_desc": "Allows agy to discover and call standard official Gemini models (e.g. gemini-2.5-pro, gemini-2.5-flash) without being filtered by Antigravity quota baselines, enabling native routing for proxy-disabled accounts."
+    },
     "branding": {
-      "title": "Antigravity Tools",
+      "title": "Proxymateur",
       "subtitle": "Professional Account Management"
-    }
+    },
+    "web_mode_limitation": "(Not supported in web mode)"
   },
   "tray": {
     "current": "Current",
@@ -1382,8 +1406,16 @@
       "route_to": "Route To",
       "select_target_model": "Select Target Model",
       "original_placeholder": "Original model (e.g. gemini-3.x-flash, x must be > 8)",
+      "select_source_model": "Select or input source model...",
+      "default_rules_group": "Default Rules & Wildcards",
+      "registered_models_group": "Registered Models",
       "wildcard_rule_notice": "Wildcard rule (x must be > 8, e.g. 3.9, 3.10 routed to 3.x-flash-tiered)",
-      "wildcard_only_gemini_3x": "Only wildcard gemini-3.x-flash (x > 8) is supported, please specify exact model ID for others"
+      "wildcard_only_gemini_3x": "Only wildcard gemini-3.x-flash (x > 8) is supported, please specify exact model ID for others",
+      "gemini_38_flash_native": "Gemini 3.8 Flash Google Native Routing",
+      "gemini_38_flash_native_tooltip": "When enabled, routes 3.8 Flash requests directly to Google upstream (gemini-3.8-flash-high) instead of force-upgrading to tiered.",
+      "rule_enabled": "Active",
+      "rule_disabled": "Disabled",
+      "toggle_rule": "Toggle active status"
     },
     "multi_protocol": {
       "title": "Multi-Protocol Support",
@@ -1439,13 +1471,14 @@
       },
       "toast": {
         "sync_success": "Sync successful! {{name}} is ready.",
-        "sync_error": "Sync failed: {{error}}"
+        "sync_error": "Sync failed: {{error}}",
+        "config_missing": "Generate an API key and start the service first"
       },
       "sync_confirm_title": "Sync Confirmation",
       "sync_confirm_message": "Ready to sync {{name}} configuration. ⚠️ Warning: This will overwrite your existing local configuration files (e.g. login tokens, API Keys). Are you sure you want to continue?"
     },
     "hermes_sync": {
-      "modal_title": "Configure Antigravity Manager in Hermes",
+      "modal_title": "Configure Proxymateur in Hermes",
       "endpoint_title": "Connection address",
       "local_endpoint": "Local proxy",
       "custom_endpoint": "Custom address",
@@ -1456,19 +1489,19 @@
       "discover_models_desc": "Hermes reads the live model list from /v1/models",
       "selected_models": "Only selected models",
       "models_required": "Select at least one model",
-      "activate_provider": "Make Antigravity Manager the default Hermes provider",
+      "activate_provider": "Make Proxymateur the default Hermes provider",
       "activate_provider_desc": "Off by default so your current Hermes provider is not changed.",
       "default_model": "Default model",
       "select_default_model": "Select a model",
       "default_model_required": "Select a default model",
-      "default_model_invalid": "Select a default model available through Antigravity Manager",
+      "default_model_invalid": "Select a default model available through Proxymateur",
       "currently_active": "Currently active in Hermes",
       "btn_confirm_sync": "Save to Hermes",
       "btn_view": "View Config",
       "btn_restore": "Restore",
       "btn_clear": "Clear",
       "clear_confirm_title": "Clear Hermes Configuration",
-      "clear_confirm_message": "This will remove the Antigravity Manager provider from Hermes. Are you sure?",
+      "clear_confirm_message": "This will remove the Proxymateur provider from Hermes. Are you sure?",
       "toast": {
         "sync_success": "Hermes synced successfully",
         "clear_success": "Hermes configuration cleared successfully",
@@ -1476,7 +1509,7 @@
       }
     },
     "openclaw_sync": {
-      "modal_title": "Configure Antigravity Manager in OpenClaw",
+      "modal_title": "Configure Proxymateur in OpenClaw",
       "version_title": "OpenClaw SDK Version Specification",
       "detected_hint": "Detected environment: {{target}}",
       "v2_label": "≥ 2026.8.1 (v2.0 Spec)",
@@ -1505,7 +1538,7 @@
       "btn_restore": "Restore",
       "btn_clear": "Clear",
       "clear_confirm_title": "Clear OpenClaw Configuration",
-      "clear_confirm_message": "This will remove the Antigravity Manager provider and model allowlists from OpenClaw. Are you sure?",
+      "clear_confirm_message": "This will remove the Proxymateur provider and model allowlists from OpenClaw. Are you sure?",
       "toast": {
         "sync_success": "OpenClaw ({{version}}) synced successfully",
         "clear_success": "OpenClaw configuration cleared successfully",
@@ -1538,6 +1571,35 @@
       "strategy_memory_desc": "Scans backward from latest turn by Base64 volume. Retains images within budget, evicts older ones.",
       "memory_budget_label": "Cumulative Memory Freshness Limit",
       "memory_budget_hint": "Sets total decoded Base64 volume budget. Scans backward from latest turn; images within budget are kept, earlier excess images are replaced with placeholders."
+    },
+    "droid_sync": {
+      "toast": {
+        "no_models_selected": "Select at least one model",
+        "sync_success_count": "Added {{count}} model(s) to Droid",
+        "sync_error": "Sync failed: {{error}}"
+      },
+      "modal_title": "Add models to Droid",
+      "select_models": "Select models to add",
+      "no_models": "Select the models to add above",
+      "btn_confirm_sync": "Write config"
+    },
+    "opencode_sync": {
+      "toast": {
+        "sync_success": "OpenCode synced successfully"
+      }
+    },
+    "agent_settings": {
+      "banner_title": "Agent-Specific Features & Optimization Governance",
+      "banner_desc": "Client-specific mechanisms and sandbox restrictions for mainstream agents (Claude Desktop, Claude Code, Cursor, Cline, etc.), with non-intrusive gateway-level coordination. Traffic is passed through untouched by default; the gateway only intervenes for the specified agents once enabled.",
+      "claude_desktop": {
+        "title": "Claude Desktop Series",
+        "tag": "Cowork mode only",
+        "auto_compact_title": "Cowork Auto Reactive Compact (self-healing)",
+        "auto_compact_desc": "Addresses Cowork mode being unable to run /compact, its sandbox bypassing local configuration, and frequent full-screen screenshots inflating the context to 200k+ tokens (a single JSON payload reaching 20-36 MB) and causing stalls of tens of seconds. When enabled, the gateway performs a dual authorization check in the background (strictly identifying Cowork sessions and unconditionally exempting compaction summary requests), then triggers the client's built-in Summarizer in place to insert a compact_boundary that folds history and screenshots, restoring near-instant responses. Disabled by default so you can fully use Gemini's 1M-token context.",
+        "threshold_label": "Compaction trigger threshold (Tokens)",
+        "threshold_desc": "Triggers the self-healing signal when the estimated token level of a Cowork session reaches this value. Full-screen screenshots are estimated at the official rate (~1,600 tokens each).",
+        "safety_note": "Background dual safety check: (1) only applies to desktop sessions whose tools explicitly include mcp__cowork, so regular CLI / Cursor traffic is never affected; (2) summary requests carrying x-stainless-helper: compaction, or a prompt containing the official compaction signature, are unconditionally allowed through, so sessions can never deadlock."
+      }
     }
   },
   "monitor": {
@@ -1699,8 +1761,8 @@
     "error_invalid_key": "Invalid password or API Key, please try again",
     "error_network": "Network connection failed, please check if the service is running",
     "note": "Note: If a separate management password is set, please enter it; otherwise, enter API_KEY.",
-    "lookup_hint": "If forgotten, run docker logs antigravity-manager to find Current API Key or Web UI Password",
-    "config_hint": "Or run grep -E '\"api_key\"|\"admin_password\"' ~/.antigravity_tools/gui_config.json to view."
+    "lookup_hint": "If forgotten, run docker logs proxymateur to find Current API Key or Web UI Password",
+    "config_hint": "Or run grep -E '\"api_key\"|\"admin_password\"' ~/.proxymateur/gui_config.json to view."
   },
   "token_stats": {
     "title": "Token Consumption Stats",
@@ -1879,7 +1941,7 @@
   "apiKeyFun": {
     "title": "APIKEY.FUN Hub",
     "eyebrow": "Hub",
-    "description": "The official Antigravity Tools API Hub, providing stable, open, and cost-effective large model API services. Supports mainstream models like Claude, OpenAI, and Gemini. Ideal for unified configuration in Codex, Gemini CLI, Claude Code, and other development tools.",
+    "description": "The official Proxymateur API Hub, providing stable, open, and cost-effective large model API services. Supports mainstream models like Claude, OpenAI, and Gemini. Ideal for unified configuration in Codex, Gemini CLI, Claude Code, and other development tools.",
     "viewNow": "View Now",
     "usage": {
       "remainingAmount": "Remaining",

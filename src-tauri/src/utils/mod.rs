@@ -2,6 +2,7 @@ pub mod command;
 pub mod crypto;
 pub mod fs;
 pub mod http;
+pub mod identity_migration;
 pub mod protobuf;
 pub mod win_lifecycle;
 #[cfg(target_os = "windows")]

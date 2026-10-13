@@ -5,11 +5,11 @@
 Antigravity Proxy consists of two primary layers:
 1. **Core Reverse Proxy Engine (Rust/Tauri)**:
    - Source: `D:\02_Projects\Antigravity-Manager`
-   - Compiled Binary: `C:\Users\Renzu\AppData\Local\Antigravity Tools\antigravity-tools.exe`
-   - Active Port: `http://127.0.0.1:8045/v1` (started via `antigravity-tools.exe --headless` with `AUTH_MODE=off`)
+   - Compiled Binary: `C:\Users\Renzu\AppData\Local\Proxymateur\proxymateur.exe`
+   - Active Port: `http://127.0.0.1:8045/v1` (started via `proxymateur.exe --headless` with `AUTH_MODE=off`)
    - Autostart Script: `C:\Users\Renzu\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\antigravity-proxy.vbs`
-   - Log File: `C:\Users\Renzu\.antigravity_tools\logs\headless_service.log`
-   - Database / Accounts: `C:\Users\Renzu\.antigravity_tools\data\`
+   - Log File: `C:\Users\Renzu\.proxymateur\logs\headless_service.log`
+   - Database / Accounts: `C:\Users\Renzu\.proxymateur\data\`
 
 2. **Python Client Interfaces**:
    - TUI CLI: `C:\Users\Renzu\AppData\Local\Programs\Python\Python312\Scripts\agy-proxy.py`
@@ -72,13 +72,13 @@ Antigravity Proxy consists of two primary layers:
 ## 4. Useful Commands for Verification
 ```powershell
 # Check proxy status & pool counts
-& "C:\Users\Renzu\AppData\Local\Antigravity Tools\antigravity-tools.exe" proxy status | Out-String
+& "C:\Users\Renzu\AppData\Local\Proxymateur\proxymateur.exe" proxy status | Out-String
 
 # Check accounts & live quota percentages from Google
-& "C:\Users\Renzu\AppData\Local\Antigravity Tools\antigravity-tools.exe" accounts --refresh | Out-String
+& "C:\Users\Renzu\AppData\Local\Proxymateur\proxymateur.exe" accounts --refresh | Out-String
 
 # Inspect recent proxy logs
-Get-Content -Path "C:\Users\Renzu\.antigravity_tools\logs\headless_service.log" -Tail 50
+Get-Content -Path "C:\Users\Renzu\.proxymateur\logs\headless_service.log" -Tail 50
 
 # Test proxy stream
 curl.exe -N -X POST http://127.0.0.1:8045/v1/chat/completions -H "Content-Type: application/json" -d "{\"model\":\"gemini-3.8-flash-high\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":true}"

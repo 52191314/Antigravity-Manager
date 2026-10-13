@@ -283,6 +283,16 @@ pub fn is_model_compliant_with_baseline(model: &str) -> bool {
         return true;
     }
 
+    // 当开启允许标准 Gemini 模型时，放行官方标准 Gemini 模型
+    if crate::proxy::config::get_allow_standard_gemini_models()
+        && m.starts_with("gemini-")
+        && !m.contains("internal")
+        && !m.starts_with("chat_")
+        && !m.starts_with("tab_jump")
+    {
+        return true;
+    }
+
     // 过滤内部任务与测试模型
     if m.starts_with("chat_")
         || m.starts_with("tab_jump")
@@ -503,6 +513,22 @@ pub async fn get_all_dynamic_models(
         }
     }
 
+    // 3.5 当启用 allow_standard_gemini_models 时，注入标准官方 Gemini 系列模型
+    if crate::proxy::config::get_allow_standard_gemini_models() {
+        for m in [
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-2.0-pro-exp-02-05",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-8b",
+        ] {
+            model_ids.insert(m.to_string());
+        }
+    }
+
     // 4. 应用官方基准线过滤，彻底剔除已淘汰的旧版模型与内部虚拟 ID
     let mut sorted_ids: Vec<_> = model_ids
         .into_iter()
@@ -644,6 +670,30 @@ pub fn resolve_model_route_with_effort(
             original_model, target
         ));
         return target.clone();
+    }
+
+    // 1.2 [NEW] 检查用户是否配置了 3.8 Flash 官方原生路由规则（gemini-3.8-flash-high -> gemini-3.8-flash-high）
+    // 若开启，则 3.8 Flash 裸模型与 -high 档位不再强制转 tiered，直接遵循 Google 官方原生路由与客户端思考档位
+    let is_38_native = (original_model == "gemini-3.8-flash"
+        || original_model == "gemini-3.8-flash-high")
+        && custom_mapping
+            .get("gemini-3.8-flash-high")
+            .map(|s| s.as_str())
+            == Some("gemini-3.8-flash-high");
+
+    if is_38_native {
+        let routed = match client_effort
+            .and_then(crate::proxy::model_specs::normalize_client_thinking_level)
+        {
+            Some("LOW") => "gemini-3.8-flash-low".to_string(),
+            Some("MEDIUM") => "gemini-3.8-flash-medium".to_string(),
+            _ => "gemini-3.8-flash-high".to_string(),
+        };
+        crate::modules::logger::log_info(&format!(
+            "[Router] 命中 3.8 Flash 官方原生路由 (Google Native): {} (effort={:?}) -> {}",
+            original_model, client_effort, routed
+        ));
+        return routed;
     }
 
     // 1.5 [NEW] 检查是否命中自定义映射中的通配符规则 `gemini-3.x-flash`（要求 x >= 8）
@@ -1186,6 +1236,38 @@ mod tests {
         assert_eq!(
             resolve_model_route("gemini-4.0-flash", &custom),
             "gemini-4.0-flash-high"
+        );
+
+        // 5. [NEW] 用户配置 gemini-3.8-flash-high -> gemini-3.8-flash-high 规则时，
+        // 激活 Google Native 原生路由，不再强制转为 tiered
+        let mut custom_native = custom.clone();
+        custom_native.insert(
+            "gemini-3.8-flash-high".to_string(),
+            "gemini-3.8-flash-high".to_string(),
+        );
+        assert_eq!(
+            resolve_model_route("gemini-3.8-flash-high", &custom_native),
+            "gemini-3.8-flash-high"
+        );
+        assert_eq!(
+            resolve_model_route("gemini-3.8-flash", &custom_native),
+            "gemini-3.8-flash-high"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort(
+                "gemini-3.8-flash",
+                &custom_native,
+                Some("low")
+            ),
+            "gemini-3.8-flash-low"
+        );
+        assert_eq!(
+            resolve_model_route_with_effort(
+                "gemini-3.8-flash",
+                &custom_native,
+                Some("medium")
+            ),
+            "gemini-3.8-flash-medium"
         );
     }
 

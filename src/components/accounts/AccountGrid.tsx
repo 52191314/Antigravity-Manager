@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Account } from '../../types/account';
 import AccountCard from './AccountCard';
+import Mascot from '../common/Mascot';
 
 interface AccountGridProps {
     accounts: Account[];
@@ -28,9 +29,10 @@ function AccountGrid({ accounts, selectedIds, refreshingIds, onToggleSelect, cur
     const { t } = useTranslation();
     if (accounts.length === 0) {
         return (
-            <div className="bg-white dark:bg-base-100 rounded-2xl p-12 shadow-sm border border-gray-100 dark:border-base-200 text-center">
-                <p className="text-gray-400 mb-2">{t('accounts.empty.title')}</p>
-                <p className="text-sm text-gray-400">{t('accounts.empty.desc')}</p>
+            <div className="flex flex-col items-center gap-3 border-2 border-dashed border-base-content/40 p-12 text-center">
+                <Mascot size={48} className="text-base-content/40" face="var(--color-base-100)" />
+                <p className="text-base-content/70 font-black uppercase tracking-[0.18em]">{t('accounts.empty.title')}</p>
+                <p className="text-sm text-base-content/50">{t('accounts.empty.desc')}</p>
             </div>
         );
     }

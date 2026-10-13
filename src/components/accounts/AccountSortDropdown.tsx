@@ -161,10 +161,10 @@ export default function AccountSortDropdown({
                     type="button"
                     onClick={() => setIsOpen(!isOpen)}
                     className={`
-                        h-8 px-2.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 border
+                        h-8 px-2.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap
                         ${isCustomActive
-                            ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 shadow-sm'
-                            : 'bg-gray-100 dark:bg-base-200 text-gray-600 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-base-content hover:bg-gray-200/70'
+                            ? 'bg-base-content/10 text-base-content'
+                            : 'bg-base-content/5 text-base-content/80 hover:bg-base-content/10 hover:text-base-content'
                         }
                     `}
                     title={t('accounts.sort.title', 'Sort Accounts')}
@@ -183,7 +183,7 @@ export default function AccountSortDropdown({
                             e.stopPropagation();
                             onSortChange('default');
                         }}
-                        className="ml-1 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-base-200 transition-colors"
+                        className="ml-1 p-1.5 rounded-md text-base-content/60 hover:bg-base-content/10 hover:text-base-content transition-colors"
                         title={t('accounts.sort.reset_to_default', 'Reset to Default Order')}
                     >
                         <X className="w-3.5 h-3.5" />
@@ -192,8 +192,8 @@ export default function AccountSortDropdown({
             </div>
 
             {isOpen && (
-                <div className="absolute right-0 sm:left-0 sm:right-auto mt-1.5 w-64 rounded-xl bg-white dark:bg-base-100 shadow-2xl border border-gray-100 dark:border-base-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md">
-                    <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-100 dark:border-base-200/60 flex items-center justify-between">
+                <div className="absolute right-0 sm:left-0 sm:right-auto mt-1 w-64 rounded-lg bg-base-100 border border-base-content/10 shadow-lg shadow-black/10 py-1 z-50">
+                    <div className="px-3 py-1.5 text-[11px] font-medium text-base-content/60 border-b border-base-content/10 flex items-center justify-between">
                         <span>{t('accounts.sort.title', 'Sort Accounts')}</span>
                         {isCustomActive && (
                             <button
@@ -201,14 +201,14 @@ export default function AccountSortDropdown({
                                     onSortChange('default');
                                     setIsOpen(false);
                                 }}
-                                className="text-blue-500 hover:text-blue-600 text-[10px] font-normal normal-case hover:underline"
+                                className="text-base-content/70 underline underline-offset-4 text-[11px] font-normal hover:text-base-content"
                             >
                                 {t('common.reset', 'Reset')}
                             </button>
                         )}
                     </div>
 
-                    <div className="max-h-80 overflow-y-auto py-1 divide-y divide-gray-50 dark:divide-white/5">
+                    <div className="max-h-80 overflow-y-auto py-1 divide-y divide-base-content/10">
                         {/* Group: Default */}
                         <div className="py-1">
                             {sortOptions.filter(o => o.group === 'custom').map(opt => (
@@ -222,8 +222,8 @@ export default function AccountSortDropdown({
                                     className={`
                                         w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors
                                         ${sortOption === opt.id
-                                            ? 'bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold'
-                                            : 'text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5'
+                                            ? 'bg-base-content/10 text-base-content font-medium'
+                                            : 'text-base-content/80 hover:bg-base-content/5'
                                         }
                                     `}
                                 >
@@ -231,17 +231,17 @@ export default function AccountSortDropdown({
                                         {opt.icon}
                                         <span>{t(opt.labelKey, opt.defaultLabel)}</span>
                                     </div>
-                                    {sortOption === opt.id && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
+                                    {sortOption === opt.id && <Check className="w-3.5 h-3.5" />}
                                 </button>
                             ))}
                         </div>
 
                         {/* Group: 5H Reset */}
                         <div className="py-1">
-                            <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-gray-400 flex items-center justify-between">
+                            <div className="px-3 py-1 text-[11px] font-medium text-base-content/50 flex items-center justify-between">
                                 <span>{t('accounts.sort.group_5h', '5-Hour Window')}</span>
                                 {quotaWindow === '5h' && (
-                                    <span className="text-[8px] font-semibold text-blue-500 lowercase bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded">
+                                    <span className="text-[10px] font-medium rounded bg-base-content/10 text-base-content/70 px-1.5 py-0.5">
                                         active
                                     </span>
                                 )}
@@ -257,8 +257,8 @@ export default function AccountSortDropdown({
                                     className={`
                                         w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors
                                         ${sortOption === opt.id
-                                            ? 'bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold'
-                                            : 'text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5'
+                                            ? 'bg-base-content/10 text-base-content font-medium'
+                                            : 'text-base-content/80 hover:bg-base-content/5'
                                         }
                                     `}
                                 >
@@ -266,22 +266,22 @@ export default function AccountSortDropdown({
                                         {opt.icon}
                                         <span className="truncate">{t(opt.labelKey, opt.defaultLabel)}</span>
                                         {opt.badge && (
-                                            <span className="px-1.5 py-0.2 text-[9px] font-bold rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
+                                            <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-base-content/10 text-base-content/70">
                                                 {opt.badge}
                                             </span>
                                         )}
                                     </div>
-                                    {sortOption === opt.id && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
+                                    {sortOption === opt.id && <Check className="w-3.5 h-3.5" />}
                                 </button>
                             ))}
                         </div>
 
                         {/* Group: Weekly Reset */}
                         <div className="py-1">
-                            <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-gray-400 flex items-center justify-between">
+                            <div className="px-3 py-1 text-[11px] font-medium text-base-content/50 flex items-center justify-between">
                                 <span>{t('accounts.sort.group_weekly', 'Weekly Window')}</span>
                                 {quotaWindow === 'weekly' && (
-                                    <span className="text-[8px] font-semibold text-blue-500 lowercase bg-blue-50 dark:bg-blue-900/30 px-1.5 py-0.5 rounded">
+                                    <span className="text-[10px] font-medium rounded bg-base-content/10 text-base-content/70 px-1.5 py-0.5">
                                         active
                                     </span>
                                 )}
@@ -297,8 +297,8 @@ export default function AccountSortDropdown({
                                     className={`
                                         w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors
                                         ${sortOption === opt.id
-                                            ? 'bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold'
-                                            : 'text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5'
+                                            ? 'bg-base-content/10 text-base-content font-medium'
+                                            : 'text-base-content/80 hover:bg-base-content/5'
                                         }
                                     `}
                                 >
@@ -306,14 +306,14 @@ export default function AccountSortDropdown({
                                         {opt.icon}
                                         <span>{t(opt.labelKey, opt.defaultLabel)}</span>
                                     </div>
-                                    {sortOption === opt.id && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
+                                    {sortOption === opt.id && <Check className="w-3.5 h-3.5" />}
                                 </button>
                             ))}
                         </div>
 
                         {/* Group: Quota % */}
                         <div className="py-1">
-                            <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-gray-400">
+                            <div className="px-3 py-1 text-[11px] font-medium text-base-content/50">
                                 {t('accounts.sort.group_quota', 'Quota Percentage')}
                             </div>
                             {sortOptions.filter(o => o.group === 'quota').map(opt => (
@@ -327,8 +327,8 @@ export default function AccountSortDropdown({
                                     className={`
                                         w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors
                                         ${sortOption === opt.id
-                                            ? 'bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold'
-                                            : 'text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5'
+                                            ? 'bg-base-content/10 text-base-content font-medium'
+                                            : 'text-base-content/80 hover:bg-base-content/5'
                                         }
                                     `}
                                 >
@@ -336,14 +336,14 @@ export default function AccountSortDropdown({
                                         {opt.icon}
                                         <span>{t(opt.labelKey, opt.defaultLabel)}</span>
                                     </div>
-                                    {sortOption === opt.id && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
+                                    {sortOption === opt.id && <Check className="w-3.5 h-3.5" />}
                                 </button>
                             ))}
                         </div>
 
                         {/* Group: Activity & Identity */}
                         <div className="py-1">
-                            <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-gray-400">
+                            <div className="px-3 py-1 text-[11px] font-medium text-base-content/50">
                                 {t('accounts.sort.group_other', 'Usage & Details')}
                             </div>
                             {sortOptions.filter(o => o.group === 'activity' || o.group === 'identity').map(opt => (
@@ -357,8 +357,8 @@ export default function AccountSortDropdown({
                                     className={`
                                         w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors
                                         ${sortOption === opt.id
-                                            ? 'bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold'
-                                            : 'text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5'
+                                            ? 'bg-base-content/10 text-base-content font-medium'
+                                            : 'text-base-content/80 hover:bg-base-content/5'
                                         }
                                     `}
                                 >
@@ -366,7 +366,7 @@ export default function AccountSortDropdown({
                                         {opt.icon}
                                         <span>{t(opt.labelKey, opt.defaultLabel)}</span>
                                     </div>
-                                    {sortOption === opt.id && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
+                                    {sortOption === opt.id && <Check className="w-3.5 h-3.5" />}
                                 </button>
                             ))}
                         </div>

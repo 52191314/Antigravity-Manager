@@ -1,7 +1,7 @@
 # 针对 Claude Code "Field required" 错误的修复方案文档
 
 ## 1. 问题背景
-在使用 Claude Code CLI 并通过 Antigravity-Manager 代理时，经常会出现以下报错：
+在使用 Claude Code CLI 并通过 Proxymateur 代理时，经常会出现以下报错：
 `messages.X.content.0.text.text: Field required`
 
 **根本原因**：

@@ -34,6 +34,9 @@ pub mod upstream; // 上游客户端
 pub mod vertex; // Vertex AI 直连上游 (用户自有 GCP 项目)
 pub mod video; // 视频处理模块
 
+pub use config::get_allow_standard_gemini_models;
+pub use config::update_allow_standard_gemini_models;
+pub use config::update_demon_config;
 pub use config::update_global_system_prompt_config;
 pub use config::update_image_thinking_mode;
 pub use config::update_multimodal_config;

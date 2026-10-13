@@ -12,6 +12,7 @@ export interface ProxyConfig {
     admin_password?: string;
     auto_start: boolean;
     custom_mapping?: Record<string, string>;
+    disabled_custom_mappings?: string[];
     request_timeout: number;
     enable_logging: boolean;
     capture_health_logs?: boolean;
@@ -25,6 +26,8 @@ export interface ProxyConfig {
     saved_user_agent?: string;
     thinking_budget?: ThinkingBudgetConfig;
     global_system_prompt?: GlobalSystemPromptConfig;
+    demon?: DemonConfig;
+    allow_standard_gemini_models?: boolean;
     image_thinking_mode?: 'enabled' | 'disabled'; // [NEW] 图像思维模式开关
     only_raw_quota_models?: boolean; // [NEW] 是否只暴露真实配额模型
     proxy_pool?: ProxyPoolConfig;
@@ -127,6 +130,19 @@ export interface GlobalSystemPromptConfig {
     /** 提示词内容 */
     content: string;
 }
+
+/** DEMON 模式配置 (Autonomous Diagnostics & Safety Shim) */
+export interface DemonConfig {
+    /** 是否启用 DEMON 模式 */
+    enabled: boolean;
+    /** 是否自动净化高危敏感词元 */
+    decontaminate?: boolean;
+    /** 是否自动注入自主工程身份与高权限免确认提示词 */
+    autonomous_persona?: boolean;
+    /** 自定义附加规则 */
+    custom_rules?: string;
+}
+
 
 export interface DebugLoggingConfig {
     enabled: boolean;

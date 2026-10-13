@@ -280,6 +280,11 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Data dir rename `~/.antigravity_tools` -> `~/.proxymateur`. MUST stay the very first step:
+    // before the logger (which resolves the data dir for its log files), the CLI/MCP path and
+    // anything else that calls `get_data_dir()`. The logger is not initialised yet (eprintln only).
+    utils::identity_migration::migrate_legacy_data_dir();
+
     // Disable Windows background throttling/EcoQoS
     #[cfg(target_os = "windows")]
     windows_api::disable_efficiency_mode();
@@ -494,6 +499,10 @@ pub fn run() {
     }
 
     let tray_enabled = should_enable_tray();
+
+    // Must run before the Tauri builder: moves the WebView2 profile, window-state file and
+    // autostart entry from the legacy identity to com.proxymateur.app / "Proxymateur".
+    utils::identity_migration::migrate_legacy_identity();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -878,6 +887,11 @@ pub fn run() {
             commands::query_transit_info,
             // Patch commands
             commands::patch_agy_binary,
+            // PROMON & Claude commands
+            commands::promon::execute_promon_model,
+            commands::promon::toggle_promon_hud,
+            commands::promon::get_claude_history,
+            commands::promon::launch_claude_cli,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

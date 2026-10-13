@@ -11,7 +11,6 @@ interface ConfigState {
     loadConfig: () => Promise<void>;
     saveConfig: (config: AppConfig, silent?: boolean) => Promise<void>;
     updateTheme: (theme: string) => Promise<void>;
-    updateLanguage: (language: string) => Promise<void>;
     toggleShowAllQuotas: () => void;
     showAllQuotas: boolean;
     toggleMenuItem: (path: string) => Promise<void>;
@@ -27,14 +26,18 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     loadConfig: async () => {
         set({ loading: true, error: null });
         try {
-            const config = await configService.loadConfig();
+            const loaded = await configService.loadConfig();
+            // English-only build: ignore any stored non-English language value.
+            const config: AppConfig = { ...loaded, language: 'en' };
             set({ config, loading: false });
         } catch (error) {
             set({ error: String(error), loading: false });
         }
     },
 
-    saveConfig: async (config: AppConfig, silent: boolean = false) => {
+    saveConfig: async (inputConfig: AppConfig, silent: boolean = false) => {
+        // English-only build: always persist language as 'en'.
+        const config: AppConfig = { ...inputConfig, language: 'en' };
         if (!silent) set({ loading: true, error: null });
         try {
             await configService.saveConfig(config);
@@ -56,14 +59,6 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         if (!config || config.theme === theme) return;
 
         const newConfig = { ...config, theme };
-        await get().saveConfig(newConfig, true);
-    },
-
-    updateLanguage: async (language: string) => {
-        const { config } = get();
-        if (!config || config.language === language) return;
-
-        const newConfig = { ...config, language };
         await get().saveConfig(newConfig, true);
     },
 

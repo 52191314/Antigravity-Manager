@@ -1,9 +1,9 @@
 services:
-  antigravity-manager:
+  proxymateur:
     build:
       dockerfile: docker/Dockerfile.backend
       args:
-        FRONTEND_IMAGE: antigravity-manager:latest
+        FRONTEND_IMAGE: proxymateur:latest
     logging:
       driver: json-file
       options:

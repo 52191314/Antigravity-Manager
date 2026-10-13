@@ -219,7 +219,20 @@ pub fn is_port_available(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
-/// 检查给定 PID 是否属于 antigravity-tools 实例
+/// Executable-name fragments identifying this application (lowercase).
+/// `proxymateur` is the current binary; `antigravity` / `antigravity-tools` are the legacy
+/// binary names, kept so an old instance is still recognised during the rename transition.
+const MANAGER_EXE_NAME_MARKERS: [&str; 3] = ["proxymateur", "antigravity-tools", "antigravity"];
+
+/// True when a lowercase process name or exe path looks like a Proxymateur / legacy
+/// Antigravity Tools instance.
+fn matches_manager_exe_marker(lowercase_value: &str) -> bool {
+    MANAGER_EXE_NAME_MARKERS
+        .iter()
+        .any(|marker| lowercase_value.contains(marker))
+}
+
+/// 检查给定 PID 是否属于 proxymateur（或旧版 antigravity-tools）实例
 fn is_antigravity_process(pid: u32, system: &sysinfo::System) -> bool {
     if let Some(proc) = system.process(sysinfo::Pid::from_u32(pid)) {
         let name = proc.name().to_string_lossy().to_lowercase();
@@ -227,8 +240,10 @@ fn is_antigravity_process(pid: u32, system: &sysinfo::System) -> bool {
             .exe()
             .map(|p| p.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        return name.contains("antigravity")
-            || name.contains("antigravity-tools")
+        // Exe-path matching is limited to the specific binary names: the bare
+        // "antigravity" marker is only trusted on the process name (legacy behaviour).
+        return matches_manager_exe_marker(&name)
+            || exe.contains("proxymateur")
             || exe.contains("antigravity-tools");
     }
     false
@@ -264,7 +279,7 @@ pub fn takeover_headless_daemon_if_running(target_port: u16) {
         }
 
         let name = process.name().to_string_lossy().to_lowercase();
-        let is_agy = name.contains("antigravity");
+        let is_agy = matches_manager_exe_marker(&name);
         if !is_agy {
             continue;
         }
@@ -289,7 +304,7 @@ pub fn takeover_headless_daemon_if_running(target_port: u16) {
         // 确认属于本应用进程，避免误杀无关第三方服务
         if !is_antigravity_process(pid, &system) {
             warn!(
-                "Port {} is occupied by PID {}, but it does not match antigravity-tools; skipping termination.",
+                "Port {} is occupied by PID {}, but it does not match proxymateur/antigravity-tools; skipping termination.",
                 target_port, pid
             );
             continue;
@@ -391,10 +406,16 @@ static EARLY_GUI_MUTEX: OnceLock<usize> = OnceLock::new();
 pub fn handle_existing_gui_instance_if_running(args: &[String]) -> bool {
     use ffi::*;
 
+    // 早期互斥锁刻意保留旧名：新旧版本 exe 因此互斥，切换期间不会并存（共享 SQLite 与 8045 端口）。
     let early_mutex_name = wide_null("com.lbjlaq.antigravity-tools-early-sim");
-    let si_class_name = wide_null("com.lbjlaq.antigravity-tools-sic");
-    let si_window_name = wide_null("com.lbjlaq.antigravity-tools-siw");
-    let main_window_title = wide_null("Antigravity Tools");
+    // 必须与 tauri.conf.json 的 identifier 对齐：`{identifier}-sic` / `{identifier}-siw`。
+    let si_class_name = wide_null("com.proxymateur.app-sic");
+    let si_window_name = wide_null("com.proxymateur.app-siw");
+    let main_window_title = wide_null("Proxymateur");
+    // 兼容仍在运行的旧版本实例，可被定位并聚焦。
+    let legacy_si_class_name = wide_null("com.lbjlaq.antigravity-tools-sic");
+    let legacy_si_window_name = wide_null("com.lbjlaq.antigravity-tools-siw");
+    let legacy_window_title = wide_null("Antigravity Tools");
 
     unsafe {
         let h_mutex = CreateMutexW(std::ptr::null(), 1, early_mutex_name.as_ptr());
@@ -407,7 +428,10 @@ pub fn handle_existing_gui_instance_if_running(args: &[String]) -> bool {
             AllowSetForegroundWindow(ASFW_ANY);
 
             // 2. 有界超时发送激活消息至单实例隐藏窗口 (超时 1500ms，杜绝死锁)
-            let si_hwnd = FindWindowW(si_class_name.as_ptr(), si_window_name.as_ptr());
+            let mut si_hwnd = FindWindowW(si_class_name.as_ptr(), si_window_name.as_ptr());
+            if si_hwnd.is_null() {
+                si_hwnd = FindWindowW(legacy_si_class_name.as_ptr(), legacy_si_window_name.as_ptr());
+            }
             if !si_hwnd.is_null() {
                 let cwd = std::env::current_dir().unwrap_or_default();
                 let cwd_str = cwd.to_str().unwrap_or_default();
@@ -434,7 +458,10 @@ pub fn handle_existing_gui_instance_if_running(args: &[String]) -> bool {
             }
 
             // 3. 直接通过 Win32 API 原生确保主窗口解除最小化并置顶聚焦
-            let main_hwnd = FindWindowW(std::ptr::null(), main_window_title.as_ptr());
+            let mut main_hwnd = FindWindowW(std::ptr::null(), main_window_title.as_ptr());
+            if main_hwnd.is_null() {
+                main_hwnd = FindWindowW(std::ptr::null(), legacy_window_title.as_ptr());
+            }
             if !main_hwnd.is_null() {
                 if IsIconic(main_hwnd) != 0 {
                     ShowWindow(main_hwnd, SW_RESTORE);

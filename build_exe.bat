@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo ===================================================
-echo  Building Antigravity Manager Desktop (.exe)
+echo  Building Proxymateur Desktop (.exe)
 echo ===================================================
 
 cd /d "%~dp0"

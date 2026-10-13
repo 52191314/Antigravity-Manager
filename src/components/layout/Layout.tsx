@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import Navbar from '../navbar/Navbar';
+import Sidebar from './Sidebar';
+import { CommandPalette } from './CommandPalette';
 import BackgroundTaskRunner from '../common/BackgroundTaskRunner';
 import ToastContainer from '../common/ToastContainer';
 import LowQuotaAlertBanner from '../common/LowQuotaAlertBanner';
@@ -34,7 +35,7 @@ function Layout() {
     }
 
     return (
-        <div className="h-screen flex flex-col bg-[#FAFBFC] dark:bg-base-300">
+        <div className="h-screen flex flex-row app-canvas">
             {/* 全局窗口拖拽区域 - 使用 JS 手动触发拖拽，解决 HTML 属性失效问题 */}
             <div
                 className="fixed top-0 left-0 right-0 h-9"
@@ -53,8 +54,9 @@ function Layout() {
             <BackgroundTaskRunner />
             <ToastContainer />
             <LowQuotaAlertBanner />
-            <Navbar />
-            <main className="flex-1 overflow-hidden flex flex-col relative">
+            <CommandPalette />
+            <Sidebar />
+            <main className="flex-1 min-w-0 pt-9 overflow-hidden flex flex-col relative">
                 <Outlet />
             </main>
         </div>

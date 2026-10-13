@@ -4,6 +4,9 @@ import { PinnedQuotaModelsConfig } from '../../types/config';
 import { MODEL_CONFIG } from '../../config/modelConfig';
 import { useAccountStore } from '../../stores/useAccountStore';
 
+// Legacy models hidden from the picker (still rendered if already pinned in config.models).
+const HIDDEN_LEGACY_MODELS = new Set(['gemini-3-pro-image', 'gpt-oss-120b-medium']);
+
 interface PinnedQuotaModelsProps {
     config: PinnedQuotaModelsConfig;
     onChange: (config: PinnedQuotaModelsConfig) => void;
@@ -45,6 +48,8 @@ const PinnedQuotaModels = ({ config, onChange }: PinnedQuotaModelsProps) => {
         .filter(([id, cfg]) => {
             // 隐藏思考变体
             if (id.includes('thinking')) return false;
+            // 隐藏已下线的旧模型（已固定的仍由下方逻辑保留渲染）
+            if (HIDDEN_LEGACY_MODELS.has(id.toLowerCase())) return false;
 
             const labelKey = (cfg.shortLabel || cfg.label).toLowerCase();
             // 在这一层，如果展示用的 labelKey 已经被加过了，就不要重复加到外派的选项里了
@@ -63,6 +68,7 @@ const PinnedQuotaModels = ({ config, onChange }: PinnedQuotaModelsProps) => {
         .filter(m => {
             const id = m.name.toLowerCase();
             if (id.includes('thinking')) return false;
+            if (HIDDEN_LEGACY_MODELS.has(id)) return false;
             // 查重：避免内置里已经包含的模型或同名 id 重复
             if (uniqueIds.has(id)) return false;
             uniqueIds.add(id);
@@ -87,7 +93,7 @@ const PinnedQuotaModels = ({ config, onChange }: PinnedQuotaModelsProps) => {
             modelOptions.push({
                 id: modelId,
                 label: modelId,
-                desc: quotaModel?.display_name || cfg?.shortLabel || cfg?.label || t('common.unknown', '未知')
+                desc: quotaModel?.display_name || cfg?.shortLabel || cfg?.label || t('common.unknown', 'Unknown')
             });
         }
     });

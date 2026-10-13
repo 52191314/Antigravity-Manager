@@ -193,9 +193,9 @@ jobs:
           cd src-tauri/target/*/release/bundle/macos/
           
           # 重命名 .app.tar.gz 和 .sig
-          if [ -f "Antigravity Tools.app.tar.gz" ]; then
-            mv "Antigravity Tools.app.tar.gz" "Antigravity Tools_${ARCH}.app.tar.gz"
-            mv "Antigravity Tools.app.tar.gz.sig" "Antigravity Tools_${ARCH}.app.tar.gz.sig"
+          if [ -f "Proxymateur.app.tar.gz" ]; then
+            mv "Proxymateur.app.tar.gz" "Proxymateur_${ARCH}.app.tar.gz"
+            mv "Proxymateur.app.tar.gz.sig" "Proxymateur_${ARCH}.app.tar.gz.sig"
             echo "Renamed assets to append Arch: $ARCH"
           fi
           
@@ -207,7 +207,7 @@ jobs:
           
           if [ -f "$UPDATER_JSON" ]; then
             echo "Updating $UPDATER_JSON to use renamed assets..."
-            sed -i '' "s/Antigravity%20Tools.app.tar.gz/Antigravity%20Tools_${ARCH}.app.tar.gz/g" "$UPDATER_JSON"
+            sed -i '' "s/Proxymateur.app.tar.gz/Proxymateur_${ARCH}.app.tar.gz/g" "$UPDATER_JSON"
           fi
 
       # 4. 确保 Linux AppImage 包含标准 .DirIcon (解决 AppImageHub FATAL: .DirIcon is missing)
@@ -389,23 +389,23 @@ jobs:
               pub_date: $pub_date,
               platforms: {
                 "darwin-aarch64": {
-                  url: "\($dl)/Antigravity.Tools_aarch64.app.tar.gz",
+                  url: "\($dl)/Proxymateur_aarch64.app.tar.gz",
                   signature: $mac_a64_sig
                 },
                 "darwin-x86_64": {
-                  url: "\($dl)/Antigravity.Tools_x64.app.tar.gz",
+                  url: "\($dl)/Proxymateur_x64.app.tar.gz",
                   signature: $mac_x64_sig
                 },
                 "windows-x86_64": {
-                  url: "\($dl)/Antigravity.Tools_\($ver)_x64-setup.exe",
+                  url: "\($dl)/Proxymateur_\($ver)_x64-setup.exe",
                   signature: $win_nsis_sig
                 },
                 "linux-x86_64": {
-                  url: "\($dl)/Antigravity.Tools_\($ver)_amd64.AppImage",
+                  url: "\($dl)/Proxymateur_\($ver)_amd64.AppImage",
                   signature: $linux_amd64_sig
                 },
                 "linux-aarch64": {
-                  url: "\($dl)/Antigravity.Tools_\($ver)_aarch64.AppImage",
+                  url: "\($dl)/Proxymateur_\($ver)_aarch64.AppImage",
                   signature: $linux_a64_sig
                 }
               }
@@ -437,7 +437,7 @@ jobs:
         with:
           allowUpdates: true
           tag: ${{ needs.verify-release-target.outputs.release_tag }}
-          name: "Antigravity Tools ${{ needs.verify-release-target.outputs.release_tag }}"
+          name: "Proxymateur ${{ needs.verify-release-target.outputs.release_tag }}"
           bodyFile: "release_notes.md"
           generateReleaseNotes: true
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -454,7 +454,7 @@ jobs:
         with:
           allowUpdates: true
           tag: "preview"
-          name: "Antigravity Tools Preview Channel (${{ needs.verify-release-target.outputs.release_tag }})"
+          name: "Proxymateur Preview Channel (${{ needs.verify-release-target.outputs.release_tag }})"
           body: "Preview Channel build for version ${{ needs.verify-release-target.outputs.release_tag }}. Automatically synced for in-app Beta updater."
           token: ${{ secrets.GITHUB_TOKEN }}
           artifacts: "release-files/*,updater.json"
@@ -466,7 +466,7 @@ jobs:
   docker-build-amd64:
     needs: verify-release-target
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' && (github.repository == 'lbjlaq/Antigravity-Manager' || vars.ENABLE_DOCKER_PUSH == 'true')
+    if: github.event_name != 'pull_request' && (github.repository == '52191314/Antigravity-Manager' || vars.ENABLE_DOCKER_PUSH == 'true')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -487,9 +487,9 @@ jobs:
           IS_PRE: ${{ needs.verify-release-target.outputs.is_prerelease }}
         run: |
           OWNER="${{ github.repository_owner }}"
-          TAGS="${OWNER}/antigravity-manager:${VER}-amd64"
+          TAGS="${OWNER}/proxymateur:${VER}-amd64"
           if [[ "$IS_PRE" != "true" ]]; then
-            TAGS="${TAGS}"$'\n'"${OWNER}/antigravity-manager:latest-amd64"
+            TAGS="${TAGS}"$'\n'"${OWNER}/proxymateur:latest-amd64"
           fi
           {
             echo "DOCKER_TAGS<<EOF"
@@ -511,7 +511,7 @@ jobs:
   docker-build-arm64:
     needs: verify-release-target
     runs-on: ubuntu-24.04-arm
-    if: github.event_name != 'pull_request' && (github.repository == 'lbjlaq/Antigravity-Manager' || vars.ENABLE_DOCKER_PUSH == 'true')
+    if: github.event_name != 'pull_request' && (github.repository == '52191314/Antigravity-Manager' || vars.ENABLE_DOCKER_PUSH == 'true')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -532,9 +532,9 @@ jobs:
           IS_PRE: ${{ needs.verify-release-target.outputs.is_prerelease }}
         run: |
           OWNER="${{ github.repository_owner }}"
-          TAGS="${OWNER}/antigravity-manager:${VER}-arm64"
+          TAGS="${OWNER}/proxymateur:${VER}-arm64"
           if [[ "$IS_PRE" != "true" ]]; then
-            TAGS="${TAGS}"$'\n'"${OWNER}/antigravity-manager:latest-arm64"
+            TAGS="${TAGS}"$'\n'"${OWNER}/proxymateur:latest-arm64"
           fi
           {
             echo "DOCKER_TAGS<<EOF"
@@ -556,7 +556,7 @@ jobs:
   docker-manifest:
     needs: [verify-release-target, docker-build-amd64, docker-build-arm64]
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' && (github.repository == 'lbjlaq/Antigravity-Manager' || vars.ENABLE_DOCKER_PUSH == 'true')
+    if: github.event_name != 'pull_request' && (github.repository == '52191314/Antigravity-Manager' || vars.ENABLE_DOCKER_PUSH == 'true')
     steps:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -569,13 +569,13 @@ jobs:
           VER: ${{ needs.verify-release-target.outputs.release_tag }}
           IS_PRE: ${{ needs.verify-release-target.outputs.is_prerelease }}
         run: |
-          docker buildx imagetools create -t ${{ github.repository_owner }}/antigravity-manager:${VER} \
-            ${{ github.repository_owner }}/antigravity-manager:${VER}-amd64 \
-            ${{ github.repository_owner }}/antigravity-manager:${VER}-arm64
+          docker buildx imagetools create -t ${{ github.repository_owner }}/proxymateur:${VER} \
+            ${{ github.repository_owner }}/proxymateur:${VER}-amd64 \
+            ${{ github.repository_owner }}/proxymateur:${VER}-arm64
 
           # 预发布 Tag (含 '-') 不更新 latest，避免预发布镜像进入正式更新通道
           if [[ "$IS_PRE" != "true" ]]; then
-            docker buildx imagetools create -t ${{ github.repository_owner }}/antigravity-manager:latest \
-              ${{ github.repository_owner }}/antigravity-manager:latest-amd64 \
-              ${{ github.repository_owner }}/antigravity-manager:latest-arm64
+            docker buildx imagetools create -t ${{ github.repository_owner }}/proxymateur:latest \
+              ${{ github.repository_owner }}/proxymateur:latest-amd64 \
+              ${{ github.repository_owner }}/proxymateur:latest-arm64
           fi

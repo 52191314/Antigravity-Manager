@@ -4,7 +4,9 @@ import { Account, ModelQuota, getAccountTier } from '../../types/account';
 import { cn } from '../../utils/cn';
 import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../../stores/useConfigStore';
-import { QuotaItem } from './QuotaItem';
+import { QuotaMeter } from './QuotaMeter';
+import { IconAction, ActionMenu } from './IconAction';
+import { Pill, TierBadge } from './StatusPill';
 import { MODEL_CONFIG, sortModels, getModelProtectionKey, resolveQuotaModels, ensurePinnedImageSelector, getModelIcon } from '../../config/modelConfig';
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
 import { getLiveLimitForModel } from '../../utils/liveLimit';
@@ -159,141 +161,96 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
         return account.protected_models?.includes(key);
     };
 
+    const tier = getAccountTier(account);
+
     return (
         <div className={cn(
-            "flex flex-col p-3 rounded-xl border transition-all hover:shadow-md",
+            "relative flex flex-col border border-l-2 rounded-lg bg-base-100 transition-colors",
             isCurrent
-                ? "bg-blue-50/30 border-blue-200 dark:bg-blue-900/10 dark:border-blue-900/30"
-                : "bg-white dark:bg-base-100 border-gray-200 dark:border-base-300",
+                ? "border-base-content/15 border-l-lime-signal"
+                : "border-base-content/10 border-l-transparent hover:border-base-content/20",
             (isRefreshing || isDisabled) && "opacity-70"
         )}>
 
-            {/* Header: Checkbox + Email + Badges */}
-            <div className="flex-none flex items-start gap-3 mb-2">
+            {/* Header: Checkbox + Email + Last used */}
+            <div className="flex-none flex items-start gap-3 p-3 pb-2 border-b border-base-content/10">
                 <input
                     type="checkbox"
-                    className="mt-1 checkbox checkbox-xs rounded border-2 border-gray-400 dark:border-gray-500 checked:border-blue-600 checked:bg-blue-600 [--chkbg:theme(colors.blue.600)] [--chkfg:white]"
+                    className="mt-1 checkbox checkbox-xs rounded-[4px] border border-base-content/30 [--chkbg:var(--color-base-content)] [--chkfg:var(--color-base-100)]"
                     checked={selected}
                     onChange={() => onSelect()}
                     onClick={(e) => e.stopPropagation()}
                 />
                 <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-                    <h3
-                        className={cn(
-                            "font-semibold text-sm truncate w-full cursor-pointer hover:underline transition-all",
-                            isCurrent ? "text-blue-700 dark:text-blue-400" : "text-gray-900 dark:text-base-content"
-                        )}
-                        title={account.custom_label ? `${account.custom_label} (${maskEmails ? maskEmail(account.email) : account.email})` : (maskEmails ? maskEmail(account.email) : account.email)}
-                        onClick={(e) => {
-                            if (onUpdateLabel) {
-                                e.stopPropagation();
-                                setIsEditingLabel(true);
-                            }
-                        }}
-                    >
-                        {getAccountDisplayName(account, maskEmails)}
-                    </h3>
-                    <div className="flex items-center justify-between w-full gap-2">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                            {isCurrent && (
-                                <span className="px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[9px] font-bold shadow-sm border border-blue-200/50">
-                                    {t('accounts.current').toUpperCase()}
-                                </span>
-                            )}
-                            {isDisabled && (
-                                <span
-                                    className="px-1.5 py-0.5 rounded-md bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-rose-200/50"
-                                >
-                                    <Ban className="w-2.5 h-2.5" />
-                                    {t('accounts.disabled').toUpperCase()}
-                                </span>
-                            )}
-                            {account.proxy_disabled && (
-                                <span
-                                    className="px-1.5 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-orange-200/50"
-                                    title={account.proxy_disabled_reason || t('accounts.proxy_disabled_tooltip')}
-                                >
-                                    <Ban className="w-2.5 h-2.5" />
-                                    {t('accounts.proxy_disabled').toUpperCase()}
-                                </span>
-                            )}
-                            {account.quota?.is_forbidden && (
-                                <span className="px-1.5 py-0.5 rounded-md bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-red-200/50">
-                                    <Lock className="w-2.5 h-2.5" />
-                                    {t('accounts.forbidden').toUpperCase()}
-                                </span>
-                            )}
-                            {account.validation_blocked && (
-                                <span className="px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-amber-200/50">
-                                    <Clock className="w-2.5 h-2.5" />
-                                    {validationBlockedLabel.toUpperCase()}
-                                </span>
-                            )}
-                            {/* 订阅类型徽章 */}
-                            {(() => {
-                                const tier = getAccountTier(account);
-                                if (tier === 'ultra') {
-                                    return (
-                                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[9px] font-bold shadow-sm">
-                                            <Gem className="w-2.5 h-2.5 fill-current" />
-                                            ULTRA
-                                        </span>
-                                    );
-                                } else if (tier === 'pro') {
-                                    return (
-                                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[9px] font-bold shadow-sm">
-                                            <Diamond className="w-2.5 h-2.5 fill-current" />
-                                            PRO
-                                        </span>
-                                    );
-                                } else {
-                                    return (
-                                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400 text-[9px] font-bold shadow-sm border border-gray-200 dark:border-white/10">
-                                            <Circle className="w-2.5 h-2.5" />
-                                            FREE
-                                        </span>
-                                    );
+                    <div className="flex items-baseline justify-between gap-2">
+                        <h3
+                            className="font-medium text-sm truncate cursor-pointer hover:underline decoration-1 underline-offset-4"
+                            title={account.custom_label ? `${account.custom_label} (${maskEmails ? maskEmail(account.email) : account.email})` : (maskEmails ? maskEmail(account.email) : account.email)}
+                            onClick={(e) => {
+                                if (onUpdateLabel) {
+                                    e.stopPropagation();
+                                    setIsEditingLabel(true);
                                 }
-                            })()}
-                            {/* 自定义标签 */}
-                            <span className="px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400 text-[9px] font-bold" title={t('accounts.priority_hint')}>
-                                {t('accounts.priority')}: {account.priority ?? 50}
-                            </span>
-                            {account.custom_label && (
-                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-[9px] font-bold shadow-sm border border-orange-200/50 dark:border-orange-800/50">
-                                    <Tag className="w-2.5 h-2.5" />
-                                    {account.custom_label}
-                                </span>
-                            )}
-                        </div>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono shrink-0 whitespace-nowrap">
+                            }}
+                        >
+                            {getAccountDisplayName(account, maskEmails)}
+                        </h3>
+                        <span className="text-[10px] text-base-content/50 font-mono tabular-nums shrink-0 whitespace-nowrap">
                             {new Date(account.last_used * 1000).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                         </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                        {isCurrent && <Pill tone="lime" dot>{t('accounts.current')}</Pill>}
+                        {isDisabled && (
+                            <Pill tone="bad"><Ban className="w-2.5 h-2.5" />{t('accounts.disabled')}</Pill>
+                        )}
+                        {account.proxy_disabled && (
+                            <span title={account.proxy_disabled_reason || t('accounts.proxy_disabled_tooltip')}>
+                                <Pill tone="warn" dot>{t('accounts.proxy_disabled')}</Pill>
+                            </span>
+                        )}
+                        {account.quota?.is_forbidden && (
+                            <Pill tone="bad"><Lock className="w-2.5 h-2.5" />{t('accounts.forbidden')}</Pill>
+                        )}
+                        {account.validation_blocked && (
+                            <Pill tone="warn" dot>{validationBlockedLabel}</Pill>
+                        )}
+                        {/* 订阅类型徽章 */}
+                        {tier === 'ultra' ? (
+                            <TierBadge tier="ultra" icon={<Gem className="w-2.5 h-2.5" />}>ULTRA</TierBadge>
+                        ) : tier === 'pro' ? (
+                            <TierBadge tier="pro" icon={<Diamond className="w-2.5 h-2.5" />}>PRO</TierBadge>
+                        ) : (
+                            <TierBadge tier="free" icon={<Circle className="w-2.5 h-2.5" />}>FREE</TierBadge>
+                        )}
+                        <span className="text-[10px] font-mono text-base-content/60" title={t('accounts.priority_hint')}>
+                            {t('accounts.priority')} {account.priority ?? 50}
+                        </span>
+                        {account.custom_label && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border border-base-content/20 text-[10px] font-medium">
+                                <Tag className="w-2.5 h-2.5" />
+                                {account.custom_label}
+                            </span>
+                        )}
                     </div>
                 </div>
             </div>
 
 
             {/* 配额展示 */}
-            <div className="flex-1 px-2 mb-2 overflow-y-auto scrollbar-none">
+            <div className="flex-1 px-3 py-3 overflow-y-auto scrollbar-none">
                 {isDisabled || account.quota?.is_forbidden || account.validation_blocked ? (
-                    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 h-full py-4 text-center">
-                        <div className={cn(
-                            "flex items-center gap-1.5",
-                            account.validation_blocked ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"
-                        )}>
-                            {account.validation_blocked ? <Clock className="w-4 h-4" /> : (isDisabled ? <Ban className="w-4 h-4" /> : <Lock className="w-4 h-4" />)}
-                            <span className="text-[11px] font-bold">
-                                {account.validation_blocked ? validationBlockedLabel : (isDisabled ? t('accounts.status.disabled') : t('accounts.forbidden_msg'))}
-                            </span>
-                        </div>
-                        <div className={cn(
-                            "w-px h-3 hidden sm:block",
-                            account.validation_blocked ? "bg-amber-200 dark:bg-amber-800/50" : "bg-red-200 dark:bg-red-800/50"
-                        )} />
+                    <div className={cn(
+                        "flex flex-wrap items-center gap-x-3 gap-y-1 py-2 pl-3 border-l-2",
+                        account.validation_blocked ? "border-amber-500/70 text-amber-700 dark:text-amber-400" : "border-red-500/70 text-red-700 dark:text-red-400"
+                    )}>
+                        {account.validation_blocked ? <Clock className="w-4 h-4" /> : (isDisabled ? <Ban className="w-4 h-4" /> : <Lock className="w-4 h-4" />)}
+                        <span className="text-xs font-medium">
+                            {account.validation_blocked ? validationBlockedLabel : (isDisabled ? t('accounts.status.disabled') : t('accounts.forbidden_msg'))}
+                        </span>
                         <button
                             onClick={(e) => { e.stopPropagation(); onViewError(); }}
-                            className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                            className="text-[11px] font-medium text-base-content/70 underline underline-offset-4 decoration-1 hover:text-base-content"
                         >
                             {t('accounts.view_error')}
                         </button>
@@ -302,7 +259,7 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                     <div className="grid grid-cols-1 gap-2 content-start">
                         {quotaWindow === 'weekly' && weeklyItems.length > 0 ? (
                             weeklyItems.map((item) => (
-                                <QuotaItem
+                                <QuotaMeter
                                     key={item.id}
                                     label={item.label}
                                     percentage={item.percentage}
@@ -313,7 +270,7 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                             ))
                         ) : (
                             displayModels.map((model) => (
-                                <QuotaItem
+                                <QuotaMeter
                                     key={model.id}
                                     label={model.label}
                                     modelId={model.data.name}
@@ -329,14 +286,14 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
             </div>
 
             {/* Footer: Actions Only */}
-            <div className="flex-none flex items-center justify-center pt-2 pb-1 border-t border-gray-100 dark:border-base-200">
+            <div className="flex-none flex items-center p-2 border-t border-base-content/10">
                 {/* 标签编辑弹出框 */}
                 {isEditingLabel && (
-                    <div className="absolute inset-0 bg-white/95 dark:bg-base-100/95 rounded-xl z-10 flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-base-100/95 z-10 flex items-center justify-center p-4">
                         <div className="flex items-center gap-2 w-full max-w-xs">
                             <input
                                 type="text"
-                                className="flex-1 px-2 py-1 text-sm border border-orange-300 dark:border-orange-700 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white dark:bg-base-200"
+                                className="input input-sm flex-1 rounded-md border border-base-content/20 bg-base-100"
                                 placeholder={t('accounts.custom_label_placeholder', 'Enter custom label')}
                                 value={labelInput}
                                 onChange={(e) => setLabelInput(e.target.value)}
@@ -344,132 +301,111 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                                 autoFocus
                                 maxLength={50}
                             />
-                            <button
-                                className="p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-all"
-                                onClick={handleSaveLabel}
-                                title={t('common.save', 'Save')}
-                            >
+                            <IconAction title={t('common.save', 'Save')} onClick={handleSaveLabel}>
                                 <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                                className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
-                                onClick={handleCancelLabel}
-                                title={t('common.cancel', 'Cancel')}
-                            >
+                            </IconAction>
+                            <IconAction title={t('common.cancel', 'Cancel')} onClick={handleCancelLabel}>
                                 <X className="w-4 h-4" />
-                            </button>
+                            </IconAction>
                         </div>
                     </div>
                 )}
-                <div className="flex flex-wrap items-center justify-center gap-1 w-full">
-                    <button
-                        className="p-1.5 text-gray-400 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/30 rounded-lg transition-all"
-                        onClick={(e) => { e.stopPropagation(); onViewDetails(); }}
-                        title={t('common.details')}
-                    >
-                        <Info className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                        className="p-1.5 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-all"
-                        onClick={(e) => { e.stopPropagation(); onViewDevice(); }}
-                        title={t('accounts.device_fingerprint')}
-                    >
-                        <Fingerprint className="w-3.5 h-3.5" />
-                    </button>
-                    {/* 自定义标签按钮 */}
-                    {onUpdateLabel && (
-                        <button
-                            className={cn(
-                                "p-1.5 rounded-lg transition-all",
-                                account.custom_label
-                                    ? "text-orange-500 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30"
-                                    : "text-gray-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/30"
-                            )}
-                            onClick={(e) => { e.stopPropagation(); setIsEditingLabel(true); }}
-                            title={t('accounts.edit_label', 'Edit Label')}
-                        >
-                            <Tag className="w-3.5 h-3.5" />
-                        </button>
-                    )}
-                    <button
-                        className={`p-1.5 rounded-lg transition-all ${(isSwitching || isDisabled) ? 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/10 cursor-not-allowed' : 'text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
-                        onClick={(e) => { e.stopPropagation(); onSwitch('classic'); }}
+                <div className="flex items-center gap-0.5 w-full">
+                    <IconAction
                         title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_classic', '切换到 Antigravity (经典版)'))}
+                        onClick={(e) => { e.stopPropagation(); onSwitch('classic'); }}
                         disabled={isSwitching || isDisabled}
+                        busy={isSwitching}
                     >
-                        <ArrowRightLeft className={`w-3.5 h-3.5 ${isSwitching ? 'animate-spin' : ''}`} />
-                    </button>
-                    <button
-                        className={`p-1.5 rounded-lg transition-all ${(isSwitching || isDisabled) ? 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/10 cursor-not-allowed' : 'text-gray-400 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/30'}`}
-                        onClick={(e) => { e.stopPropagation(); onSwitch('ide'); }}
-                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_ide', '切换到 Antigravity IDE'))}
-                        disabled={isSwitching || isDisabled}
-                    >
-                        <Repeat2 className={`w-3.5 h-3.5 ${isSwitching ? 'animate-spin' : ''}`} />
-                    </button>
-                    <button
-                        className={`p-1.5 rounded-lg transition-all ${(isSwitching || isDisabled) ? 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-900/10 cursor-not-allowed' : 'text-gray-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'}`}
-                        onClick={(e) => { e.stopPropagation(); onSwitch('agy'); }}
-                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_agy', '切换到 Antigravity CLI (agy)'))}
-                        disabled={isSwitching || isDisabled}
-                    >
-                        <Terminal className={`w-3.5 h-3.5 ${isSwitching ? 'animate-spin' : ''}`} />
-                    </button>
-                    {onWarmup && (
-                        <button
-                            className={`p-1.5 rounded-lg transition-all ${(isRefreshing || isDisabled) ? 'text-orange-600 bg-orange-50 dark:bg-orange-900/10 cursor-not-allowed' : 'text-gray-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/30'}`}
-                            onClick={(e) => { e.stopPropagation(); onWarmup(); }}
-                            title={isDisabled ? t('accounts.disabled_tooltip') : (isRefreshing ? t('common.loading') : t('accounts.warmup_this', '预热该账号'))}
-                            disabled={isRefreshing || isDisabled}
-                        >
-                            <Sparkles className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-pulse' : ''}`} />
-                        </button>
-                    )}
-                    <button
-                        className={`p-1.5 rounded-lg transition-all ${isRefreshing
-                            ? 'text-green-600 bg-green-50'
-                            : 'text-gray-400 hover:text-green-600 hover:bg-green-50'}`}
+                        <ArrowRightLeft className={cn('w-3.5 h-3.5', isSwitching && 'animate-spin')} />
+                    </IconAction>
+                    <IconAction
+                        title={isDisabled ? t('accounts.disabled_tooltip') : t('common.refresh')}
                         onClick={(e) => { e.stopPropagation(); onRefresh(); }}
                         disabled={isRefreshing || isDisabled}
-                        title={isDisabled ? t('accounts.disabled_tooltip') : t('common.refresh')}
+                        busy={isRefreshing}
                     >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                    </button>
-                    <button
-                        className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                        onClick={(e) => { e.stopPropagation(); onExport(); }}
-                        title={t('common.export')}
-                    >
-                        <Download className="w-3.5 h-3.5" />
-                    </button>
+                        <RefreshCw className={cn('w-3.5 h-3.5', isRefreshing && 'animate-spin')} />
+                    </IconAction>
                     {onToggleProxy && (
-                        <button
-                            className={cn(
-                                "p-1.5 rounded-lg transition-all",
-                                account.proxy_disabled
-                                    ? "text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30"
-                                    : "text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30"
-                            )}
-                            onClick={(e) => { e.stopPropagation(); onToggleProxy(); }}
+                        <IconAction
                             title={account.proxy_disabled ? t('accounts.enable_proxy') : t('accounts.disable_proxy')}
+                            onClick={(e) => { e.stopPropagation(); onToggleProxy(); }}
+                            tone={account.proxy_disabled ? 'warn' : 'default'}
                         >
                             {account.proxy_disabled ? (
                                 <ToggleRight className="w-3.5 h-3.5" />
                             ) : (
                                 <ToggleLeft className="w-3.5 h-3.5" />
                             )}
-                        </button>
+                        </IconAction>
                     )}
-                    <button
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                        title={t('common.delete')}
-                    >
-                        <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex-1" />
+                    <ActionMenu
+                        title={t('common.more', 'More')}
+                        items={[
+                            {
+                                key: 'switch-ide',
+                                label: t('accounts.switch_to_ide', '切换到 Antigravity IDE'),
+                                title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
+                                icon: <Repeat2 className="w-3.5 h-3.5" />,
+                                onClick: () => onSwitch('ide'),
+                                disabled: isSwitching || isDisabled,
+                            },
+                            {
+                                key: 'switch-agy',
+                                label: t('accounts.switch_to_agy', '切换到 Antigravity CLI (agy)'),
+                                title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
+                                icon: <Terminal className="w-3.5 h-3.5" />,
+                                onClick: () => onSwitch('agy'),
+                                disabled: isSwitching || isDisabled,
+                            },
+                            {
+                                key: 'details',
+                                label: t('common.details'),
+                                icon: <Info className="w-3.5 h-3.5" />,
+                                onClick: onViewDetails,
+                                separatorBefore: true,
+                            },
+                            {
+                                key: 'fingerprint',
+                                label: t('accounts.device_fingerprint'),
+                                icon: <Fingerprint className="w-3.5 h-3.5" />,
+                                onClick: onViewDevice,
+                            },
+                            onUpdateLabel && {
+                                key: 'label',
+                                label: t('accounts.edit_label', 'Edit Label'),
+                                icon: <Tag className="w-3.5 h-3.5" />,
+                                onClick: () => setIsEditingLabel(true),
+                            },
+                            onWarmup && {
+                                key: 'warmup',
+                                label: t('accounts.warmup_this', '预热该账号'),
+                                title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
+                                icon: <Sparkles className={cn('w-3.5 h-3.5', isRefreshing && 'animate-pulse')} />,
+                                onClick: onWarmup,
+                                disabled: isRefreshing || isDisabled,
+                            },
+                            {
+                                key: 'export',
+                                label: t('common.export'),
+                                icon: <Download className="w-3.5 h-3.5" />,
+                                onClick: onExport,
+                            },
+                            {
+                                key: 'delete',
+                                label: t('common.delete'),
+                                icon: <Trash2 className="w-3.5 h-3.5" />,
+                                onClick: onDelete,
+                                tone: 'danger',
+                                separatorBefore: true,
+                            },
+                        ]}
+                    />
                 </div>
             </div>
-        </div >
+        </div>
     );
 }
 

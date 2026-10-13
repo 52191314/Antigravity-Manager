@@ -437,9 +437,15 @@ impl AxumServer {
     pub async fn update_mapping(&self, config: &crate::proxy::config::ProxyConfig) {
         {
             let mut m = self.custom_mapping.write().await;
-            *m = config.custom_mapping.clone();
+            let active_mapping: std::collections::HashMap<String, String> = config
+                .custom_mapping
+                .iter()
+                .filter(|(k, _)| !config.disabled_custom_mappings.contains(k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            *m = active_mapping;
         }
-        tracing::debug!("模型映射 (Custom) 已全量热更新");
+        tracing::debug!("模型映射 (Custom) 已全量热更新（已过滤停用规则）");
     }
 
     /// 更新代理配置
@@ -1901,6 +1907,8 @@ async fn admin_save_config(
     // 同步全局内存配置（热更新思考预算、系统提示词、图像思考模式与审计策略）
     crate::proxy::update_thinking_budget_config(new_config.proxy.thinking_budget.clone());
     crate::proxy::update_global_system_prompt_config(new_config.proxy.global_system_prompt.clone());
+    crate::proxy::update_demon_config(new_config.proxy.demon.clone());
+    crate::proxy::update_allow_standard_gemini_models(new_config.proxy.allow_standard_gemini_models);
     crate::proxy::update_image_thinking_mode(new_config.proxy.image_thinking_mode.clone());
     crate::proxy::update_multimodal_config(new_config.proxy.multimodal.clone());
     crate::proxy::vertex::update_config(new_config.proxy.vertex.clone());

@@ -8,15 +8,16 @@ interface StatsCardProps {
     colorClass?: string;
 }
 
-function StatsCard({ icon: Icon, title, value, description, colorClass = 'primary' }: StatsCardProps) {
+/** Flat ledger cell (no card chrome): label, big numeral, hint. The dashboard itself uses <Ticker />. */
+function StatsCard({ icon: Icon, title, value, description }: StatsCardProps) {
     return (
-        <div className="stat bg-base-100 shadow rounded-lg">
-            <div className={`stat-figure text-${colorClass}`}>
-                <Icon className="w-8 h-8" />
+        <div className="px-4 py-3 border-l-4 border-base-content">
+            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-base-content/60">
+                <Icon className="w-3.5 h-3.5" />
+                {title}
             </div>
-            <div className="stat-title">{title}</div>
-            <div className={`stat-value text-${colorClass}`}>{value}</div>
-            {description && <div className="stat-desc">{description}</div>}
+            <div className="mt-1 text-5xl leading-none font-black tabular-nums [font-stretch:75%]">{value}</div>
+            {description && <div className="mt-2 text-xs text-base-content/60">{description}</div>}
         </div>
     );
 }

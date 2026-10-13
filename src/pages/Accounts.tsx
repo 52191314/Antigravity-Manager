@@ -1,4 +1,4 @@
-
+﻿
 
 import {
   Calendar,
@@ -23,6 +23,7 @@ import AccountQuotaSummaryBar from "../components/accounts/AccountQuotaSummaryBa
 import AddAccountDialog from "../components/accounts/AddAccountDialog";
 import DeviceFingerprintDialog from "../components/accounts/DeviceFingerprintDialog";
 import ModalDialog from "../components/common/ModalDialog";
+import { Chip, PageHeader } from "../components/common/ledger";
 import Pagination from "../components/common/Pagination";
 import AccountErrorDialog from "../components/accounts/AccountErrorDialog";
 import { showToast } from "../components/common/ToastContainer";
@@ -731,9 +732,32 @@ function Accounts() {
     }
   };
 
+  const disabledCount = accounts.filter(
+    (a) => a.disabled || a.quota?.is_forbidden || a.validation_blocked,
+  ).length;
+  const activeCount = accounts.length - disabledCount;
+
+  const segWrap =
+    "inline-flex items-center gap-0.5 rounded-md bg-base-content/5 p-0.5 shrink-0";
+  const segBtn = (active: boolean) =>
+    cn(
+      "px-2.5 h-7 rounded text-xs font-medium flex items-center gap-1.5 whitespace-nowrap transition-colors",
+      active
+        ? "bg-base-content/10 text-base-content"
+        : "text-base-content/60 hover:text-base-content",
+    );
+  const searchInputClass =
+    "w-full h-8 pl-8 pr-3 bg-base-100 text-sm text-base-content border border-base-content/15 rounded-md focus:outline-none focus:border-base-content/40 placeholder:text-base-content/40";
+
+  const filterTabs: Array<{ id: FilterType; label: string }> = [
+    { id: "all", label: t("accounts.all") },
+    { id: "pro", label: t("accounts.pro") },
+    { id: "ultra", label: t("accounts.ultra") },
+    { id: "free", label: t("accounts.free") },
+  ];
+
   return (
-    <div className="h-full flex flex-col p-5 gap-4 max-w-7xl mx-auto w-full">
-      {/* 测试按钮 - 在最顶部 */}
+    <div className="h-full flex flex-col p-5 gap-3 max-w-7xl mx-auto w-full">
       <input
         ref={fileInputRef}
         type="file"
@@ -742,15 +766,101 @@ function Accounts() {
         onChange={handleFileChange}
       />
 
-      {/* 顶部工具栏:搜索、过滤和操作按钮 */}
-      <div className="flex-none flex items-center gap-2">
+      {/* 页头:Fleet 标题、状态芯片、主要操作 */}
+      <div className="flex-none">
+        <PageHeader
+          kicker={t("accounts.fleet_kicker", "Fleet")}
+          title={t("nav.accounts")}
+          status={
+            <>
+              <Chip tone="lime">
+                {accounts.length} {t("nav.accounts")}
+              </Chip>
+              <Chip tone="ink">
+                {activeCount} {t("accounts.summary.ready", "Ready")}
+              </Chip>
+              {disabledCount > 0 && (
+                <Chip tone="bad">
+                  {disabledCount} {t("accounts.disabled")}
+                </Chip>
+              )}
+              {selectedIds.size > 0 && (
+                <Chip tone="warn">
+                  {selectedIds.size} / {accounts.length}
+                </Chip>
+              )}
+            </>
+          }
+          actions={
+            <>
+              <AddAccountDialog onAdd={handleAddAccount} showText={true} />
+
+              <button
+                className="btn btn-ghost btn-sm gap-2 rounded-md whitespace-nowrap"
+                onClick={handleImportJson}
+                title={t("accounts.import_json")}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">
+                  {t("accounts.import_json")}
+                </span>
+              </button>
+
+              <button
+                className="btn btn-ghost btn-sm gap-2 rounded-md whitespace-nowrap"
+                onClick={handleExport}
+                title={
+                  selectedIds.size > 0
+                    ? t("accounts.export_selected", { count: selectedIds.size })
+                    : t("common.export")
+                }
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">
+                  {selectedIds.size > 0
+                    ? t("accounts.export_selected", { count: selectedIds.size })
+                    : t("common.export")}
+                </span>
+              </button>
+
+              <button
+                className={cn(
+                  "btn btn-ghost btn-sm gap-2 rounded-md whitespace-nowrap",
+                  isRefreshing && "opacity-70 cursor-not-allowed",
+                )}
+                onClick={handleRefreshClick}
+                disabled={isRefreshing}
+                title={
+                  selectedIds.size > 0
+                    ? t("accounts.refresh_selected", { count: selectedIds.size })
+                    : t("accounts.refresh_all")
+                }
+              >
+                <RefreshCw
+                  className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin")}
+                />
+                <span className="hidden lg:inline">
+                  {isRefreshing
+                    ? t("common.loading")
+                    : selectedIds.size > 0
+                      ? t("accounts.refresh_selected", { count: selectedIds.size })
+                      : t("accounts.refresh_all")}
+                </span>
+              </button>
+            </>
+          }
+        />
+      </div>
+
+      {/* 工具栏:搜索、过滤、排序、视图 */}
+      <div className="flex-none flex flex-wrap items-center gap-2">
         {/* 搜索框 - 响应式:大屏显示输入框,小屏显示图标 */}
-        <div className="hidden lg:block flex-none w-40 relative transition-all focus-within:w-48">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <div className="hidden lg:block flex-none w-44 relative transition-all focus-within:w-56">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/50" />
           <input
             type="text"
             placeholder={t('accounts.search_placeholder')}
-            className="w-full pl-9 pr-4 py-2 bg-white dark:bg-base-100 text-sm text-gray-900 dark:text-base-content border border-gray-200 dark:border-base-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400 dark:placeholder:text-gray-500"
+            className={searchInputClass}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -764,20 +874,20 @@ function Accounts() {
                 setIsSearchExpanded(true);
                 setTimeout(() => searchInputRef.current?.focus(), 100);
               }}
-              className="p-2 bg-gray-100 dark:bg-base-200 hover:bg-gray-200 dark:hover:bg-base-100 rounded-lg transition-colors"
+              className="btn btn-sm btn-square btn-ghost rounded-md"
               title={t('accounts.search_placeholder')}
             >
-              <Search className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+              <Search className="w-4 h-4" />
             </button>
           ) : (
             <div className="absolute left-0 top-0 z-10 w-64 flex items-center gap-1">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/50" />
                 <input
                   ref={searchInputRef}
                   type="text"
                   placeholder={t('accounts.search_placeholder')}
-                  className="w-full pl-9 pr-4 py-2 bg-white dark:bg-base-100 text-sm text-gray-900 dark:text-base-content border border-gray-200 dark:border-base-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400 dark:placeholder:text-gray-500 shadow-lg"
+                  className={searchInputClass}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onBlur={() => setIsSearchExpanded(false)}
@@ -787,15 +897,27 @@ function Accounts() {
           )}
         </div>
 
+        {/* 过滤标签 - 全部 / PRO / ULTRA / FREE */}
+        <div className={segWrap}>
+          {filterTabs.map(({ id, label }) => (
+            <button
+              key={id}
+              className={segBtn(filter === id)}
+              onClick={() => setFilter(id)}
+              title={`${label} (${filterCounts[id]})`}
+            >
+              <span className="hidden md:inline">{label}</span>
+              <span className="font-mono tabular-nums opacity-70">
+                {filterCounts[id]}
+              </span>
+            </button>
+          ))}
+        </div>
+
         {/* 配额周期切换 (5H / 7天周配额) */}
-        <div className="flex gap-1 bg-gray-100 dark:bg-base-200 p-1 rounded-lg shrink-0 items-center">
+        <div className={segWrap}>
           <button
-            className={cn(
-              "px-2 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1",
-              quotaWindow === "5h"
-                ? "bg-white dark:bg-base-100 text-blue-600 dark:text-blue-400 shadow-sm"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-base-content",
-            )}
+            className={segBtn(quotaWindow === "5h")}
             onClick={() => setQuotaWindow("5h")}
             title={t("accounts.quota_window_5h", "5小时滑动配额")}
           >
@@ -803,12 +925,7 @@ function Accounts() {
             <span>5H</span>
           </button>
           <button
-            className={cn(
-              "px-2 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1",
-              quotaWindow === "weekly"
-                ? "bg-white dark:bg-base-100 text-blue-600 dark:text-blue-400 shadow-sm"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-base-content",
-            )}
+            className={segBtn(quotaWindow === "weekly")}
             onClick={() => setQuotaWindow("weekly")}
             title={t("accounts.quota_window_weekly", "7天周配额")}
           >
@@ -824,39 +941,24 @@ function Accounts() {
           quotaWindow={quotaWindow}
         />
 
-        {/* 视图切换按钮组 */}
-        <div className="flex gap-1 bg-gray-100 dark:bg-base-200 p-1 rounded-lg shrink-0">
+        {/* 视图切换 + 邮箱隐私 */}
+        <div className={segWrap}>
           <button
-            className={cn(
-              "p-1.5 rounded-md transition-all",
-              viewMode === "list"
-                ? "bg-white dark:bg-base-100 text-blue-600 dark:text-blue-400 shadow-sm"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-base-content",
-            )}
+            className={segBtn(viewMode === "list")}
             onClick={() => setViewMode("list")}
             title={t("accounts.views.list")}
           >
             <List className="w-4 h-4" />
           </button>
           <button
-            className={cn(
-              "p-1.5 rounded-md transition-all",
-              viewMode === "grid"
-                ? "bg-white dark:bg-base-100 text-blue-600 dark:text-blue-400 shadow-sm"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-base-content",
-            )}
+            className={segBtn(viewMode === "grid")}
             onClick={() => setViewMode("grid")}
             title={t("accounts.views.grid")}
           >
             <LayoutGrid className="w-4 h-4" />
           </button>
           <button
-            className={cn(
-              "p-1.5 rounded-md transition-all",
-              maskEmails
-                ? "bg-white dark:bg-base-100 text-blue-600 dark:text-blue-400 shadow-sm"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-base-content",
-            )}
+            className={segBtn(maskEmails)}
             onClick={toggleMaskEmails}
             title={maskEmails ? t("accounts.privacy.show_email", "Show Full Email") : t("accounts.privacy.hide_email", "Hide Email (***)")}
           >
@@ -864,144 +966,28 @@ function Accounts() {
           </button>
         </div>
 
-        {/* 过滤按钮组 - 图标化响应式 */}
-        <div className="flex gap-0.5 bg-gray-100/80 dark:bg-base-200 p-1 rounded-xl border border-gray-200/50 dark:border-white/5 shrink-0">
-          {/* 全部 */}
-          <button
-            className={cn(
-              "px-2 md:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 md:gap-1.5 whitespace-nowrap shrink-0",
-              filter === 'all'
-                ? "bg-white dark:bg-base-100 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-black/5"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-base-content hover:bg-white/40"
-            )}
-            onClick={() => setFilter('all')}
-            title={`${t('accounts.all')} (${filterCounts.all})`}
-          >
-            <span className="hidden md:inline">{t('accounts.all')}</span>
-            <span className={cn(
-              "px-1.5 py-0.5 rounded-md text-[10px] font-bold transition-colors",
-              filter === 'all'
-                ? "bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400"
-                : "bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-            )}>
-              {filterCounts.all}
-            </span>
-          </button>
-
-          {/* PRO */}
-          <button
-            className={cn(
-              "px-2 md:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1 md:gap-1.5 whitespace-nowrap shrink-0",
-              filter === 'pro'
-                ? "bg-white dark:bg-base-100 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-black/5"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-base-content hover:bg-white/40"
-            )}
-            onClick={() => setFilter('pro')}
-            title={`${t('accounts.pro')} (${filterCounts.pro})`}
-          >
-            <span className="hidden md:inline">{t('accounts.pro')}</span>
-            <span className={cn(
-              "px-1.5 py-0.5 rounded-md text-[10px] font-bold transition-colors",
-              filter === 'pro'
-                ? "bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400"
-                : "bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-            )}>
-              {filterCounts.pro}
-            </span>
-          </button>
-
-          {/* ULTRA */}
-          <button
-            className={cn(
-              "flex px-2 lg:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all items-center gap-1 lg:gap-1.5 whitespace-nowrap shrink-0",
-              filter === 'ultra'
-                ? "bg-white dark:bg-base-100 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-black/5"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-base-content hover:bg-white/40"
-            )}
-            onClick={() => setFilter('ultra')}
-            title={`${t('accounts.ultra')} (${filterCounts.ultra})`}
-          >
-            <span className="hidden md:inline">{t('accounts.ultra')}</span>
-            <span className={cn(
-              "px-1.5 py-0.5 rounded-md text-[10px] font-bold transition-colors",
-              filter === 'ultra'
-                ? "bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400"
-                : "bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-            )}>
-              {filterCounts.ultra}
-            </span>
-          </button>
-
-          {/* FREE */}
-          <button
-            className={cn(
-              "flex px-2 lg:px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all items-center gap-1 lg:gap-1.5 whitespace-nowrap shrink-0",
-              filter === 'free'
-                ? "bg-white dark:bg-base-100 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-black/5"
-                : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-base-content hover:bg-white/40"
-            )}
-            onClick={() => setFilter('free')}
-            title={`${t('accounts.free')} (${filterCounts.free})`}
-          >
-            <span className="hidden md:inline">{t('accounts.free')}</span>
-            <span className={cn(
-              "px-1.5 py-0.5 rounded-md text-[10px] font-bold transition-colors",
-              filter === 'free'
-                ? "bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400"
-                : "bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-            )}>
-              {filterCounts.free}
-            </span>
-          </button>
-        </div>
-
-        <div className="flex-1 min-w-[8px]"></div>
-
-        {/* 操作按钮组 */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <AddAccountDialog onAdd={handleAddAccount} showText={false} />
-
+        {/* 批量操作 */}
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
           {selectedIds.size > 0 && (
-            <>
-              <button
-                className="px-2.5 py-2 bg-red-500 text-white text-xs font-medium rounded-lg hover:bg-red-600 transition-colors flex items-center gap-1.5 shadow-sm"
-                onClick={handleBatchDelete}
-                title={t("accounts.delete_selected", {
-                  count: selectedIds.size,
-                })}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline">
-                  {t("accounts.delete_selected", { count: selectedIds.size })}
-                </span>
-              </button>
-            </>
+            <button
+              className="btn btn-sm btn-ghost gap-2 rounded-md whitespace-nowrap text-red-600 dark:text-red-400 hover:bg-red-500/10"
+              onClick={handleBatchDelete}
+              title={t("accounts.delete_selected", {
+                count: selectedIds.size,
+              })}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">
+                {t("accounts.delete_selected", { count: selectedIds.size })}
+              </span>
+            </button>
           )}
 
           <button
-            className={`px-2.5 py-2 bg-blue-500 text-white text-xs font-medium rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-1.5 shadow-sm ${isRefreshing ? "opacity-70 cursor-not-allowed" : ""}`}
-            onClick={handleRefreshClick}
-            disabled={isRefreshing}
-            title={
-              selectedIds.size > 0
-                ? t("accounts.refresh_selected", { count: selectedIds.size })
-                : t("accounts.refresh_all")
-            }
-          >
-            <RefreshCw
-              className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin" : ""}`}
-            />
-            <span className="hidden xl:inline">
-              {isRefreshing
-                ? t("common.loading")
-                : selectedIds.size > 0
-                  ? t("accounts.refresh_selected", { count: selectedIds.size })
-                  : t("accounts.refresh_all")}
-            </span>
-          </button>
-
-          <button
-            className={`px-2.5 py-2 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors flex items-center gap-1.5 shadow-sm ${isWarmuping ? "opacity-70 cursor-not-allowed" : ""}`}
+            className={cn(
+              "btn btn-sm btn-ghost gap-2 rounded-md whitespace-nowrap",
+              isWarmuping && "opacity-70 cursor-not-allowed",
+            )}
             onClick={() => setIsWarmupConfirmOpen(true)}
             disabled={isWarmuping}
             title={
@@ -1011,9 +997,9 @@ function Accounts() {
             }
           >
             <Sparkles
-              className={`w-3.5 h-3.5 ${isWarmuping ? "animate-pulse" : ""}`}
+              className={cn("w-3.5 h-3.5", isWarmuping && "animate-pulse")}
             />
-            <span className="hidden xl:inline">
+            <span className="hidden md:inline">
               {isWarmuping
                 ? t("common.loading")
                 : selectedIds.size > 0
@@ -1022,8 +1008,8 @@ function Accounts() {
             </span>
           </button>
 
-          <label className="flex items-center gap-2 cursor-pointer select-none px-2 py-2 border border-transparent hover:bg-gray-100 dark:hover:bg-base-200 rounded-lg transition-colors" title={t('accounts.show_all_quotas')}>
-            <span className="text-xs font-medium text-gray-600 dark:text-gray-300 hidden xl:inline">
+          <label className="flex items-center gap-2 cursor-pointer select-none px-2 h-8 rounded-md hover:bg-base-content/5 transition-colors whitespace-nowrap" title={t('accounts.show_all_quotas')}>
+            <span className="text-xs font-medium text-base-content/70 hidden md:inline">
               {t('accounts.show_all_quotas')}
             </span>
             <input
@@ -1033,39 +1019,10 @@ function Accounts() {
               onChange={toggleShowAllQuotas}
             />
           </label>
-          <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 self-center mx-1 shrink-0"></div>
-
-          <button
-            className="px-2.5 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-1.5"
-            onClick={handleImportJson}
-            title={t("accounts.import_json")}
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">
-              {t("accounts.import_json")}
-            </span>
-          </button>
-
-          <button
-            className="px-2.5 py-2 border border-gray-200 dark:border-base-300 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-1.5"
-            onClick={handleExport}
-            title={
-              selectedIds.size > 0
-                ? t("accounts.export_selected", { count: selectedIds.size })
-                : t("common.export")
-            }
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">
-              {selectedIds.size > 0
-                ? t("accounts.export_selected", { count: selectedIds.size })
-                : t("common.export")}
-            </span>
-          </button>
         </div>
       </div>
 
-      {/* 账号配额总量摘要栏 (Sleek Quota Summary Bar) */}
+      {/* 账号配额总量摘要栏 */}
       <AccountQuotaSummaryBar
         accounts={filteredAccounts}
         totalAccountsCount={accounts.length}
@@ -1076,7 +1033,7 @@ function Accounts() {
       {/* 账号列表内容区域 */}
       <div className="flex-1 min-h-0 relative" ref={containerRef}>
         {viewMode === "list" ? (
-          <div className="h-full bg-white dark:bg-base-100 rounded-2xl shadow-sm border border-gray-100 dark:border-base-200 flex flex-col overflow-hidden">
+          <div className="h-full bg-base-100 border-y border-base-content/10 flex flex-col">
             <div className="flex-1 overflow-y-auto">
               <AccountTable
                 accounts={paginatedAccounts}
@@ -1140,7 +1097,7 @@ function Accounts() {
         )}
       </div>
 
-      {/* 极简分页 - 无边框浮动样式 */}
+      {/* 分页 */}
       {filteredAccounts.length > 0 && (
         <div className="flex-none">
           <Pagination

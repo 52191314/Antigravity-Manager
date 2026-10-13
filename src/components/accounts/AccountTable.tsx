@@ -1,6 +1,7 @@
 /**
- * 账号表格组件
- * 支持拖拽排序功能，用户可以通过拖拽行来调整账号顺序
+ * Account ledger table.
+ * One dense row per account: identity, status chips, tier, per-model segmented quota meters,
+ * last-used stamp and an icon-button action cluster. Rows can be drag-reordered.
  */
 import { useMemo, useState, useRef, useEffect } from 'react';
 import {
@@ -59,7 +60,10 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '../../utils/cn';
 
 import { useConfigStore } from '../../stores/useConfigStore';
-import { QuotaItem } from './QuotaItem';
+import { QuotaMeter } from './QuotaMeter';
+import { IconAction, ActionMenu } from './IconAction';
+import { Pill, TierBadge } from './StatusPill';
+import Mascot from '../common/Mascot';
 import { getModelQuotaDisplay } from '../../utils/quotaDisplay';
 import { MODEL_CONFIG, sortModels, resolveQuotaModels, ensurePinnedImageSelector, findQuotaModel, getCompactModelLabel, getModelIcon } from '../../config/modelConfig';
 import { categorizeModel, getModelProtectionKey } from '../../utils/modelCategory';
@@ -145,8 +149,6 @@ interface AccountRowContentProps {
 // 辅助函数
 // ============================================================================
 
-
-
 function isModelProtected(protectedModels: string[] | undefined, modelName: string): boolean {
     if (!protectedModels || protectedModels.length === 0) return false;
     const lowerName = modelName.toLowerCase();
@@ -170,6 +172,27 @@ function isModelProtected(protectedModels: string[] | undefined, modelName: stri
     const protectionKey = getModelProtectionKey(lowerName);
     return protectionKey ? protectedModels.includes(protectionKey) : false;
 }
+
+const CHECKBOX_CLASS =
+    'checkbox checkbox-xs rounded-[4px] border border-base-content/30 [--chkbg:var(--color-base-content)] [--chkfg:var(--color-base-100)]';
+
+const TH_CLASS =
+    'px-2 py-2.5 text-left rtl:text-right text-xs font-medium text-base-content/55 whitespace-nowrap';
+
+const SORT_BTN_CLASS =
+    'inline-flex items-center gap-1 rounded px-1 -mx-1 font-medium hover:text-base-content transition-colors';
+
+/** Fixed column widths (px). The account column takes the remaining space. */
+const COL_WIDTHS = {
+    grip: 32,
+    select: 40,
+    status: 116,
+    tier: 92,
+    quota: 400,
+    lastUsed: 108,
+    actions: 144,
+} as const;
+const TABLE_MIN_WIDTH = 1120;
 
 // ============================================================================
 // 子组件
@@ -223,22 +246,26 @@ function SortableAccountRow({
             ref={setNodeRef}
             style={style as React.CSSProperties}
             className={cn(
-                "group transition-colors border-b border-gray-100 dark:border-base-200",
-                isCurrent && "bg-blue-50/50 dark:bg-blue-900/10",
-                isDragging && "bg-blue-100 dark:bg-blue-900/30 shadow-lg",
-                !isDragging && "hover:bg-gray-50 dark:hover:bg-base-200"
+                'group transition-colors border-b border-base-content/10',
+                isDragging && 'bg-base-200',
+                !isDragging && 'hover:bg-base-content/[0.03]',
             )}
         >
-            {/* 拖拽手柄 */}
-            <td className="pl-2 py-1 w-8 align-middle">
+            {/* 拖拽手柄 (carries the lime live-row edge) */}
+            <td
+                className={cn(
+                    'pl-1 pr-0 py-3 align-middle border-l-2 transition-colors',
+                    isCurrent ? 'border-lime-signal' : 'border-transparent',
+                )}
+            >
                 <div
                     {...(!isDragDisabled ? attributes : {})}
                     {...(!isDragDisabled ? listeners : {})}
                     className={cn(
-                        "flex items-center justify-center w-6 h-6 rounded transition-colors",
+                        'flex items-center justify-center w-6 h-6 transition-colors',
                         isDragDisabled
-                            ? "text-gray-200 dark:text-gray-700 cursor-not-allowed opacity-40"
-                            : "cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            ? 'text-base-content/15 cursor-not-allowed'
+                            : 'cursor-grab active:cursor-grabbing text-base-content/30 hover:text-base-content',
                     )}
                     title={isDragDisabled ? t('accounts.drag_disabled_during_sort', '已激活列排序，拖拽排序已暂停') : t('accounts.drag_to_reorder')}
                 >
@@ -246,10 +273,10 @@ function SortableAccountRow({
                 </div>
             </td>
             {/* 复选框 */}
-            <td className="px-2 py-1 w-10 align-middle">
+            <td className="px-2 py-3 align-middle">
                 <input
                     type="checkbox"
-                    className="checkbox checkbox-sm rounded border-2 border-gray-400 dark:border-gray-500 checked:border-blue-600 checked:bg-blue-600 [--chkbg:theme(colors.blue.600)] [--chkfg:white]"
+                    className={CHECKBOX_CLASS}
                     checked={selected}
                     onChange={onSelect}
                     disabled={isRefreshing}
@@ -280,7 +307,7 @@ function SortableAccountRow({
 
 /**
  * 账号行内容组件
- * 渲染邮箱、配额、最后使用时间和操作按钮等列
+ * 渲染邮箱、状态、订阅、配额、最后使用时间和操作按钮等列
  */
 function AccountRowContent({
     account,
@@ -352,7 +379,7 @@ function AccountRowContent({
                     const shortGroupName = (group.display_name || '')
                         .replace(/ models?$/i, '')
                         .replace(/Claude and GPT/i, 'Claude/GPT');
-                    const fullLabel = b.display_name ? `${shortGroupName} (${b.display_name})` : `${shortGroupName} (周)`;
+                    const fullLabel = b.display_name ? `${shortGroupName} (${b.display_name})` : `${shortGroupName} (weekly)`;
                     return {
                         id: `${group.display_name}-${b.bucket_id}`,
                         // 列头已标明周配额：单桶时只显示分组名，完整名称放进 tooltip
@@ -425,7 +452,7 @@ function AccountRowContent({
         return self.findIndex(t => `${t.label}-${t.protectedKey}` === labelKey) === index;
     });
 
-    // 针对有自定义标签的账号，配额银行聚合展示：上排 2 个最新模型 (Gemini 3.8 Flash + Claude 5.5)，下排展示邮箱
+    // 针对有自定义标签的账号，配额银行聚合展示：2 个最新模型 (Gemini 3.8 Flash + Claude 5.5)，邮箱显示在账号列下方
     const hasLabel = Boolean(account.custom_label);
     const geminiFlashModel = findQuotaModel(account.quota?.models, 'gemini-flash');
     const claudeModel = findQuotaModel(account.quota?.models, 'claude');
@@ -448,16 +475,41 @@ function AccountRowContent({
     const isClaudeProtected = Boolean(config?.quota_protection?.enabled && isModelProtected(account.protected_models, claudeProtectedKey));
     const claudeLiveLimit = getLiveLimitForModel(account, claudeId, claudeProtectedKey);
 
+    const tier = getAccountTier(account);
+    const showHealthy = !isCurrent && !isDisabled && !account.proxy_disabled && !account.quota?.is_forbidden && !account.validation_blocked;
+
+    const meterCount = (quotaWindow === 'weekly' && weeklyItems.length > 0)
+        ? weeklyItems.length
+        : (hasLabel && !showAllQuotas ? 2 : displayModels.length);
 
     return (
         <>
-            {/* 邮箱列 */}
-            <td className="px-2 py-1 align-middle">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span
+            {/* 账号列 */}
+            <td className="px-2 py-3 align-middle min-w-0 overflow-hidden">
+                {isEditingLabel ? (
+                    <div className="flex items-center gap-1">
+                        <input
+                            type="text"
+                            className="input input-xs rounded-md border border-base-content/20 bg-base-100 w-36 min-w-0 text-xs"
+                            placeholder={t('accounts.custom_label_placeholder', 'Label')}
+                            value={labelInput}
+                            onChange={(e) => setLabelInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            autoFocus
+                            maxLength={50}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                        <IconAction title={t('common.save', 'Save')} onClick={(e) => { e.stopPropagation(); handleSaveLabel(); }}>
+                            <Check className="w-3 h-3" />
+                        </IconAction>
+                        <IconAction title={t('common.cancel', 'Cancel')} onClick={(e) => { e.stopPropagation(); handleCancelLabel(); }}>
+                            <X className="w-3 h-3" />
+                        </IconAction>
+                    </div>
+                ) : (
+                    <div
                         className={cn(
-                            "font-medium text-sm break-all transition-colors cursor-pointer hover:underline",
-                            isCurrent ? "text-blue-700 dark:text-blue-400" : "text-gray-900 dark:text-base-content"
+                            'flex items-center gap-1.5 font-medium text-sm cursor-pointer hover:underline decoration-1 underline-offset-4 min-w-0',
                         )}
                         title={account.custom_label ? `${account.custom_label} (${maskEmails ? maskEmail(account.email) : account.email})` : (maskEmails ? maskEmail(account.email) : account.email)}
                         onClick={(e) => {
@@ -467,192 +519,107 @@ function AccountRowContent({
                             }
                         }}
                     >
-                        {getAccountDisplayName(account, maskEmails)}
-                    </span>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                        {isCurrent && (
-                            <span className="px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-[10px] font-bold shadow-sm border border-blue-200/50 dark:border-blue-800/50">
-                                {t('accounts.current').toUpperCase()}
-                            </span>
-                        )}
-                        {isDisabled && (
-                            <span
-                                className="px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300 text-[10px] font-bold flex items-center gap-1 shadow-sm border border-rose-200/50"
-                            >
-                                <Ban className="w-2.5 h-2.5" />
-                                <span>{t('accounts.disabled')}</span>
-                            </span>
-                        )}
-
-                        {account.proxy_disabled && (
-                            <span
-                                className="px-2 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300 text-[10px] font-bold flex items-center gap-1 shadow-sm border border-orange-200/50"
-                                title={account.proxy_disabled_reason || t('accounts.proxy_disabled_tooltip')}
-                            >
-                                <Ban className="w-2.5 h-2.5" />
-                                <span>{t('accounts.proxy_disabled')}</span>
-                            </span>
-                        )}
-
-                        {account.quota?.is_forbidden && (
-                            <span className="px-2 py-0.5 rounded-md bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 text-[10px] font-bold flex items-center gap-1 shadow-sm border border-red-200/50">
-                                <Lock className="w-2.5 h-2.5" />
-                                <span>{t('accounts.forbidden')}</span>
-                            </span>
-                        )}
-                        {account.validation_blocked && (
-                            <span className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400 text-[10px] font-bold flex items-center gap-1 shadow-sm border border-amber-200/50">
-                                <Clock className="w-2.5 h-2.5" />
-                                <span>{validationBlockedLabel}</span>
-                            </span>
-                        )}
-
-
-                        {/* 订阅类型徽章 */}
-                        {(() => {
-                            const tier = getAccountTier(account);
-                            if (tier === 'ultra') {
-                                return (
-                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[10px] font-bold shadow-sm hover:scale-105 transition-transform cursor-default">
-                                        <Gem className="w-2.5 h-2.5 fill-current" />
-                                        {t('accounts.ultra')}
-                                    </span>
-                                );
-                            } else if (tier === 'pro') {
-                                return (
-                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-[10px] font-bold shadow-sm hover:scale-105 transition-transform cursor-default">
-                                        <Diamond className="w-2.5 h-2.5 fill-current" />
-                                        {t('accounts.pro')}
-                                    </span>
-                                );
-                            } else {
-                                return (
-                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-400 text-[10px] font-bold shadow-sm border border-gray-200 dark:border-white/10 hover:bg-gray-200 transition-colors cursor-default">
-                                        <Circle className="w-2.5 h-2.5" />
-                                        {t('accounts.free')}
-                                    </span>
-                                );
-                            }
-                        })()}
-                        {/* 自定义标签 */}
-                        <span className="px-2 py-0.5 rounded-md bg-gray-100 dark:bg-base-300 text-gray-500 dark:text-gray-400 text-[10px] font-bold" title={t('accounts.priority_hint')}>
-                            {t('accounts.priority')}: {account.priority ?? 50}
-                        </span>
-                        {account.custom_label && !isEditingLabel && (
-                            <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 text-[10px] font-bold shadow-sm border border-orange-200/50 dark:border-orange-800/50">
-                                <Tag className="w-2.5 h-2.5" />
-                                {account.custom_label}
-                            </span>
-                        )}
-                        {/* 标签编辑输入框 */}
-                        {isEditingLabel && (
-                            <div className="flex items-center gap-1">
-                                <input
-                                    type="text"
-                                    className="px-1.5 py-0.5 text-[10px] w-32 border border-orange-300 dark:border-orange-700 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 bg-white dark:bg-base-200"
-                                    placeholder={t('accounts.custom_label_placeholder', 'Label')}
-                                    value={labelInput}
-                                    onChange={(e) => setLabelInput(e.target.value)}
-                                    onKeyDown={handleKeyDown}
-                                    autoFocus
-                                    maxLength={50}
-                                    onClick={(e) => e.stopPropagation()}
-                                />
-                                <button
-                                    className="p-0.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded transition-all"
-                                    onClick={(e) => { e.stopPropagation(); handleSaveLabel(); }}
-                                >
-                                    <Check className="w-3 h-3" />
-                                </button>
-                                <button
-                                    className="p-0.5 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-all"
-                                    onClick={(e) => { e.stopPropagation(); handleCancelLabel(); }}
-                                >
-                                    <X className="w-3 h-3" />
-                                </button>
-                            </div>
-                        )}
+                        {hasLabel && <Tag className="w-3 h-3 shrink-0 text-base-content/60" />}
+                        <span className="truncate">{getAccountDisplayName(account, maskEmails)}</span>
                     </div>
+                )}
+                {hasLabel && !isEditingLabel && (
+                    <button
+                        type="button"
+                        onClick={handleCopyEmail}
+                        className="mt-0.5 max-w-full flex items-center gap-1 text-[10px] font-mono text-base-content/50 hover:text-base-content transition-colors"
+                        title={account.email ? `${account.email} (${t('accounts.click_to_copy', 'Click to copy')})` : ''}
+                    >
+                        <Mail className="w-2.5 h-2.5 shrink-0" />
+                        <span className="truncate">{maskEmails ? maskEmail(account.email) : account.email}</span>
+                        {copiedEmail ? (
+                            <span className="flex items-center gap-0.5 shrink-0 text-emerald-600 dark:text-lime-signal font-sans font-medium">
+                                <Check className="w-2.5 h-2.5" />
+                                {t('common.copied', 'Copied')}
+                            </span>
+                        ) : (
+                            <Copy className="w-2.5 h-2.5 shrink-0 opacity-0 group-hover:opacity-60" />
+                        )}
+                    </button>
+                )}
+            </td>
 
+            {/* 状态列 */}
+            <td className="px-2 py-3 align-middle">
+                <div className="flex flex-col items-start gap-1">
+                    {isCurrent && <Pill tone="lime" dot>{t('accounts.current')}</Pill>}
+                    {isDisabled && (
+                        <Pill tone="bad"><Ban className="w-2.5 h-2.5" />{t('accounts.disabled')}</Pill>
+                    )}
+                    {account.proxy_disabled && (
+                        <span title={account.proxy_disabled_reason || t('accounts.proxy_disabled_tooltip')}>
+                            <Pill tone="warn" dot>{t('accounts.proxy_disabled')}</Pill>
+                        </span>
+                    )}
+                    {account.quota?.is_forbidden && (
+                        <Pill tone="bad"><Lock className="w-2.5 h-2.5" />{t('accounts.forbidden')}</Pill>
+                    )}
+                    {account.validation_blocked && (
+                        <Pill tone="warn" dot>{validationBlockedLabel}</Pill>
+                    )}
+                    {showHealthy && <Pill tone="ink" dot>{t('accounts.summary.ready', 'Ready')}</Pill>}
+                </div>
+            </td>
+
+            {/* 订阅列 */}
+            <td className="px-2 py-3 align-middle">
+                <div className="flex flex-col items-start gap-1">
+                    {tier === 'ultra' ? (
+                        <TierBadge tier="ultra" icon={<Gem className="w-2.5 h-2.5" />}>{t('accounts.ultra')}</TierBadge>
+                    ) : tier === 'pro' ? (
+                        <TierBadge tier="pro" icon={<Diamond className="w-2.5 h-2.5" />}>{t('accounts.pro')}</TierBadge>
+                    ) : (
+                        <TierBadge tier="free" icon={<Circle className="w-2.5 h-2.5" />}>{t('accounts.free')}</TierBadge>
+                    )}
+                    <span className="text-[10px] font-mono text-base-content/50 whitespace-nowrap" title={t('accounts.priority_hint')}>
+                        {t('accounts.priority')} {account.priority ?? 50}
+                    </span>
                 </div>
             </td>
 
             {/* 模型配额列 */}
-            <td className="px-2 py-1 align-middle">
+            <td className="px-2 py-3 align-middle min-w-0 overflow-hidden">
                 {isDisabled || account.quota?.is_forbidden || account.validation_blocked ? (
                     <div className={cn(
-                        "flex items-center justify-center gap-3 py-1.5 px-4 rounded-xl border group/error",
-                        account.validation_blocked ? "bg-amber-50/50 dark:bg-amber-900/10 border-amber-100/50 dark:border-amber-900/20" : "bg-red-50/50 dark:bg-red-900/10 border-red-100/50 dark:border-red-900/20"
+                        'flex flex-wrap items-center gap-x-3 gap-y-1 py-1 pl-3 border-l-2',
+                        account.validation_blocked ? 'border-amber-500/70 text-amber-700 dark:text-amber-400' : 'border-red-500/70 text-red-700 dark:text-red-400',
                     )}>
-                        <div className={cn(
-                            "flex items-center gap-1.5",
-                            account.validation_blocked ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"
-                        )}>
-                            {account.validation_blocked ? <Clock className="w-3.5 h-3.5" /> : (account.quota?.is_forbidden ? <Lock className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />)}
-                            <span className={cn(
-                                "text-[11px] font-bold",
-                                account.validation_blocked ? "text-amber-700/80 dark:text-amber-400" : "text-red-700/80 dark:text-red-400"
-                            )}>
-                                {account.validation_blocked ? validationBlockedLabel : (isDisabled ? t('accounts.status.disabled') : t('accounts.forbidden_msg'))}
-                            </span>
-                        </div>
-                        <div className={cn(
-                            "w-px h-3",
-                            account.validation_blocked ? "bg-amber-200 dark:bg-amber-800/50" : "bg-red-200 dark:bg-red-800/50"
-                        )} />
+                        {account.validation_blocked ? <Clock className="w-3.5 h-3.5 shrink-0" /> : (account.quota?.is_forbidden ? <Lock className="w-3.5 h-3.5 shrink-0" /> : <Ban className="w-3.5 h-3.5 shrink-0" />)}
+                        <span className="text-xs font-medium">
+                            {account.validation_blocked ? validationBlockedLabel : (isDisabled ? t('accounts.status.disabled') : t('accounts.forbidden_msg'))}
+                        </span>
                         <button
                             onClick={(e) => { e.stopPropagation(); onViewError(); }}
-                            className="text-[10px] font-medium text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5"
+                            className="text-[11px] font-medium text-base-content/70 underline underline-offset-4 decoration-1 hover:text-base-content"
                         >
                             {t('accounts.view_error')}
                         </button>
                     </div>
                 ) : (
                     <div className={cn(
-                        "grid gap-x-2 gap-y-1 py-0",
-                        (quotaWindow === 'weekly' && weeklyItems.length > 0)
-                            ? (weeklyItems.length === 1 && (!hasLabel || showAllQuotas) ? "grid-cols-1" : "grid-cols-2")
-                            : (displayModels.length === 1 && (!hasLabel || showAllQuotas) ? "grid-cols-1" : "grid-cols-2")
+                        'grid gap-x-4 gap-y-2 min-w-0',
+                        meterCount > 1 ? 'grid-cols-2' : 'grid-cols-1',
                     )}>
                         {quotaWindow === 'weekly' && weeklyItems.length > 0 ? (
-                            <>
-                                {weeklyItems.map((item) => (
-                                    <QuotaItem
-                                        key={item.id}
-                                        label={item.label}
-                                        title={item.title}
-                                        percentage={item.percentage}
-                                        resetTime={item.resetTime}
-                                        weeklyTokens={item.cycleTokens ?? null}
-                                        Icon={item.Icon}
-                                    />
-                                ))}
-                                {hasLabel && !showAllQuotas && (
-                                    <div
-                                        onClick={handleCopyEmail}
-                                        className="col-span-2 relative h-[22px] flex items-center px-2 rounded-md overflow-hidden border border-gray-100/50 dark:border-white/5 bg-gray-50/30 dark:bg-white/5 group/email cursor-pointer hover:bg-gray-100/50 dark:hover:bg-white/10 transition-colors"
-                                        title={account.email ? `${account.email} (${t('accounts.click_to_copy', 'Click to copy')})` : ''}
-                                    >
-                                        <Mail className="w-2.5 h-2.5 mr-1.5 text-gray-400 group-hover/email:text-blue-500 shrink-0 transition-colors" />
-                                        <span className="truncate flex-1 text-[10px] font-mono text-gray-500 dark:text-gray-400 group-hover/email:text-gray-700 dark:group-hover/email:text-gray-200 transition-colors select-all">
-                                            {maskEmails ? maskEmail(account.email) : account.email}
-                                        </span>
-                                        {copiedEmail ? (
-                                            <span className="flex items-center gap-1 text-[9px] text-emerald-600 dark:text-emerald-400 font-sans font-medium shrink-0 ml-1">
-                                                <Check className="w-2.5 h-2.5" />
-                                                <span>{t('common.copied', 'Copied')}</span>
-                                            </span>
-                                        ) : (
-                                            <Copy className="w-2.5 h-2.5 opacity-0 group-hover/email:opacity-60 hover:!opacity-100 text-gray-400 shrink-0 ml-1 transition-opacity" />
-                                        )}
-                                    </div>
-                                )}
-                            </>
+                            weeklyItems.map((item) => (
+                                <QuotaMeter
+                                    key={item.id}
+                                    label={item.label}
+                                    title={item.title}
+                                    percentage={item.percentage}
+                                    resetTime={item.resetTime}
+                                    weeklyTokens={item.cycleTokens ?? null}
+                                    Icon={item.Icon}
+                                />
+                            ))
                         ) : hasLabel && !showAllQuotas ? (
                             <>
-                                {/* Upper Left: Gemini 3.8 Flash */}
-                                <QuotaItem
+                                <QuotaMeter
                                     label={geminiFlashLabel}
                                     title={geminiFlashTitle}
                                     modelId={geminiFlashModel?.name}
@@ -661,8 +628,7 @@ function AccountRowContent({
                                     liveLimit={geminiFlashLiveLimit}
                                     Icon={geminiFlashConfig?.Icon || Bot}
                                 />
-                                {/* Upper Right: Claude 5.5 */}
-                                <QuotaItem
+                                <QuotaMeter
                                     label={claudeLabel}
                                     title={claudeTitle}
                                     modelId={claudeModel?.name}
@@ -671,25 +637,6 @@ function AccountRowContent({
                                     liveLimit={claudeLiveLimit}
                                     Icon={claudeConfig?.Icon || Bot}
                                 />
-                                {/* Bottom Row: Account Email */}
-                                <div
-                                    onClick={handleCopyEmail}
-                                    className="col-span-2 relative h-[22px] flex items-center px-2 rounded-md overflow-hidden border border-gray-100/50 dark:border-white/5 bg-gray-50/30 dark:bg-white/5 group/email cursor-pointer hover:bg-gray-100/50 dark:hover:bg-white/10 transition-colors"
-                                    title={account.email ? `${account.email} (${t('accounts.click_to_copy', 'Click to copy')})` : ''}
-                                >
-                                    <Mail className="w-2.5 h-2.5 mr-1.5 text-gray-400 group-hover/email:text-blue-500 shrink-0 transition-colors" />
-                                    <span className="truncate flex-1 text-[10px] font-mono text-gray-500 dark:text-gray-400 group-hover/email:text-gray-700 dark:group-hover/email:text-gray-200 transition-colors select-all">
-                                        {maskEmails ? maskEmail(account.email) : account.email}
-                                    </span>
-                                    {copiedEmail ? (
-                                        <span className="flex items-center gap-1 text-[9px] text-emerald-600 dark:text-emerald-400 font-sans font-medium shrink-0 ml-1">
-                                            <Check className="w-2.5 h-2.5" />
-                                            <span>{t('common.copied', 'Copied')}</span>
-                                        </span>
-                                    ) : (
-                                        <Copy className="w-2.5 h-2.5 opacity-0 group-hover/email:opacity-60 hover:!opacity-100 text-gray-400 shrink-0 ml-1 transition-opacity" />
-                                    )}
-                                </div>
                             </>
                         ) : (
                             displayModels.map((model) => {
@@ -697,7 +644,7 @@ function AccountRowContent({
                                 const display = getModelQuotaDisplay(model.id, modelData, account.quota?.quota_groups);
 
                                 return (
-                                    <QuotaItem
+                                    <QuotaMeter
                                         key={model.id}
                                         label={model.label}
                                         title={modelData?.display_name || model.label}
@@ -715,130 +662,111 @@ function AccountRowContent({
             </td>
 
             {/* 最后使用时间列 */}
-            <td className="px-2 py-1 align-middle">
-                <div className="flex flex-col">
-                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400 font-mono whitespace-nowrap">
+            <td className="pl-2 pr-4 py-3 align-middle">
+                <div className="flex flex-col tabular-nums whitespace-nowrap">
+                    <span className="text-xs text-base-content/80">
                         {new Date(account.last_used * 1000).toLocaleDateString()}
                     </span>
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono whitespace-nowrap leading-tight">
+                    <span className="text-[11px] text-base-content/45 leading-tight">
                         {new Date(account.last_used * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                 </div>
             </td>
 
-            {/* 操作列 */}
-            <td className={cn(
-                "px-1 py-1 sticky right-0 z-10 shadow-[-12px_0_12px_-12px_rgba(0,0,0,0.1)] dark:shadow-[-12px_0_12px_-12px_rgba(255,255,255,0.05)] text-center align-middle",
-                // 动态背景色处理
-                isCurrent
-                    ? "bg-[#f1f6ff] dark:bg-[#1e2330]" // 接近 blue-50/50 的实色
-                    : "bg-white dark:bg-base-100",
-                !isCurrent && "group-hover:bg-gray-50 dark:group-hover:bg-base-200"
-            )}>
-                <div className="flex flex-wrap items-center justify-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity max-w-[220px] mx-auto">
-                    <button
-                        className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/30 rounded-lg transition-all"
-                        onClick={(e) => { e.stopPropagation(); onViewDetails(); }}
-                        title={t('common.details')}
-                    >
-                        <Info className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                        className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-all"
-                        onClick={(e) => { e.stopPropagation(); onViewDevice(); }}
-                        title={t('accounts.device_fingerprint')}
-                    >
-                        <Fingerprint className="w-3.5 h-3.5" />
-                    </button>
-                    {/* 自定义标签按钮 */}
-                    {onUpdateLabel && (
-                        <button
-                            className={cn(
-                                "p-1.5 rounded-lg transition-all",
-                                account.custom_label
-                                    ? "text-orange-500 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/30"
-                                    : "text-gray-500 dark:text-gray-400 hover:text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/30"
-                            )}
-                            onClick={(e) => { e.stopPropagation(); setIsEditingLabel(true); }}
-                            title={t('accounts.edit_label', 'Edit Label')}
-                        >
-                            <Tag className="w-3.5 h-3.5" />
-                        </button>
-                    )}
-                    <button
-                        className={`p-1.5 text-gray-500 dark:text-gray-400 rounded-lg transition-all ${(isSwitching || isDisabled) ? 'bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 cursor-not-allowed' : 'hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30'}`}
-                        onClick={(e) => { e.stopPropagation(); onSwitch('classic'); }}
+            {/* 操作列: three inline actions + overflow menu */}
+            <td className="px-2 py-3 align-middle">
+                <div className="flex items-center justify-end gap-0.5 whitespace-nowrap">
+                    <IconAction
                         title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_classic', '切换到 Antigravity (经典版)'))}
+                        onClick={(e) => { e.stopPropagation(); onSwitch('classic'); }}
                         disabled={isSwitching || isDisabled}
+                        busy={isSwitching}
                     >
-                        <ArrowRightLeft className={`w-3.5 h-3.5 ${isSwitching ? 'animate-spin' : ''}`} />
-                    </button>
-                    <button
-                        className={`p-1.5 text-gray-500 dark:text-gray-400 rounded-lg transition-all ${(isSwitching || isDisabled) ? 'bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 cursor-not-allowed' : 'hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-900/30'}`}
-                        onClick={(e) => { e.stopPropagation(); onSwitch('ide'); }}
-                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_ide', '切换到 Antigravity IDE'))}
-                        disabled={isSwitching || isDisabled}
-                    >
-                        <Repeat2 className={`w-3.5 h-3.5 ${isSwitching ? 'animate-spin' : ''}`} />
-                    </button>
-                    <button
-                        className={`p-1.5 text-gray-500 dark:text-gray-400 rounded-lg transition-all ${(isSwitching || isDisabled) ? 'bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 cursor-not-allowed' : 'hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'}`}
-                        onClick={(e) => { e.stopPropagation(); onSwitch('agy'); }}
-                        title={isDisabled ? t('accounts.disabled_tooltip') : (isSwitching ? t('common.loading') : t('accounts.switch_to_agy', '切换到 Antigravity CLI (agy)'))}
-                        disabled={isSwitching || isDisabled}
-                    >
-                        <Terminal className={`w-3.5 h-3.5 ${isSwitching ? 'animate-spin' : ''}`} />
-                    </button>
-                    {onWarmup && (
-                        <button
-                            className={`p-1.5 text-gray-500 dark:text-gray-400 rounded-lg transition-all ${(isRefreshing || isDisabled) ? 'bg-orange-50 dark:bg-orange-900/10 text-orange-600 dark:text-orange-400 cursor-not-allowed' : 'hover:text-orange-500 dark:hover:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/30'}`}
-                            onClick={(e) => { e.stopPropagation(); onWarmup(); }}
-                            title={isDisabled ? t('accounts.disabled_tooltip') : (isRefreshing ? t('common.loading') : t('accounts.warmup_this', '预热该账号'))}
-                            disabled={isRefreshing || isDisabled}
-                        >
-                            <Sparkles className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-pulse' : ''}`} />
-                        </button>
-                    )}
-                    <button
-                        className={`p-1.5 text-gray-500 dark:text-gray-400 rounded-lg transition-all ${(isRefreshing || isDisabled) ? 'bg-green-50 dark:bg-green-900/10 text-green-600 dark:text-green-400 cursor-not-allowed' : 'hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30'}`}
-                        onClick={(e) => { e.stopPropagation(); onRefresh(); }}
+                        <ArrowRightLeft className={cn('w-3.5 h-3.5', isSwitching && 'animate-spin')} />
+                    </IconAction>
+                    <IconAction
                         title={isDisabled ? t('accounts.disabled_tooltip') : (isRefreshing ? t('common.refreshing') : t('common.refresh'))}
+                        onClick={(e) => { e.stopPropagation(); onRefresh(); }}
                         disabled={isRefreshing || isDisabled}
+                        busy={isRefreshing}
                     >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                    </button>
-                    <button
-                        className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-all"
-                        onClick={(e) => { e.stopPropagation(); onExport(); }}
-                        title={t('common.export')}
-                    >
-                        <Download className="w-3.5 h-3.5" />
-                    </button>
+                        <RefreshCw className={cn('w-3.5 h-3.5', isRefreshing && 'animate-spin')} />
+                    </IconAction>
                     {onToggleProxy && (
-                        <button
-                            className={cn(
-                                "p-1.5 rounded-lg transition-all",
-                                account.proxy_disabled
-                                    ? "text-gray-500 dark:text-gray-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30"
-                                    : "text-gray-500 dark:text-gray-400 hover:text-orange-600 dark:hover:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/30"
-                            )}
-                            onClick={(e) => { e.stopPropagation(); onToggleProxy(); }}
+                        <IconAction
                             title={account.proxy_disabled ? t('accounts.enable_proxy') : t('accounts.disable_proxy')}
+                            onClick={(e) => { e.stopPropagation(); onToggleProxy(); }}
+                            tone={account.proxy_disabled ? 'warn' : 'default'}
                         >
                             {account.proxy_disabled ? (
                                 <ToggleRight className="w-3.5 h-3.5" />
                             ) : (
                                 <ToggleLeft className="w-3.5 h-3.5" />
                             )}
-                        </button>
+                        </IconAction>
                     )}
-                    <button
-                        className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
-                        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                        title={t('common.delete')}
-                    >
-                        <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <ActionMenu
+                        title={t('common.more', 'More')}
+                        items={[
+                            {
+                                key: 'switch-ide',
+                                label: t('accounts.switch_to_ide', '切换到 Antigravity IDE'),
+                                title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
+                                icon: <Repeat2 className="w-3.5 h-3.5" />,
+                                onClick: () => onSwitch('ide'),
+                                disabled: isSwitching || isDisabled,
+                            },
+                            {
+                                key: 'switch-agy',
+                                label: t('accounts.switch_to_agy', '切换到 Antigravity CLI (agy)'),
+                                title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
+                                icon: <Terminal className="w-3.5 h-3.5" />,
+                                onClick: () => onSwitch('agy'),
+                                disabled: isSwitching || isDisabled,
+                            },
+                            {
+                                key: 'details',
+                                label: t('common.details'),
+                                icon: <Info className="w-3.5 h-3.5" />,
+                                onClick: onViewDetails,
+                                separatorBefore: true,
+                            },
+                            {
+                                key: 'fingerprint',
+                                label: t('accounts.device_fingerprint'),
+                                icon: <Fingerprint className="w-3.5 h-3.5" />,
+                                onClick: onViewDevice,
+                            },
+                            onUpdateLabel && {
+                                key: 'label',
+                                label: t('accounts.edit_label', 'Edit Label'),
+                                icon: <Tag className="w-3.5 h-3.5" />,
+                                onClick: () => setIsEditingLabel(true),
+                            },
+                            onWarmup && {
+                                key: 'warmup',
+                                label: t('accounts.warmup_this', '预热该账号'),
+                                title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
+                                icon: <Sparkles className={cn('w-3.5 h-3.5', isRefreshing && 'animate-pulse')} />,
+                                onClick: onWarmup,
+                                disabled: isRefreshing || isDisabled,
+                            },
+                            {
+                                key: 'export',
+                                label: t('common.export'),
+                                icon: <Download className="w-3.5 h-3.5" />,
+                                onClick: onExport,
+                            },
+                            {
+                                key: 'delete',
+                                label: t('common.delete'),
+                                icon: <Trash2 className="w-3.5 h-3.5" />,
+                                onClick: onDelete,
+                                tone: 'danger',
+                                separatorBefore: true,
+                            },
+                        ]}
+                    />
                 </div>
             </td>
         </>
@@ -848,6 +776,31 @@ function AccountRowContent({
 // ============================================================================
 // 主组件
 // ============================================================================
+
+const QUOTA_SORT_BADGES: Partial<Record<AccountSortOption, { Icon: typeof Clock; text: string; tone: 'lime' | 'ink' | 'warn' | 'bad' }>> = {
+    reset_5h_weekly_priority: { Icon: Sparkles, text: '5H★', tone: 'warn' },
+    reset_5h_asc: { Icon: Clock, text: '5H ↑', tone: 'lime' },
+    reset_5h_desc: { Icon: Clock, text: '5H ↓', tone: 'ink' },
+    reset_weekly_asc: { Icon: Calendar, text: 'Wk ↑', tone: 'lime' },
+    reset_weekly_desc: { Icon: Calendar, text: 'Wk ↓', tone: 'ink' },
+    quota_desc: { Icon: BatteryCharging, text: '% ↓', tone: 'lime' },
+    quota_asc: { Icon: BatteryLow, text: '% ↑', tone: 'bad' },
+};
+
+const QUOTA_SORT_GROUPS: Array<Array<{ id: AccountSortOption; labelKey: string; defaultLabel: string; Icon: typeof Clock; badge?: string }>> = [
+    [
+        { id: 'reset_5h_weekly_priority', labelKey: 'accounts.sort.reset_5h_weekly_priority', defaultLabel: '5H Reset (Weekly-Prioritized)', Icon: Sparkles, badge: 'Best' },
+        { id: 'reset_5h_asc', labelKey: 'accounts.sort.reset_5h_asc', defaultLabel: '5H Reset: Shortest first', Icon: Clock },
+        { id: 'reset_weekly_asc', labelKey: 'accounts.sort.reset_weekly_asc', defaultLabel: 'Weekly Reset: Shortest first', Icon: Calendar },
+    ],
+    [
+        { id: 'quota_desc', labelKey: 'accounts.sort.quota_desc', defaultLabel: 'Quota: Highest first', Icon: BatteryCharging },
+        { id: 'quota_asc', labelKey: 'accounts.sort.quota_asc', defaultLabel: 'Quota: Lowest first', Icon: BatteryLow },
+    ],
+    [
+        { id: 'default', labelKey: 'accounts.sort.default', defaultLabel: 'Default Order (Drag & Drop)', Icon: ArrowUpDown },
+    ],
+];
 
 /**
  * 账号表格组件
@@ -933,59 +886,17 @@ function AccountTable({
     ].includes(sortOption);
 
     const getQuotaSortBadge = () => {
-        switch (sortOption) {
-            case 'reset_5h_weekly_priority':
-                return (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 font-bold text-[10px]">
-                        <Sparkles className="w-3 h-3 text-amber-500" />
-                        <span>5H★</span>
-                    </span>
-                );
-            case 'reset_5h_asc':
-                return (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 font-bold text-[10px]">
-                        <Clock className="w-3 h-3 text-emerald-500" />
-                        <span>5H ↑</span>
-                    </span>
-                );
-            case 'reset_5h_desc':
-                return (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-base-200 text-gray-600 dark:text-gray-400 font-bold text-[10px]">
-                        <Clock className="w-3 h-3 text-gray-400" />
-                        <span>5H ↓</span>
-                    </span>
-                );
-            case 'reset_weekly_asc':
-                return (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-bold text-[10px]">
-                        <Calendar className="w-3 h-3 text-blue-500" />
-                        <span>Wk ↑</span>
-                    </span>
-                );
-            case 'reset_weekly_desc':
-                return (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-base-200 text-gray-600 dark:text-gray-400 font-bold text-[10px]">
-                        <Calendar className="w-3 h-3 text-gray-400" />
-                        <span>Wk ↓</span>
-                    </span>
-                );
-            case 'quota_desc':
-                return (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 font-bold text-[10px]">
-                        <BatteryCharging className="w-3 h-3 text-emerald-500" />
-                        <span>% ↓</span>
-                    </span>
-                );
-            case 'quota_asc':
-                return (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 font-bold text-[10px]">
-                        <BatteryLow className="w-3 h-3 text-rose-500" />
-                        <span>% ↑</span>
-                    </span>
-                );
-            default:
-                return <ArrowUpDown className="w-3 h-3 text-gray-400 opacity-60 group-hover:opacity-100" />;
+        const badge = QUOTA_SORT_BADGES[sortOption];
+        if (!badge) {
+            return <ArrowUpDown className="w-3 h-3 text-base-content/40 group-hover:text-base-content" />;
         }
+        const { Icon, text, tone } = badge;
+        return (
+            <Pill tone={tone}>
+                <Icon className="w-3 h-3" />
+                <span>{text}</span>
+            </Pill>
+        );
     };
 
     // 配置拖拽传感器
@@ -1024,9 +935,10 @@ function AccountTable({
 
     if (accounts.length === 0) {
         return (
-            <div className="bg-white dark:bg-base-100 rounded-2xl p-12 shadow-sm border border-gray-100 dark:border-base-200 text-center">
-                <p className="text-gray-400 mb-2">{t('accounts.empty.title')}</p>
-                <p className="text-sm text-gray-400">{t('accounts.empty.desc')}</p>
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-base-content/20 p-12 text-center">
+                <Mascot size={48} className="text-base-content/40" face="var(--color-base-100)" />
+                <p className="text-base-content/70 font-medium">{t('accounts.empty.title')}</p>
+                <p className="text-sm text-base-content/50">{t('accounts.empty.desc')}</p>
             </div>
         );
     }
@@ -1039,47 +951,64 @@ function AccountTable({
             onDragEnd={handleDragEnd}
         >
             <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full table-fixed" style={{ minWidth: TABLE_MIN_WIDTH }}>
+                    <colgroup>
+                        <col style={{ width: COL_WIDTHS.grip }} />
+                        <col style={{ width: COL_WIDTHS.select }} />
+                        <col />
+                        <col style={{ width: COL_WIDTHS.status }} />
+                        <col style={{ width: COL_WIDTHS.tier }} />
+                        <col style={{ width: COL_WIDTHS.quota }} />
+                        <col style={{ width: COL_WIDTHS.lastUsed }} />
+                        <col style={{ width: COL_WIDTHS.actions }} />
+                    </colgroup>
                     <thead>
-                        <tr className="border-b border-gray-100 dark:border-base-200 bg-gray-50 dark:bg-base-200">
-                            <th className="pl-2 py-2 text-left w-8">
+                        <tr className="border-b border-base-content/10 bg-base-100">
+                            <th className="pl-2 py-2.5 text-left">
                                 <span className="sr-only">{t('accounts.drag_to_reorder')}</span>
                             </th>
-                            <th className="px-2 py-2 text-left w-10">
+                            <th className="px-2 py-2.5 text-left">
                                 <input
                                     type="checkbox"
-                                    className="checkbox checkbox-sm rounded border-2 border-gray-400 dark:border-gray-500 checked:border-blue-600 checked:bg-blue-600 [--chkbg:theme(colors.blue.600)] [--chkfg:white]"
+                                    className={CHECKBOX_CLASS}
                                     checked={accounts.length > 0 && selectedIds.size === accounts.length}
                                     onChange={onToggleAll}
                                 />
                             </th>
-                            <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[260px] whitespace-nowrap">
+                            <th className={TH_CLASS}>
                                 <button
                                     type="button"
                                     onClick={handleEmailSortToggle}
                                     className={cn(
-                                        "inline-flex items-center gap-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors uppercase font-medium",
-                                        (sortOption === 'email_asc' || sortOption === 'email_desc') && "text-blue-600 dark:text-blue-400 font-semibold"
+                                        SORT_BTN_CLASS,
+                                        (sortOption === 'email_asc' || sortOption === 'email_desc') && 'text-base-content',
                                     )}
                                     title={t('accounts.sort.email_asc', 'Click to sort by email / name')}
                                 >
                                     <span>{t('accounts.table.email')}</span>
                                     {sortOption === 'email_asc' ? (
-                                        <ArrowUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                        <ArrowUp className="w-3.5 h-3.5" />
                                     ) : sortOption === 'email_desc' ? (
-                                        <ArrowDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                        <ArrowDown className="w-3.5 h-3.5" />
                                     ) : (
-                                        <ArrowUpDown className="w-3 h-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 opacity-60 hover:opacity-100" />
+                                        <ArrowUpDown className="w-3 h-3 opacity-50 hover:opacity-100" />
                                     )}
                                 </button>
                             </th>
-                            <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[380px] whitespace-nowrap relative" ref={quotaPopoverRef}>
+                            <th className={TH_CLASS}>
+                                {t('accounts.table.status', 'Status')}
+                            </th>
+                            <th className={TH_CLASS}>
+                                {t('accounts.table.tier', 'Tier')}
+                            </th>
+                            <th className={cn(TH_CLASS, 'relative')} ref={quotaPopoverRef}>
                                 <button
                                     type="button"
                                     onClick={() => setIsQuotaPopoverOpen(!isQuotaPopoverOpen)}
                                     className={cn(
-                                        "inline-flex items-center gap-1.5 hover:text-blue-600 dark:hover:text-blue-400 transition-colors uppercase font-medium group",
-                                        isQuotaSortActive && "text-blue-600 dark:text-blue-400 font-semibold"
+                                        SORT_BTN_CLASS,
+                                        'group',
+                                        isQuotaSortActive && 'text-base-content',
                                     )}
                                     title={t('accounts.sort.title', 'Click to select quota & reset sort')}
                                 >
@@ -1088,8 +1017,8 @@ function AccountTable({
                                 </button>
 
                                 {isQuotaPopoverOpen && (
-                                    <div className="absolute left-2 top-full mt-1.5 w-64 rounded-xl bg-white dark:bg-base-100 shadow-2xl border border-gray-100 dark:border-base-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 normal-case font-normal backdrop-blur-md">
-                                        <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray-400 border-b border-gray-100 dark:border-base-200/60 flex items-center justify-between">
+                                    <div className="absolute left-2 top-full mt-1 w-72 bg-base-100 rounded-lg border border-base-content/10 shadow-lg shadow-black/10 py-1 z-50 normal-case font-normal tracking-normal">
+                                        <div className="px-3 py-1.5 text-[11px] font-medium text-base-content/60 border-b border-base-content/10 flex items-center justify-between">
                                             <span>{t('accounts.sort.title', 'Sort by Quota & Reset')}</span>
                                             {isQuotaSortActive && (
                                                 <button
@@ -1098,174 +1027,72 @@ function AccountTable({
                                                         onSortChange?.('default');
                                                         setIsQuotaPopoverOpen(false);
                                                     }}
-                                                    className="text-blue-500 hover:text-blue-600 text-[10px] hover:underline"
+                                                    className="text-base-content/70 underline underline-offset-4 text-[11px] hover:text-base-content"
                                                 >
                                                     {t('common.reset', 'Reset')}
                                                 </button>
                                             )}
                                         </div>
 
-                                        <div className="py-1 divide-y divide-gray-50 dark:divide-white/5">
-                                            {/* 5H Group */}
-                                            <div className="py-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        onSortChange?.('reset_5h_weekly_priority');
-                                                        setIsQuotaPopoverOpen(false);
-                                                    }}
-                                                    className={cn(
-                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
-                                                        sortOption === 'reset_5h_weekly_priority'
-                                                            ? "bg-amber-50/70 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 font-semibold"
-                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
-                                                    )}
-                                                >
-                                                    <div className="flex items-center gap-2">
-                                                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                                                        <span>{t('accounts.sort.reset_5h_weekly_priority', '5H Reset (Weekly-Prioritized)')}</span>
-                                                        <span className="px-1.5 py-0.2 text-[9px] font-bold rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                                                            Best
-                                                        </span>
-                                                    </div>
-                                                    {sortOption === 'reset_5h_weekly_priority' && <Check className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />}
-                                                </button>
-
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        onSortChange?.('reset_5h_asc');
-                                                        setIsQuotaPopoverOpen(false);
-                                                    }}
-                                                    className={cn(
-                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
-                                                        sortOption === 'reset_5h_asc'
-                                                            ? "bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold"
-                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
-                                                    )}
-                                                >
-                                                    <div className="flex items-center gap-2">
-                                                        <Clock className="w-3.5 h-3.5 text-emerald-500" />
-                                                        <span>{t('accounts.sort.reset_5h_asc', '5H Reset: Shortest first')}</span>
-                                                    </div>
-                                                    {sortOption === 'reset_5h_asc' && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
-                                                </button>
-
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        onSortChange?.('reset_weekly_asc');
-                                                        setIsQuotaPopoverOpen(false);
-                                                    }}
-                                                    className={cn(
-                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
-                                                        sortOption === 'reset_weekly_asc'
-                                                            ? "bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold"
-                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
-                                                    )}
-                                                >
-                                                    <div className="flex items-center gap-2">
-                                                        <Calendar className="w-3.5 h-3.5 text-blue-500" />
-                                                        <span>{t('accounts.sort.reset_weekly_asc', 'Weekly Reset: Shortest first')}</span>
-                                                    </div>
-                                                    {sortOption === 'reset_weekly_asc' && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
-                                                </button>
-                                            </div>
-
-                                            {/* Quota % Group */}
-                                            <div className="py-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        onSortChange?.('quota_desc');
-                                                        setIsQuotaPopoverOpen(false);
-                                                    }}
-                                                    className={cn(
-                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
-                                                        sortOption === 'quota_desc'
-                                                            ? "bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold"
-                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
-                                                    )}
-                                                >
-                                                    <div className="flex items-center gap-2">
-                                                        <BatteryCharging className="w-3.5 h-3.5 text-emerald-500" />
-                                                        <span>{t('accounts.sort.quota_desc', 'Quota: Highest first')}</span>
-                                                    </div>
-                                                    {sortOption === 'quota_desc' && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
-                                                </button>
-
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        onSortChange?.('quota_asc');
-                                                        setIsQuotaPopoverOpen(false);
-                                                    }}
-                                                    className={cn(
-                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
-                                                        sortOption === 'quota_asc'
-                                                            ? "bg-blue-50/70 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold"
-                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
-                                                    )}
-                                                >
-                                                    <div className="flex items-center gap-2">
-                                                        <BatteryLow className="w-3.5 h-3.5 text-rose-500" />
-                                                        <span>{t('accounts.sort.quota_asc', 'Quota: Lowest first')}</span>
-                                                    </div>
-                                                    {sortOption === 'quota_asc' && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
-                                                </button>
-                                            </div>
-
-                                            {/* Reset to Default */}
-                                            <div className="py-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        onSortChange?.('default');
-                                                        setIsQuotaPopoverOpen(false);
-                                                    }}
-                                                    className={cn(
-                                                        "w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors",
-                                                        sortOption === 'default'
-                                                            ? "bg-gray-100 dark:bg-base-200 text-gray-900 dark:text-white font-semibold"
-                                                            : "text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
-                                                    )}
-                                                >
-                                                    <div className="flex items-center gap-2">
-                                                        <ArrowUpDown className="w-3.5 h-3.5 text-gray-400" />
-                                                        <span>{t('accounts.sort.default', 'Default Order (Drag & Drop)')}</span>
-                                                    </div>
-                                                    {sortOption === 'default' && <Check className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
-                                                </button>
-                                            </div>
+                                        <div className="divide-y divide-base-content/10">
+                                            {QUOTA_SORT_GROUPS.map((group, gi) => (
+                                                <div key={gi} className="py-1">
+                                                    {group.map(({ id, labelKey, defaultLabel, Icon, badge }) => (
+                                                        <button
+                                                            key={id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                onSortChange?.(id);
+                                                                setIsQuotaPopoverOpen(false);
+                                                            }}
+                                                            className={cn(
+                                                                'w-full px-3 py-1.5 text-xs text-left flex items-center justify-between transition-colors',
+                                                                sortOption === id
+                                                                    ? 'bg-base-content/10 text-base-content font-medium'
+                                                                    : 'text-base-content/80 hover:bg-base-content/5',
+                                                            )}
+                                                        >
+                                                            <div className="flex items-center gap-2">
+                                                                <Icon className="w-3.5 h-3.5" />
+                                                                <span>{t(labelKey, defaultLabel)}</span>
+                                                                {badge && (
+                                                                    <Pill tone="lime">{badge}</Pill>
+                                                                )}
+                                                            </div>
+                                                            {sortOption === id && <Check className="w-3.5 h-3.5" />}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
                                 )}
                             </th>
-                            <th className="px-2 py-1 text-left rtl:text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[90px] whitespace-nowrap">
+                            <th className={cn(TH_CLASS, 'pr-4')}>
                                 <button
                                     type="button"
                                     onClick={handleLastUsedSortToggle}
                                     className={cn(
-                                        "inline-flex items-center gap-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors uppercase font-medium",
-                                        (sortOption === 'last_used_desc' || sortOption === 'last_used_asc') && "text-blue-600 dark:text-blue-400 font-semibold"
+                                        SORT_BTN_CLASS,
+                                        (sortOption === 'last_used_desc' || sortOption === 'last_used_asc') && 'text-base-content',
                                     )}
                                     title={t('accounts.table.sort_by_last_used', 'Click to sort by last used time')}
                                 >
                                     <span>{t('accounts.table.last_used')}</span>
                                     {sortOption === 'last_used_desc' ? (
-                                        <ArrowDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                        <ArrowDown className="w-3.5 h-3.5" />
                                     ) : sortOption === 'last_used_asc' ? (
-                                        <ArrowUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                        <ArrowUp className="w-3.5 h-3.5" />
                                     ) : (
-                                        <ArrowUpDown className="w-3 h-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 opacity-60 hover:opacity-100" />
+                                        <ArrowUpDown className="w-3 h-3 opacity-50 hover:opacity-100" />
                                     )}
                                 </button>
                             </th>
-                            <th className="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap sticky right-0 w-[220px] bg-gray-50 dark:bg-base-200 z-20 shadow-[-12px_0_12px_-12px_rgba(0,0,0,0.1)] dark:shadow-[-12px_0_12px_-12px_rgba(255,255,255,0.05)] text-center">{t('accounts.table.actions')}</th>
-                        </tr >
-                    </thead >
+                            <th className={cn(TH_CLASS, 'text-right')}>{t('accounts.table.actions')}</th>
+                        </tr>
+                    </thead>
                     <SortableContext items={accountIds} strategy={verticalListSortingStrategy}>
-                        <tbody className="divide-y divide-gray-100 dark:divide-base-200">
+                        <tbody>
                             {accounts.map((account) => (
                                 <SortableAccountRow
                                     key={account.id}
@@ -1293,25 +1120,35 @@ function AccountTable({
                             ))}
                         </tbody>
                     </SortableContext>
-                </table >
-            </div >
+                </table>
+            </div>
 
             {/* 拖拽悬浮预览层 */}
             <DragOverlay>
                 {
                     activeAccount ? (
-                        <table className="w-full bg-white dark:bg-base-100 shadow-2xl rounded-lg border border-blue-200 dark:border-blue-800">
+                        <table className="w-full table-fixed bg-base-100 rounded-lg border border-base-content/15 shadow-lg shadow-black/10" style={{ minWidth: TABLE_MIN_WIDTH }}>
+                            <colgroup>
+                                <col style={{ width: COL_WIDTHS.grip }} />
+                                <col style={{ width: COL_WIDTHS.select }} />
+                                <col />
+                                <col style={{ width: COL_WIDTHS.status }} />
+                                <col style={{ width: COL_WIDTHS.tier }} />
+                                <col style={{ width: COL_WIDTHS.quota }} />
+                                <col style={{ width: COL_WIDTHS.lastUsed }} />
+                                <col style={{ width: COL_WIDTHS.actions }} />
+                            </colgroup>
                             <tbody>
-                                <tr className="bg-blue-50 dark:bg-blue-900/30">
-                                    <td className="pl-2 py-1 w-8">
-                                        <div className="flex items-center justify-center w-6 h-6 text-blue-500">
+                                <tr className="bg-base-200">
+                                    <td className="pl-1 py-1 border-l-2 border-transparent">
+                                        <div className="flex items-center justify-center w-6 h-6 text-base-content">
                                             <GripVertical className="w-4 h-4" />
                                         </div>
                                     </td>
-                                    <td className="px-2 py-1 w-10">
+                                    <td className="px-2 py-1">
                                         <input
                                             type="checkbox"
-                                            className="checkbox checkbox-xs rounded border-2"
+                                            className={CHECKBOX_CLASS}
                                             checked={selectedIds.has(activeAccount.id)}
                                             readOnly
                                         />

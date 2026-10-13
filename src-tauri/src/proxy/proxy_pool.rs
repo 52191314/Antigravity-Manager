@@ -85,7 +85,7 @@ impl ProxyPoolManager {
         timeout_secs: u64,
     ) -> Client {
         let mut builder = Client::builder()
-            .emulation(Emulation::Chrome123)
+            .emulation(crate::utils::http::get_canonical_emulation_option())
             .timeout(Duration::from_secs(timeout_secs));
 
         // 尝试获取代理配置
@@ -147,7 +147,7 @@ impl ProxyPoolManager {
         timeout_secs: u64,
     ) -> Client {
         let mut builder = Client::builder()
-            // 无 Emulation 设置，走纯正的基础 TLS 指纹
+            .emulation(crate::utils::http::get_canonical_emulation_option())
             .timeout(Duration::from_secs(timeout_secs));
 
         // 尝试获取代理配置
@@ -590,9 +590,8 @@ impl ProxyPoolManager {
 
         let client_result = Client::builder()
             .proxy(proxy_cfg.proxy)
-            .emulation(Emulation::Chrome123)
+            .emulation(crate::utils::http::get_canonical_emulation_option())
             .timeout(Duration::from_secs(10))
-            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
             .build();
 
         let client = match client_result {

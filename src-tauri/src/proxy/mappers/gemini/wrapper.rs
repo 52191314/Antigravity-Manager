@@ -791,6 +791,9 @@ pub fn wrap_request_v2(
                 });
             }
         }
+
+        // [DEMON] 应用 DEMON 模式自动净化与自主工程身份注入
+        crate::proxy::mappers::demon::apply_demon_transform(&mut inner_request);
     }
 
     // [REMOVED v4.8.2] toolConfig / tool_config 双写已移除：官方 Antigravity 报文不带该字段，
@@ -986,6 +989,16 @@ pub fn inject_ids_to_response(response: &mut Value, model_name: &str) {
 
                             fc.insert("id".to_string(), json!(call_id));
                             tracing::debug!("[Gemini-Wrap] Response stage: Injected synthetic call_id '{}' for client", call_id);
+                        }
+
+                        // [AUTO-HEAL] If functionCall.args is a truncated/unclosed JSON string,
+                        // auto-repair it so downstream clients never receive unparseable JSON!
+                        if let Some(args_val) = fc.get_mut("args") {
+                            if let Some(args_str) = args_val.as_str() {
+                                if let Some(repaired_obj) = crate::proxy::pipeline::InboundThinkingPipeline::repair_truncated_json_str(args_str) {
+                                    *args_val = repaired_obj;
+                                }
+                            }
                         }
                     }
                 }

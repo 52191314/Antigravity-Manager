@@ -175,7 +175,7 @@ export default function MiniView() {
 
         const resetTooltip = [
             q.fiveHourResetTime ? `5H: ${new Date(q.fiveHourResetTime).toLocaleTimeString()}` : null,
-            q.weeklyResetTime ? `周: ${new Date(q.weeklyResetTime).toLocaleDateString()}` : null,
+            q.weeklyResetTime ? `Weekly: ${new Date(q.weeklyResetTime).toLocaleDateString()}` : null,
         ].filter(Boolean).join(' | ');
 
         return (
@@ -190,16 +190,16 @@ export default function MiniView() {
                     <div className="flex items-center gap-1.5 shrink-0">
                         {/* 状态徽标 */}
                         {q.isWeeklyExhausted ? (
-                            <span className="text-[9px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-900/30 px-1 py-0.2 rounded" title={t('dashboard.weekly_exhausted_badge', '周额度熔断')}>
-                                {t('dashboard.mini_tag_exhausted', '熔断')}
+                            <span className="text-[9px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-900/30 px-1 py-0.2 rounded" title={t('dashboard.weekly_exhausted_badge', 'Weekly Zero')}>
+                                {t('dashboard.mini_tag_exhausted', 'Zero')}
                             </span>
                         ) : quotaView === '5h' && q.isWeeklyConstrained && q.raw5h !== null && q.rawWeekly !== null ? (
                             <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400" title={t('dashboard.constrained_by_weekly_desc', { raw5h: q.raw5h, rawWeekly: q.rawWeekly, effective: p })}>
-                                [{t('dashboard.mini_tag_constrained', '周限')}: {q.rawWeekly}%]
+                                [{t('dashboard.mini_tag_constrained', 'Capped')}: {q.rawWeekly}%]
                             </span>
                         ) : quotaView === 'weekly' && q.is5hCooling ? (
                             <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400" title={t('dashboard.cooling_5h_desc', { rawWeekly: q.rawWeekly })}>
-                                [{t('dashboard.mini_tag_cooling', '冷却')}]
+                                [{t('dashboard.mini_tag_cooling', 'Cooling')}]
                             </span>
                         ) : null}
 
@@ -258,9 +258,9 @@ export default function MiniView() {
                                     "px-1 py-0.5 rounded transition-all",
                                     quotaView === 'weighted' ? "bg-indigo-600 text-white shadow-xs" : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                                 )}
-                                title={t('dashboard.view_mode_title_weighted', '综合加权')}
+                                title={t('dashboard.view_mode_title_weighted', 'Weighted Effective: Overall health considering tier weights & bidirectional bucket constraints')}
                             >
-                                综
+                                W
                             </button>
                             <button
                                 onClick={() => setQuotaView('5h')}
@@ -268,7 +268,7 @@ export default function MiniView() {
                                     "px-1 py-0.5 rounded transition-all",
                                     quotaView === '5h' ? "bg-emerald-600 text-white shadow-xs" : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                                 )}
-                                title={t('dashboard.view_mode_title_5h', '5H 滚动')}
+                                title={t('dashboard.view_mode_title_5h', '5h Rolling: Burst quota within 5 hours (capped by weekly ceiling)')}
                             >
                                 5H
                             </button>
@@ -278,9 +278,9 @@ export default function MiniView() {
                                     "px-1 py-0.5 rounded transition-all",
                                     quotaView === 'weekly' ? "bg-purple-600 text-white shadow-xs" : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                                 )}
-                                title={t('dashboard.view_mode_title_weekly', '7天周配额')}
+                                title={t('dashboard.view_mode_title_weekly', '7d Weekly: Macro weekly budget (throttled by 5h cooling valve)')}
                             >
-                                周
+                                7D
                             </button>
                         </div>
 
@@ -336,7 +336,7 @@ export default function MiniView() {
                                 <div className="space-y-4 !mt-0">
                                     {renderModelRow(geminiProModel, getModelDisplayName(geminiProModel), 'emerald')}
                                     {renderModelRow(geminiFlashModel, getModelDisplayName(geminiFlashModel), 'emerald')}
-                                    {renderModelRow(claudeModel, getModelDisplayName(claudeModel, t('common.claude_series', 'Claude 系列')), 'cyan')}
+                                    {renderModelRow(claudeModel, getModelDisplayName(claudeModel, t('common.claude_series', 'Claude Series')), 'cyan')}
 
                                     {!geminiProModel && !geminiFlashModel && !claudeModel && (
                                         <div className="text-center py-4 text-xs text-gray-400">

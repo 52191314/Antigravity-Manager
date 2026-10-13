@@ -19,6 +19,8 @@ pub mod user_token;
 // 导出 patch 命令
 pub mod patch;
 pub use patch::*;
+// 导出 promon 命令
+pub mod promon;
 
 /// 列出所有账号
 #[tauri::command]
@@ -440,6 +442,8 @@ pub async fn save_config(
     // 同步全局内存配置（无论反代服务当前是否处于运行状态）
     crate::proxy::update_thinking_budget_config(config.proxy.thinking_budget.clone());
     crate::proxy::update_global_system_prompt_config(config.proxy.global_system_prompt.clone());
+    crate::proxy::update_demon_config(config.proxy.demon.clone());
+    crate::proxy::update_allow_standard_gemini_models(config.proxy.allow_standard_gemini_models);
     crate::proxy::update_image_thinking_mode(config.proxy.image_thinking_mode.clone());
     crate::proxy::update_multimodal_config(config.proxy.multimodal.clone());
     crate::proxy::vertex::update_config(config.proxy.vertex.clone());
@@ -490,6 +494,10 @@ pub async fn save_config(
         crate::proxy::update_thinking_budget_config(config.proxy.thinking_budget.clone());
         // [NEW] 更新全局系统提示词配置
         crate::proxy::update_global_system_prompt_config(config.proxy.global_system_prompt.clone());
+        // [NEW] 更新 DEMON 模式配置
+        crate::proxy::update_demon_config(config.proxy.demon.clone());
+        // [NEW] 更新允许标准 Gemini 官方模型配置
+        crate::proxy::update_allow_standard_gemini_models(config.proxy.allow_standard_gemini_models);
         // [NEW] 更新全局图像思维模式配置
         crate::proxy::update_image_thinking_mode(config.proxy.image_thinking_mode.clone());
         crate::proxy::update_multimodal_config(config.proxy.multimodal.clone());
@@ -1004,10 +1012,12 @@ pub async fn migrate_data_dir(new_path: String, clean_source: bool) -> Result<()
 
     // 若用户选择清理原目录，且原目录不是根目录/系统关键目录
     if clean_source && source_dir.exists() {
-        // 安全检查：确保 source_dir 的文件名是 .antigravity_tools 或存在 accounts.json
+        // 安全检查：确保 source_dir 的文件名是 .proxymateur（或旧的 .antigravity_tools）或存在 accounts.json
         let has_accounts = source_dir.join("accounts.json").exists();
-        let is_default_name =
-            source_dir.file_name().and_then(|n| n.to_str()) == Some(".antigravity_tools");
+        let is_default_name = matches!(
+            source_dir.file_name().and_then(|n| n.to_str()),
+            Some(".proxymateur") | Some(".antigravity_tools")
+        );
         if has_accounts || is_default_name {
             if let Err(e) = std::fs::remove_dir_all(&source_dir) {
                 tracing::warn!("迁移后清理原数据目录失败 (可能部分文件被占用): {}", e);
@@ -1575,7 +1585,7 @@ $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($template)
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 try {{
-    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Antigravity Tools").Show($toast)
+    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Proxymateur").Show($toast)
 }} catch {{
     [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\powershell.exe").Show($toast)
 }}"#,

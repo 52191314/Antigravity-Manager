@@ -135,7 +135,7 @@ export function HermesSyncModal({ apiKey, getFormattedProxyUrl, onClose, onSyncD
             return;
         }
         if (activateProvider && !availableDefaultModels.some(model => model.id === defaultModel)) {
-            showToast(t('proxy.hermes_sync.default_model_invalid', { defaultValue: 'Select a default model available through Antigravity Manager' }), 'error');
+            showToast(t('proxy.hermes_sync.default_model_invalid', { defaultValue: 'Select a default model available through Proxymateur' }), 'error');
             return;
         }
 
@@ -170,7 +170,7 @@ export function HermesSyncModal({ apiKey, getFormattedProxyUrl, onClose, onSyncD
                             </div>
                             <div>
                                 <h3 className="text-sm font-bold text-gray-900 dark:text-base-content">
-                                    {t('proxy.hermes_sync.modal_title', { defaultValue: 'Configure Antigravity Manager in Hermes' })}
+                                    {t('proxy.hermes_sync.modal_title', { defaultValue: 'Configure Proxymateur in Hermes' })}
                                 </h3>
                                 <p className="text-[10px] text-gray-400 mt-0.5">$HERMES_HOME/config.yaml → providers.antigravity-manager</p>
                             </div>
@@ -282,7 +282,7 @@ export function HermesSyncModal({ apiKey, getFormattedProxyUrl, onClose, onSyncD
                                 <label className={cn("flex items-start gap-2 p-3 rounded-xl border cursor-pointer transition-all", activateProvider ? "border-purple-400 bg-purple-50/50 dark:bg-purple-900/10" : "border-gray-200 dark:border-base-300")}>
                                     <input type="checkbox" checked={activateProvider} onChange={event => setActivateProvider(event.target.checked)} className="checkbox checkbox-xs checkbox-primary mt-0.5" />
                                     <span>
-                                        <span className="block text-xs font-bold">{t('proxy.hermes_sync.activate_provider', { defaultValue: 'Make Antigravity Manager the default Hermes provider' })}</span>
+                                        <span className="block text-xs font-bold">{t('proxy.hermes_sync.activate_provider', { defaultValue: 'Make Proxymateur the default Hermes provider' })}</span>
                                         <span className="block text-[10px] text-gray-400 mt-0.5">{t('proxy.hermes_sync.activate_provider_desc', { defaultValue: 'Off by default so your current Hermes provider is not changed.' })}</span>
                                     </span>
                                 </label>

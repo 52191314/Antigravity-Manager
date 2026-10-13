@@ -11,7 +11,7 @@ export async function copyToClipboard(text: string): Promise<boolean> {
             await navigator.clipboard.writeText(text);
             return true;
         } catch (err) {
-            console.error('Clipboard API 复制失败:', err);
+            console.error('Clipboard API copy failed:', err);
         }
     }
 
@@ -34,7 +34,7 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 
         return successful;
     } catch (err) {
-        console.error('execCommand 复制失败:', err);
+        console.error('execCommand copy failed:', err);
         return false;
     }
 }

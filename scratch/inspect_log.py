@@ -1,7 +1,7 @@
 import sqlite3
 import json
 
-conn = sqlite3.connect(r'C:\Users\X\.antigravity_tools\proxy_logs.db')
+conn = sqlite3.connect(r'C:\Users\X\.proxymateur\proxy_logs.db')
 c = conn.cursor()
 
 for req_id in ['e8fd053e-f468-4fef-a3d7-160e9c73591d', 'e89fc9e2-fa5e-4625-8ece-7b9724b5a422']:

@@ -1,4 +1,4 @@
-# Antigravity Tools 发版操作指南 (Release SOP)
+# Proxymateur 发版操作指南 (Release SOP)
 
 发版详细规程。提交门禁与发版红线以根目录 `AGENTS.md` 为准。
 
@@ -55,7 +55,7 @@ npm run build
 
 **可选参数**：`--dry-run` 仅演练、不写盘；`--commit` 自动生成 `chore(release): bump version to ...` 提交。
 
-**同步范围**：`package.json`、`package-lock.json`（根版本镜像，两处）、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json`、`Casks/antigravity-tools.rb`、`README.md`、`README_EN.md`、`src/components/layout/MiniView.tsx`、`src/pages/Settings.tsx`、`CHANGELOG.md`、`CHANGELOG_EN.md`。
+**同步范围**：`package.json`、`package-lock.json`（根版本镜像，两处）、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json`、`Casks/proxymateur.rb`、`README.md`、`README_EN.md`、`src/components/layout/MiniView.tsx`、`src/pages/Settings.tsx`、`CHANGELOG.md`、`CHANGELOG_EN.md`。
 
 > 版本串匹配采用**结构锚定**而非精确匹配当前版本号：`package-lock.json` 按字段位置锚定，README 按 `(v数字…)` / `Version-数字…-blue` 形态锚定。这样即使历史轮次（如预发布跳过 README）造成版本串滞后，下一轮同步仍能正确命中。
 
@@ -136,7 +136,7 @@ git push origin v4.7.14-beta.1
 
 1. **进度**：仓库 `Actions` 页的 `Release` 工作流；
 2. **构建矩阵**：Windows（`.msi` / NSIS `.exe`）、macOS（`.dmg`，Apple Silicon 与 Intel 双架构）、Linux（`.AppImage` / `.deb` / `.rpm`）、Docker 多架构镜像推送 Docker Hub；产出 `updater.json`（配置 `TAURI_SIGNING_PRIVATE_KEY` 时含签名）；
-3. **验收**：约 10~15 分钟后在 `Releases` 页确认 `Antigravity Tools vX.Y.Z` 及附件齐全。
+3. **验收**：约 10~15 分钟后在 `Releases` 页确认 `Proxymateur vX.Y.Z` 及附件齐全。
 
 ---
 

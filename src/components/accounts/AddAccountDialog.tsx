@@ -284,7 +284,7 @@ function AddAccountDialog({ onAdd, showText = true }: AddAccountDialogProps) {
             const url = typeof res === 'string' ? res : res.url;
 
             if (!url) {
-                throw new Error(t('accounts.add.oauth.error_no_url', 'OAuth URLを取得できませんでした'));
+                throw new Error(t('accounts.add.oauth.error_no_url', 'Could not obtain OAuth URL'));
             }
 
             setOauthUrl(url); // 确保链接在 UI 中可见，方便用户手动复制
@@ -294,7 +294,7 @@ function AddAccountDialog({ onAdd, showText = true }: AddAccountDialogProps) {
 
             if (!popup) {
                 setStatus('error');
-                setMessage(t('accounts.add.oauth.popup_blocked', 'ポップアップがブロックされました'));
+                setMessage(t('accounts.add.oauth.popup_blocked', 'Popup blocked'));
                 return;
             }
 
@@ -371,14 +371,14 @@ function AddAccountDialog({ onAdd, showText = true }: AddAccountDialogProps) {
         if (!manualCode.trim()) return;
 
         setStatus('loading');
-        setMessage(t('accounts.add.oauth.manual_submitting', '認可コードを送信中...'));
+        setMessage(t('accounts.add.oauth.manual_submitting', 'Submitting authorization code...'));
 
         try {
             await invoke('submit_oauth_code', { code: manualCode.trim(), state: null });
 
             // 提交成功反馈
             setStatus('success');
-            setMessage(t('accounts.add.oauth.manual_submitted', '認可コードを送信しました。バックエンドで処理中です...'));
+            setMessage(t('accounts.add.oauth.manual_submitted', 'Authorization code submitted. Backend is processing...'));
 
             setManualCode('');
 
@@ -468,7 +468,7 @@ function AddAccountDialog({ onAdd, showText = true }: AddAccountDialogProps) {
     return (
         <>
             <button
-                className="px-2.5 lg:px-4 py-2 bg-white dark:bg-base-100 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-base-200 transition-colors flex items-center gap-2 shadow-sm border border-gray-200/50 dark:border-base-300 relative z-[100]"
+                className="btn btn-sm btn-primary rounded-none gap-2 relative z-[100]"
                 onClick={() => {
                     console.log('AddAccountDialog button clicked');
                     setIsOpen(true);
@@ -529,7 +529,7 @@ function AddAccountDialog({ onAdd, showText = true }: AddAccountDialogProps) {
                         {!isTauri() && (
                             <div className="alert alert-info mb-4 text-xs py-2 flex items-center gap-2 bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-800">
                                 <Info className="w-4 h-4" />
-                                <span>{t('accounts.add.oauth.web_hint', '将在新窗口中打开 Google 登录页')}</span>
+                                <span>{t('accounts.add.oauth.web_hint', 'Google login page will open in a new window')}</span>
                             </div>
                         )}
 

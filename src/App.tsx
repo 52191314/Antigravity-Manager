@@ -7,9 +7,7 @@ import Settings from './pages/Settings';
 import ApiProxy from './pages/ApiProxy';
 import Monitor from './pages/Monitor';
 import TokenStats from './pages/TokenStats';
-import Security from './pages/Security';
-import UserToken from './pages/UserToken';
-import { ApiKeyFun } from './pages/ApiKeyFun';
+import Readme from './pages/Readme';
 import ThemeManager from './components/common/ThemeManager';
 import { UpdateNotification } from './components/UpdateNotification';
 import SuggestionDeleteThinkingModal from './components/common/SuggestionDeleteThinkingModal';
@@ -49,16 +47,8 @@ const router = createBrowserRouter([
         element: <TokenStats />,
       },
       {
-        path: 'user-token',
-        element: <UserToken />,
-      },
-      {
-        path: 'apikey-fun',
-        element: <ApiKeyFun />,
-      },
-      {
-        path: 'security',
-        element: <Security />,
+        path: 'readme',
+        element: <Readme />,
       },
       {
         path: 'settings',

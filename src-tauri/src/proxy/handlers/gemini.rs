@@ -229,7 +229,7 @@ pub async fn handle_generate(
         let norm_start = std::time::Instant::now();
 
         // 3. 模型路由解析
-        let mapped_model = initial_mapped_model.clone();
+        let mut mapped_model = initial_mapped_model.clone();
         // 提取 tools 列表以进行联网探测 (Gemini 风格可能是嵌套的，支持已带 request 包装的客户端)
         let effective_req = body.get("request").unwrap_or(&body);
         let tools_val: Option<Vec<Value>> = effective_req
@@ -334,17 +334,105 @@ pub async fn handle_generate(
                                 },
                             );
                         }
-                        let headers = build_token_error_headers(
-                            Some(mapped_model.as_str()),
-                            last_email.as_deref(),
-                            &e,
-                        );
-                        return Ok((
-                            StatusCode::SERVICE_UNAVAILABLE,
-                            headers,
-                            format!("Token error: {}", e),
-                        )
-                            .into_response());
+
+                        // [AUTOMATIC MODEL FALLBACK]
+                        // If requested model is exhausted/limited across all accounts,
+                        // and it wasn't already gemini-3.8-flash:
+                        // Automatically fall back to gemini-3.8-flash (accounts pool or Vertex depending on existing setting)
+                        let fallback_model = crate::proxy::vertex::DEFAULT_MODEL; // "gemini-3.8-flash"
+                        if config.final_model != fallback_model {
+                            let vertex_cfg = crate::proxy::vertex::get_config();
+                            let fallback_vertex_route = crate::proxy::vertex::resolve_route(&vertex_cfg, fallback_model);
+
+                            // If Vertex is enabled and configured as VertexFirst, route to Vertex:
+                            if let Some(route) = fallback_vertex_route.as_ref().filter(|r| r.vertex_first) {
+                                warn!(
+                                    "[Model Fallback] Requested model '{}' exhausted ({}); falling back to Vertex AI ({}) for {}",
+                                    config.final_model, e, fallback_model, model_name
+                                );
+                                return Ok(
+                                    match crate::proxy::vertex::handle_generate(
+                                        &upstream,
+                                        route,
+                                        &method,
+                                        &body,
+                                        upstream_recorder.as_ref().map(|recorder| &recorder.0),
+                                    )
+                                    .await
+                                    {
+                                        Ok(response) => response,
+                                        Err(failure) => failure.response,
+                                    },
+                                );
+                            }
+
+                            // Otherwise (accounts_first or Vertex disabled), try account pool with gemini-3.8-flash:
+                            match token_manager
+                                .get_token_waiting_out_cooldown(
+                                    "gemini",
+                                    false,
+                                    Some(&affinity_key),
+                                    fallback_model,
+                                )
+                                .await
+                            {
+                                Ok(fallback_token) => {
+                                    warn!(
+                                        "[Model Fallback] Requested model '{}' exhausted ({}); falling back to account '{}' with {}",
+                                        config.final_model, e, fallback_token.2, fallback_model
+                                    );
+                                    mapped_model = fallback_model.to_string();
+                                    fallback_token
+                                }
+                                Err(fallback_err) => {
+                                    // If account pool for gemini-3.8-flash is also unavailable, check if Vertex is available:
+                                    if let Some(route) = fallback_vertex_route.as_ref() {
+                                        warn!(
+                                            "[Model Fallback] Accounts unavailable for both '{}' and '{}' ({}); falling back to Vertex AI for {}",
+                                            config.final_model, fallback_model, fallback_err, model_name
+                                        );
+                                        return Ok(
+                                            match crate::proxy::vertex::handle_generate(
+                                                &upstream,
+                                                route,
+                                                &method,
+                                                &body,
+                                                upstream_recorder.as_ref().map(|recorder| &recorder.0),
+                                            )
+                                            .await
+                                            {
+                                                Ok(response) => response,
+                                                Err(failure) => failure.response,
+                                            },
+                                        );
+                                    }
+
+                                    let headers = build_token_error_headers(
+                                        Some(mapped_model.as_str()),
+                                        last_email.as_deref(),
+                                        &e,
+                                    );
+                                    return Ok((
+                                        StatusCode::SERVICE_UNAVAILABLE,
+                                        headers,
+                                        format!("Token error: {}", e),
+                                    )
+                                        .into_response());
+                                }
+                            }
+                        } else {
+                            let headers = build_token_error_headers(
+                                Some(mapped_model.as_str()),
+                                last_email.as_deref(),
+                                &e,
+                            );
+                            return Ok((
+                                StatusCode::SERVICE_UNAVAILABLE,
+                                headers,
+                                format!("Token error: {}", e),
+                            )
+                                .into_response());
+                        }
                     }
                 }
             };
@@ -740,8 +828,9 @@ pub async fn handle_generate(
 
                                 if line.starts_with("data: ") {
                                     let json_part = line.trim_start_matches("data: ").trim();
+                                    // Gemini 原生协议没有 `[DONE]` 哨兵：原生客户端（如 agy）会把每个 data 帧
+                                    // 按 protojson 解析，转发 `[DONE]` 会触发 "unexpected token [" 并中断会话。
                                     if json_part == "[DONE]" {
-                                        yield Ok::<Bytes, String>(Bytes::from("data: [DONE]\n\n"));
                                         continue;
                                     }
 

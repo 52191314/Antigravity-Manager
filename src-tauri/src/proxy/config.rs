@@ -120,6 +120,67 @@ pub fn update_global_system_prompt_config(config: GlobalSystemPromptConfig) {
 }
 
 // ============================================================================
+// 全局 DEMON 模式配置存储 (Autonomous Diagnostics & Safety Shim)
+// ============================================================================
+static DEMON_CONFIG: OnceLock<RwLock<DemonConfig>> = OnceLock::new();
+
+/// 获取当前 DEMON 模式配置
+pub fn get_demon_config() -> DemonConfig {
+    DEMON_CONFIG
+        .get()
+        .and_then(|lock| lock.read().ok())
+        .map(|cfg| cfg.clone())
+        .unwrap_or_default()
+}
+
+/// 更新 DEMON 模式配置
+pub fn update_demon_config(config: DemonConfig) {
+    if let Some(lock) = DEMON_CONFIG.get() {
+        if let Ok(mut cfg) = lock.write() {
+            *cfg = config.clone();
+            tracing::info!(
+                "[DEMON] Config updated: enabled={}, decontaminate={}, autonomous_persona={}",
+                config.enabled,
+                config.decontaminate,
+                config.autonomous_persona
+            );
+        }
+    } else {
+        let _ = DEMON_CONFIG.set(RwLock::new(config.clone()));
+        tracing::info!(
+            "[DEMON] Config initialized: enabled={}, decontaminate={}, autonomous_persona={}",
+            config.enabled,
+            config.decontaminate,
+            config.autonomous_persona
+        );
+    }
+}
+
+// ============================================================================
+// 全局允许标准 Gemini 官方模型列表配置存储 (Standard Gemini Models Routing)
+// ============================================================================
+static GLOBAL_ALLOW_STANDARD_GEMINI_MODELS: OnceLock<RwLock<bool>> = OnceLock::new();
+
+pub fn get_allow_standard_gemini_models() -> bool {
+    GLOBAL_ALLOW_STANDARD_GEMINI_MODELS
+        .get()
+        .and_then(|lock| lock.read().ok().map(|guard| *guard))
+        .unwrap_or(false)
+}
+
+pub fn update_allow_standard_gemini_models(enabled: bool) {
+    if let Some(lock) = GLOBAL_ALLOW_STANDARD_GEMINI_MODELS.get() {
+        if let Ok(mut val) = lock.write() {
+            *val = enabled;
+            tracing::info!("[Gemini-Models] Allow standard Gemini models updated: {}", enabled);
+        }
+    } else {
+        let _ = GLOBAL_ALLOW_STANDARD_GEMINI_MODELS.set(RwLock::new(enabled));
+        tracing::info!("[Gemini-Models] Allow standard Gemini models initialized: {}", enabled);
+    }
+}
+
+// ============================================================================
 // 全局图像思维模式配置存储
 // ============================================================================
 static GLOBAL_IMAGE_THINKING_MODE: OnceLock<RwLock<String>> = OnceLock::new();
@@ -299,6 +360,35 @@ impl Default for GlobalSystemPromptConfig {
         }
     }
 }
+
+/// DEMON 模式配置 (Autonomous Diagnostics & Safety Shim)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DemonConfig {
+    /// 是否启用 DEMON 模式
+    #[serde(default)]
+    pub enabled: bool,
+    /// 是否自动净化敏感词元 (Token Decontamination)
+    #[serde(default = "default_true")]
+    pub decontaminate: bool,
+    /// 是否自动注入自主工程身份 (Autonomous Persona Injection)
+    #[serde(default = "default_true")]
+    pub autonomous_persona: bool,
+    /// 自定义附加提示词 (可选)
+    #[serde(default)]
+    pub custom_rules: String,
+}
+
+impl Default for DemonConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            decontaminate: true,
+            autonomous_persona: true,
+            custom_rules: String::new(),
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -780,6 +870,10 @@ pub struct ProxyConfig {
     #[serde(default)]
     pub custom_mapping: std::collections::HashMap<String, String>,
 
+    /// 已停用的自定义映射规则 key 列表 (支持在 UI 中一键启用/停用规则而不必删除)
+    #[serde(default)]
+    pub disabled_custom_mappings: Vec<String>,
+
     /// API 请求超时时间(秒)
     #[serde(default = "default_request_timeout")]
     pub request_timeout: u64,
@@ -846,6 +940,14 @@ pub struct ProxyConfig {
     /// 自动注入到所有 API 请求的 systemInstruction 中
     #[serde(default)]
     pub global_system_prompt: GlobalSystemPromptConfig,
+
+    /// DEMON 模式配置 (Autonomous Diagnostics & Safety Shim)
+    #[serde(default)]
+    pub demon: DemonConfig,
+
+    /// 允许获取标准 Gemini 官方模型列表 (而非仅 Antigravity 过滤模型)
+    #[serde(default)]
+    pub allow_standard_gemini_models: bool,
 
     /// 图像思维模式配置
     /// - enabled: 保留思维链 (默认)
@@ -993,6 +1095,7 @@ impl Default for ProxyConfig {
             admin_password: None,
             auto_start: false,
             custom_mapping: default_custom_mapping(),
+            disabled_custom_mappings: Vec::new(),
             request_timeout: default_request_timeout(),
             enable_logging: true,       // 默认开启，支持 token 统计功能
             capture_health_logs: false, // 默认关闭，过滤 GET /health 探活且不入库
@@ -1009,6 +1112,8 @@ impl Default for ProxyConfig {
             saved_user_agent: None,
             thinking_budget: ThinkingBudgetConfig::default(),
             global_system_prompt: GlobalSystemPromptConfig::default(),
+            demon: DemonConfig::default(),
+            allow_standard_gemini_models: false,
             proxy_pool: ProxyPoolConfig::default(),
             multimodal: MultimodalConfig::default(),
             vertex: crate::proxy::vertex::VertexConfig::default(),

@@ -101,7 +101,7 @@ const displayNameCases: Array<[ModelInput, string | undefined, string]> = [
     [{ name: 'gemini-3-pro-high', display_name: 'Gemini 3.1 Pro High' }, undefined, 'Gemini 3.1 Pro High'],
     [{ name: 'gemini-3-flash' }, undefined, 'Gemini 3 Flash'],
     [{ name: 'gemini-3.1-flash-image', display_name: undefined }, undefined, 'Gemini 3.1 Flash Image'],
-    [undefined, 'Claude 系列', 'Claude 系列'],
+    [undefined, 'Claude Series', 'Claude Series'],
     [null, undefined, ''],
     [{ name: 'claude-opus-4-6-thinking', display_name: 'Claude Opus 4.6 TK' }, undefined, 'Claude Opus 4.6 TK'],
 ];

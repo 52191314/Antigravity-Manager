@@ -77,6 +77,72 @@ pub fn extract_client_thinking_switch(
 pub struct InboundThinkingPipeline;
 
 impl InboundThinkingPipeline {
+    /// 自动自愈被截断或未闭合的工具参数 JSON 字符串：
+    /// 针对流式截断、上下文超限等场景导致的未闭合引号或花括号，
+    /// 自动补全闭合引号与括号，恢复为合法 JSON Object，避免下游客户端反序列化崩溃。
+    pub fn repair_truncated_json_str(s: &str) -> Option<Value> {
+        if let Ok(val) = serde_json::from_str::<Value>(s) {
+            if val.is_object() {
+                return Some(val);
+            }
+        }
+
+        let trimmed = s.trim();
+        if !trimmed.starts_with('{') {
+            return None;
+        }
+
+        let mut in_str = false;
+        let mut escape = false;
+        let mut stack = Vec::new();
+
+        for ch in trimmed.chars() {
+            if escape {
+                escape = false;
+                continue;
+            }
+            if ch == '\\' {
+                if in_str {
+                    escape = true;
+                }
+                continue;
+            }
+            if ch == '"' {
+                in_str = !in_str;
+                continue;
+            }
+            if !in_str {
+                if ch == '{' {
+                    stack.push('}');
+                } else if ch == '[' {
+                    stack.push(']');
+                } else if ch == '}' || ch == ']' {
+                    if let Some(&expected) = stack.last() {
+                        if expected == ch {
+                            stack.pop();
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut repaired = trimmed.to_string();
+        if in_str {
+            repaired.push('"');
+        }
+        while let Some(closing_ch) = stack.pop() {
+            repaired.push(closing_ch);
+        }
+
+        if let Ok(val) = serde_json::from_str::<Value>(&repaired) {
+            if val.is_object() {
+                return Some(val);
+            }
+        }
+
+        None
+    }
+
     /// 执行统一进站处理
     pub fn process_contents(
         contents: &mut Vec<Value>,
@@ -431,12 +497,19 @@ impl InboundThinkingPipeline {
                 let mut extra_inline_parts = Vec::new();
                 for part in parts.iter_mut() {
                     if let Some(fc) = part.get_mut("functionCall") {
+                        let tool_name = fc.get("name").and_then(|n| n.as_str()).unwrap_or("unknown").to_string();
                         if let Some(args_val) = fc.get_mut("args") {
                             if let Some(args_str) = args_val.as_str() {
                                 if let Ok(parsed_obj) = serde_json::from_str::<Value>(args_str) {
                                     if parsed_obj.is_object() {
                                         *args_val = parsed_obj;
                                     }
+                                } else if let Some(repaired_obj) = Self::repair_truncated_json_str(args_str) {
+                                    tracing::warn!(
+                                        "[Auto-Heal] Successfully auto-repaired truncated functionCall.args JSON string for tool '{}'",
+                                        tool_name
+                                    );
+                                    *args_val = repaired_obj;
                                 }
                             }
                         }

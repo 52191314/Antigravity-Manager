@@ -40,7 +40,7 @@ function keys(value: unknown): string[] {
     return Object.keys(value);
 }
 
-test('官方信封：思考配置留在 generationConfig 内，系统提示词保留 role', () => {
+test('official envelope: thinking config stays inside generationConfig, system prompt keeps role', () => {
     const raw = {
         project: 'aicode-consumers',
         requestId: 'agent/b0cc58a9212f26fb/1790578373562/9d5055b2/23',
@@ -140,7 +140,7 @@ test('官方信封：思考配置留在 generationConfig 内，系统提示词�
     assertEqual(out.requestType, 'agent');
 });
 
-test('扁平 Gemini 报文不把 thinkingConfig 抬到根上，也不丢掉 role', () => {
+test('flat Gemini payload does not hoist thinkingConfig to root and does not drop role', () => {
     const raw = {
         contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
         systemInstruction: { role: 'user', parts: [{ text: 'sys' }] },
@@ -165,7 +165,7 @@ test('扁平 Gemini 报文不把 thinkingConfig 抬到根上，也不丢掉 role
     assertEqual(out.systemInstruction.role, 'user');
 });
 
-test('根上若本就有 requestId，用原字段名前置，不改写成 _session_thinking_id', () => {
+test('if root already has requestId, it is moved first under its original field name, not rewritten to _session_thinking_id', () => {
     const raw = {
         model: 'gemini-3.8-flash-high',
         requestId: 'agent/b0cc58a9212f26fb/1790578373562/9d5055b2/23',
@@ -180,7 +180,7 @@ test('根上若本就有 requestId，用原字段名前置，不改写成 _sessi
     assertEqual(out.requestId, raw.requestId);
 });
 
-test('Claude / OpenAI 客户端字段保持各自层级', () => {
+test('Claude / OpenAI client fields keep their own hierarchy', () => {
     const claude = {
         model: 'claude-sonnet-4-6',
         max_tokens: 64000,
@@ -206,7 +206,7 @@ test('Claude / OpenAI 客户端字段保持各自层级', () => {
     assertEqual(responsesOut.input[0].content, 'hi');
 });
 
-test('只替换 inline base64，不改动所在层级', () => {
+test('only replaces inline base64, leaving its hierarchy untouched', () => {
     const raw = {
         model: 'gemini-3.8-flash-high',
         contents: [
@@ -226,7 +226,7 @@ test('只替换 inline base64，不改动所在层级', () => {
     });
 });
 
-test('响应报文不拆掉 candidates 层级', () => {
+test('response payload keeps the candidates hierarchy', () => {
     const raw = {
         candidates: [
             {

@@ -1,9 +1,29 @@
 use crate::modules::config::load_app_config;
 use once_cell::sync::Lazy;
 use rquest::{Client, Proxy};
-use rquest_util::Emulation;
+use rquest_util::{Emulation, EmulationOS, EmulationOption};
 use std::collections::HashMap;
 use std::sync::RwLock;
+
+/// Returns a clean Chrome 123 EmulationOption:
+/// 1. Emulates Chrome 123 TLS fingerprint and HTTP/2 settings.
+/// 2. Sets `emulation_os` dynamically based on host OS (`Windows`, `MacOS`, or `Linux`).
+/// 3. Sets `skip_headers(true)` so NO Chrome browser navigation headers (`sec-ch-ua`,
+///    `sec-fetch-*`, `upgrade-insecure-requests: 1`, `accept: text/html`) are injected.
+pub fn get_canonical_emulation_option() -> EmulationOption {
+    let os = match std::env::consts::OS {
+        "windows" => EmulationOS::Windows,
+        "macos" => EmulationOS::MacOS,
+        "linux" => EmulationOS::Linux,
+        _ => EmulationOS::Windows,
+    };
+
+    EmulationOption::builder()
+        .emulation(Emulation::Chrome123)
+        .emulation_os(os)
+        .skip_headers(true)
+        .build()
+}
 
 /// 共享客户端的身份：决定超时长度与是否启用 JA3/TLS 仿真。
 ///
@@ -130,21 +150,22 @@ fn apply_upstream_proxy(builder: rquest::ClientBuilder, label: &str) -> rquest::
 /// Base client creation logic with JA3 Emulation
 fn create_base_client(timeout_secs: u64) -> Client {
     let builder = Client::builder()
-        .emulation(Emulation::Chrome123)
+        .emulation(get_canonical_emulation_option())
         .timeout(std::time::Duration::from_secs(timeout_secs));
     let builder = apply_upstream_proxy(builder, "HTTP shared client");
 
-    tracing::info!("Initialized JA3/TLS Impersonation (Chrome123)");
+    tracing::info!("Initialized JA3/TLS Impersonation (Chrome123 with skip_headers)");
     builder.build().unwrap_or_else(|_| Client::new())
 }
 
-/// Base client creation logic strictly WITHOUT JA3 Emulation (Pure Native)
+/// Base client creation logic (Standard Client with Clean Canonical Fingerprint)
 fn create_standard_client(timeout_secs: u64) -> Client {
-    // No .emulation(Emulation::Chrome123) here!
-    let builder = Client::builder().timeout(std::time::Duration::from_secs(timeout_secs));
+    let builder = Client::builder()
+        .emulation(get_canonical_emulation_option())
+        .timeout(std::time::Duration::from_secs(timeout_secs));
     let builder = apply_upstream_proxy(builder, "HTTP standard client");
 
-    tracing::info!("Initialized Pure Native Standard Client");
+    tracing::info!("Initialized Clean Standard Client (Chrome123 TLS, skip_headers)");
     builder.build().unwrap_or_else(|_| Client::new())
 }
 

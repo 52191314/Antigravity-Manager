@@ -186,7 +186,7 @@ export const CliSyncCard = ({ proxyUrl, apiKey, className }: CliSyncCardProps) =
         setSyncConfirmApp(null);
 
         if (!proxyUrl || !apiKey) {
-            showToast(t('proxy.cli_sync.toast.config_missing', { defaultValue: '请先生成 API Key 并启动服务' }), 'error');
+            showToast(t('proxy.cli_sync.toast.config_missing', { defaultValue: 'Generate an API key and start the service first' }), 'error');
             return;
         }
 
@@ -369,7 +369,7 @@ export const CliSyncCard = ({ proxyUrl, apiKey, className }: CliSyncCardProps) =
                                 {app === 'JeikCode' && (
                                     <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold shrink-0 shadow-2xs">
                                         <Sparkles size={10} className="text-emerald-500 animate-spin-once" />
-                                        {t('proxy.cli_sync.jeikcode_recommended', { defaultValue: '推荐使用' })}
+                                        {t('proxy.cli_sync.jeikcode_recommended', { defaultValue: 'Recommended' })}
                                     </span>
                                 )}
                             </div>
@@ -385,7 +385,7 @@ export const CliSyncCard = ({ proxyUrl, apiKey, className }: CliSyncCardProps) =
                                     ? "w-6 h-6 rounded-full bg-gradient-to-tr from-green-500 to-emerald-600 text-white shadow-emerald-500/20"
                                     : "w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-500 border border-amber-200/60 dark:border-amber-800/40"
                             )}
-                            title={status.is_synced ? t('proxy.cli_sync.status.synced', { defaultValue: '已指向本项目' }) : t('proxy.cli_sync.status.not_synced', { defaultValue: '未同步' })}
+                            title={status.is_synced ? t('proxy.cli_sync.status.synced', { defaultValue: 'Pointed to this app' }) : t('proxy.cli_sync.status.not_synced', { defaultValue: 'Not synced' })}
                         >
                             {status.is_synced ? (
                                 <Check size={14} className="stroke-[3]" />
@@ -401,7 +401,7 @@ export const CliSyncCard = ({ proxyUrl, apiKey, className }: CliSyncCardProps) =
                     <div
                         onClick={() => openExternalUrl('https://github.com/jeikl/JeikCode')}
                         className="mb-3 p-3 rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/[0.09] via-teal-500/[0.05] to-cyan-500/[0.08] dark:from-emerald-950/40 dark:via-teal-950/25 dark:to-cyan-950/30 hover:border-emerald-400 hover:shadow-md transition-all duration-300 cursor-pointer group/link select-none w-full"
-                        title="点击访问 JeikCode 官方 GitHub 仓库 (https://github.com/jeikl/JeikCode)"
+                        title="Open the official JeikCode GitHub repository (https://github.com/jeikl/JeikCode)"
                     >
                         {/* 顶栏：Logo + 标题与作者 + 右侧 GitHub 放大图标 */}
                         <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -423,22 +423,22 @@ export const CliSyncCard = ({ proxyUrl, apiKey, className }: CliSyncCardProps) =
 
                         {/* 核心标语（独立一行，排版整洁，中英文均不截断） */}
                         <p className="text-[9.5px] text-emerald-800 dark:text-emerald-300 font-medium leading-tight mb-2">
-                            {t('proxy.cli_sync.jeikcode_tagline', { defaultValue: '核心维护者深度打造 · 原生网关最佳兼容' })}
+                            {t('proxy.cli_sync.jeikcode_tagline', { defaultValue: 'Built by Core Maintainer · Best Gateway Fit' })}
                         </p>
 
                         {/* 关键词高亮标签群（精炼短语，自适应折行，丰满耐看） */}
                         <div className="flex flex-wrap items-center gap-1.5">
                             <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-2xs whitespace-nowrap">
-                                ⚡ {t('proxy.cli_sync.jeikcode_tag_cache', { defaultValue: '95%+ 恐怖缓存' })}
+                                ⚡ {t('proxy.cli_sync.jeikcode_tag_cache', { defaultValue: '95%+ Insane Cache' })}
                             </span>
                             <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 shadow-2xs whitespace-nowrap">
-                                🗺️ {t('proxy.cli_sync.jeikcode_tag_codegraph', { defaultValue: '代码图谱' })}
+                                🗺️ {t('proxy.cli_sync.jeikcode_tag_codegraph', { defaultValue: 'Code Graph' })}
                             </span>
                             <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30 shadow-2xs whitespace-nowrap">
-                                🚀 {t('proxy.cli_sync.jeikcode_tag_surpass', { defaultValue: '超越 CC / Codex' })}
+                                🚀 {t('proxy.cli_sync.jeikcode_tag_surpass', { defaultValue: 'Beats CC & Codex' })}
                             </span>
                             <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shadow-2xs whitespace-nowrap">
-                                🛠️ {t('proxy.cli_sync.jeikcode_tag_custom', { defaultValue: '自由定制' })}
+                                🛠️ {t('proxy.cli_sync.jeikcode_tag_custom', { defaultValue: 'Customizable' })}
                             </span>
                         </div>
                     </div>
@@ -687,9 +687,9 @@ export const CliSyncCard = ({ proxyUrl, apiKey, className }: CliSyncCardProps) =
                     ? t('proxy.openclaw_sync.clear_confirm_title', { defaultValue: 'Clear OpenClaw Configuration' })
                     : t('proxy.opencode_sync.clear_confirm_title', { defaultValue: 'Clear OpenCode Configuration' })}
                 message={clearConfirmApp === 'Hermes'
-                    ? t('proxy.hermes_sync.clear_confirm_message', { defaultValue: 'This will remove the Antigravity Manager provider from Hermes. Are you sure?' })
+                    ? t('proxy.hermes_sync.clear_confirm_message', { defaultValue: 'This will remove the Proxymateur provider from Hermes. Are you sure?' })
                     : clearConfirmApp === 'OpenClaw'
-                    ? t('proxy.openclaw_sync.clear_confirm_message', { defaultValue: 'This will remove the Antigravity Manager provider from OpenClaw. Are you sure?' })
+                    ? t('proxy.openclaw_sync.clear_confirm_message', { defaultValue: 'This will remove the Proxymateur provider from OpenClaw. Are you sure?' })
                     : t('proxy.opencode_sync.clear_confirm_message', { defaultValue: 'This will clear all OpenCode configurations including legacy settings. Are you sure?' })}
                 onConfirm={executeClear}
                 onCancel={() => setClearConfirmApp(null)}

@@ -1,16 +1,18 @@
-# Antigravity Tools 🚀
+# Proxymateur 🚀
 > 专业级 AI 账号管理与协议代理系统 (v4.9.5)
+>
+> 本项目 Fork 自 [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager)（CC BY-NC-SA 4.0）。
 
 <div align="center">
-  <img src="public/icon.png" width="100" height="100" alt="Antigravity Tools Logo">
-  <h3>Antigravity Tools</h3>
+  <img src="public/icon.png" width="100" height="100" alt="Proxymateur Logo">
+  <h3>Proxymateur</h3>
   <p>多平台自动化运维与多账号矩阵调度控制台</p>
 
   <p>
-    <a href="https://github.com/lbjlaq/Antigravity-Manager/releases">
-      <img src="https://img.shields.io/github/v/release/lbjlaq/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
+    <a href="https://github.com/52191314/Antigravity-Manager/releases">
+      <img src="https://img.shields.io/github/v/release/52191314/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
     </a>
-    <a href="https://github.com/lbjlaq/Antigravity-Manager">
+    <a href="https://github.com/52191314/Antigravity-Manager">
       <img src="https://img.shields.io/badge/Version-4.9.5-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square" alt="Tauri">
@@ -39,7 +41,7 @@
 
 ---
 
-**Antigravity Tools** 是一个专为开发者和 AI 爱好者设计的全功能桌面应用。它将多账号管理、协议转换和智能请求调度完美结合，为您提供一个稳定、极速且成本低廉的 **本地 AI 中转站**。
+**Proxymateur** 是一个专为开发者和 AI 爱好者设计的全功能桌面应用。它将多账号管理、协议转换和智能请求调度完美结合，为您提供一个稳定、极速且成本低廉的 **本地 AI 中转站**。
 
 通过本应用，您可以将常见的 Web 端 Session (Google/Anthropic) 转化为标准化的 API 接口，消除不同厂商间的协议鸿沟。
 
@@ -99,7 +101,7 @@
 
 ### 6. 🤖 原生 CLI 与 Model Context Protocol (MCP) 服务
 *   **免 GUI 终端自动化**: 原生内置 CLI 命令（`accounts`、`quota`、`switch`、`current`），支持在脚本中一键查询配额池、查看模型桶详情及毫秒级切换活跃账号。
-*   **AI Agent MCP Stdio 协议中转**: 内置标准 Model Context Protocol 服务（`antigravity-tools mcp`），对外暴露 `list_accounts`、`read_quotas`、`switch_account`、`get_current_account` 工具，让 **Hermes Agent**、**Claude Desktop**、**Cursor**、**Windsurf** 等自主 AI Agent 自动读取配额与换号。
+*   **AI Agent MCP Stdio 协议中转**: 内置标准 Model Context Protocol 服务（`proxymateur mcp`），对外暴露 `list_accounts`、`read_quotas`、`switch_account`、`get_current_account` 工具，让 **Hermes Agent**、**Claude Desktop**、**Cursor**、**Windsurf** 等自主 AI Agent 自动读取配额与换号。
 *   **Opus 5.5 账号安全保底隔离**: 带有 `Opus5.5` 标签的账号在所有排序与推荐算法中被严格沉底隔离，防止日常高频调用意外耗尽稀缺配额。
 
 ## 📸 界面导览 (GUI Overview)
@@ -107,7 +109,7 @@
 | | |
 | :---: | :---: |
 | ![仪表盘 - 全局配额监控与一键切换](docs/images/dashboard-light.png) <br> 仪表盘 | ![账号列表 - 高密度配额展示与 403 智能标注](docs/images/accounts-light.png) <br> 账号列表 |
-| ![关于页面 - 关于 Antigravity Tools](docs/images/about-dark.png) <br> 关于页面 | ![API 反代 - 服务控制](docs/images/v3/proxy-settings.png) <br> API 反代 |
+| ![关于页面 - 关于 Proxymateur](docs/images/about-dark.png) <br> 关于页面 | ![API 反代 - 服务控制](docs/images/v3/proxy-settings.png) <br> API 反代 |
 | ![系统设置 - 通用配置](docs/images/settings-dark.png) <br> 系统设置 | |
 
 ### 💡 使用案例 (Usage Examples)
@@ -121,7 +123,7 @@
 
 ```mermaid
 graph TD
-    Client([外部应用: Claude Code/NextChat]) -->|OpenAI/Anthropic| Gateway[Antigravity Axum Server]
+    Client([外部应用: Claude Code/NextChat]) -->|OpenAI/Anthropic| Gateway[Proxymateur Axum Server]
     Gateway --> Middleware[中间件: 鉴权/限流/日志]
     Middleware --> Router[Model Router: ID 映射]
     Router --> Dispatcher[账号分发器: 轮询/权重]
@@ -141,27 +143,27 @@ graph TD
 
 **Linux / macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/install.ps1 | iex
 ```
 
 > **支持的格式**: Linux (`.deb` / `.rpm` / `.AppImage`) | macOS (`.dmg`) | Windows (NSIS `.exe`)
 >
-> **高级用法**: 安装指定版本 `curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.sh | bash -s -- --version 4.6.8`，预览模式 `curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.sh | bash -s -- --dry-run`
+> **高级用法**: 安装指定版本 `curl -fsSL https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/install.sh | bash -s -- --version 4.6.8`，预览模式 `curl -fsSL https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/install.sh | bash -s -- --dry-run`
 
 #### macOS - Homebrew
 如果您已安装 [Homebrew](https://brew.sh/)，也可以通过以下命令安装：
 
 ```bash
 # 1. 订阅本仓库的 Tap
-brew tap lbjlaq/antigravity-manager https://github.com/lbjlaq/Antigravity-Manager
+brew tap 52191314/proxymateur https://github.com/52191314/Antigravity-Manager
 
 # 2. 安装应用
-brew install --cask antigravity-tools
+brew install --cask proxymateur
 ```
 
 #### Arch Linux
@@ -169,20 +171,20 @@ brew install --cask antigravity-tools
 
 **方式 1：一键安装脚本 (推荐)**
 ```bash
-curl -sSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/deploy/arch/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/deploy/arch/install.sh | bash
 ```
 
 **方式 2：通过 Homebrew** (如果您已安装 [Linuxbrew](https://sh.brew.sh/))
 ```bash
-brew tap lbjlaq/antigravity-manager https://github.com/lbjlaq/Antigravity-Manager
-brew install --cask antigravity-tools
+brew tap 52191314/proxymateur https://github.com/52191314/Antigravity-Manager
+brew install --cask proxymateur
 ```
 
 #### 其他 Linux 发行版
 安装后会自动将 AppImage 添加到二进制路径并配置可执行权限。
 
 ### 选项 B: 手动下载
-前往 [GitHub Releases](https://github.com/lbjlaq/Antigravity-Manager/releases) 下载对应系统的包：
+前往 [GitHub Releases](https://github.com/52191314/Antigravity-Manager/releases) 下载对应系统的包：
 *   **macOS**: `.dmg` (支持 Apple Silicon & Intel)
 *   **Windows**: `.msi` 或 便携版 `.zip`
 *   **Linux**: `.deb` 或 `AppImage`
@@ -195,15 +197,16 @@ brew install --cask antigravity-tools
 - **WEB_PASSWORD**: 可选。用于管理后台登录。若不设置则默认使用 API_KEY。
 
 ```bash
-docker run -d --name antigravity-manager \
+docker run -d --name proxymateur \
   -p 8045:8045 \
   -e API_KEY=sk-your-api-key \
   -e WEB_PASSWORD=your-login-password \
   -e ABV_MAX_BODY_SIZE=104857600 \
-  -v ~/.antigravity_tools:/root/.antigravity_tools \
-  lbjlaq/antigravity-manager:latest
+  -e ABV_DATA_DIR=/root/.proxymateur \
+  -v ~/.proxymateur:/root/.proxymateur \
+  52191314/proxymateur:latest
 
-# 忘记密钥？执行 docker logs antigravity-manager 或 grep -E '"api_key"|"admin_password"' ~/.antigravity_tools/gui_config.json
+# 忘记密钥？执行 docker logs proxymateur 或 grep -E '"api_key"|"admin_password"' ~/.proxymateur/gui_config.json
 ```
 
 > [!TIP]
@@ -211,18 +214,19 @@ docker run -d --name antigravity-manager \
 > 若需使用最新的 Beta 预发布特性，请直接指定对应的 Beta 版本 Tag（预发布版本独立发布，不会覆盖 `latest` 稳定版标签）：
 > ```bash
 > # 拉取指定 Beta 预发布版本 (可在 Docker Hub 查看所有可用版本)
-> docker pull lbjlaq/antigravity-manager:v4.8.2-beta.0
+> docker pull 52191314/proxymateur:v4.8.2-beta.0
 > 
 > # 运行 Beta 容器
-> docker run -d --name antigravity-manager-beta \
+> docker run -d --name proxymateur-beta \
 >   -p 8045:8045 \
 >   -e API_KEY=sk-your-api-key \
 >   -e WEB_PASSWORD=your-login-password \
 >   -e ABV_MAX_BODY_SIZE=104857600 \
->   -v ~/.antigravity_tools:/root/.antigravity_tools \
->   lbjlaq/antigravity-manager:v4.8.2-beta.0
+>   -e ABV_DATA_DIR=/root/.proxymateur \
+>   -v ~/.proxymateur:/root/.proxymateur \
+>   52191314/proxymateur:v4.8.2-beta.0
 > ```
-> 查看所有已发布的 Beta 镜像：[Docker Hub Tags](https://hub.docker.com/r/lbjlaq/antigravity-manager/tags)；若需直接运行未发版 Tag 的最新 `beta` 分支源码，可在本地直接构建：`docker build -t lbjlaq/antigravity-manager:beta -f docker/Dockerfile .`。
+> 查看所有已发布的 Beta 镜像：[Docker Hub Tags](https://hub.docker.com/r/52191314/proxymateur/tags)；若需直接运行未发版 Tag 的最新 `beta` 分支源码，可在本地直接构建：`docker build -t 52191314/proxymateur:beta -f docker/Dockerfile .`。
 
 #### 🔐 鉴权逻辑说明
 *   **场景 A：仅设置了 `API_KEY`**
@@ -236,7 +240,7 @@ docker run -d --name antigravity-manager \
 如果您是从 v4.0.1 及更早版本升级，系统默认未设置 `WEB_PASSWORD`。您可以通过以下任一方式设置：
 1.  **Web UI 界面 (推荐)**：使用原有 `API_KEY` 登录后，在 **API 反代设置** 页面手动设置并保存。新密码将持久化存储在 `gui_config.json` 中。
 2.  **环境变量 (Docker)**：在启动容器时增加 `-e WEB_PASSWORD=您的新密码`。**注意：环境变量具有最高优先级，将覆盖 UI 中的任何修改。**
-3.  **配置文件 (持久化)**：直接修改 `~/.antigravity_tools/gui_config.json`，在 `proxy` 对象中修改或添加 `"admin_password": "您的新密码"` 字段。
+3.  **配置文件 (持久化)**：直接修改 `~/.proxymateur/gui_config.json`，在 `proxy` 对象中修改或添加 `"admin_password": "您的新密码"` 字段。
     - *注：`WEB_PASSWORD` 是环境变量名，`admin_password` 是配置文件中的 JSON 键名。*
 
 > [!TIP]
@@ -255,7 +259,7 @@ docker compose up -d
 > **访问地址**: `http://localhost:8045` (管理后台) | `http://localhost:8045/v1` (API Base)
 > **系统要求**:
 > - **内存**: 建议 **1GB** (最小 256MB)。
-> - **持久化**: 需挂载 `/root/.antigravity_tools` 以保存数据。
+> - **持久化**: 需挂载 `/root/.proxymateur` 以保存数据。
 > - **架构**: 支持 x86_64 和 ARM64。
 > **详情见**: [Docker 部署指南 (docker)](./docker/README.md)
 
@@ -268,16 +272,16 @@ docker compose up -d
 1.  **命令行修复** (推荐):
     打开终端，执行以下命令：
     ```bash
-    sudo xattr -rd com.apple.quarantine "/Applications/Antigravity Tools.app"
+    sudo xattr -rd com.apple.quarantine "/Applications/Proxymateur.app"
     ```
 2.  **Homebrew 安装优势**:
-    现在通过 Homebrew (`brew install --cask antigravity-tools`) 安装时，系统会在安装末尾自动执行清理属性的操作，**真正实现开箱即用**。
+    现在通过 Homebrew (`brew install --cask proxymateur`) 安装时，系统会在安装末尾自动执行清理属性的操作，**真正实现开箱即用**。
 
 #### Linux 窗口全黑 / 透明框？
 在 niri、Hyprland、Sway 等合成器上，旧版本会因为会话里总有 `DISPLAY` 而强制走 X11，WebKit 主界面可能全黑。请更新到包含该修复的版本；或临时：
 
 ```bash
-env WEBKIT_DISABLE_DMABUF_RENDERER=1 ANTIGRAVITY_FORCE_WAYLAND=1 antigravity-tools
+env WEBKIT_DISABLE_DMABUF_RENDERER=1 ANTIGRAVITY_FORCE_WAYLAND=1 proxymateur
 ```
 
 - `ANTIGRAVITY_FORCE_WAYLAND=1`: 保持原生 Wayland（不强制切 X11）
@@ -299,7 +303,7 @@ env WEBKIT_DISABLE_DMABUF_RENDERER=1 ANTIGRAVITY_FORCE_WAYLAND=1 antigravity-too
 ### 如何接入 JeikCode? (推荐)
 [JeikCode](https://github.com/jeikl/JeikCode) 是由本项目核心维护者深度打造的现代终端 AI Coding Agent 工具，原生深度兼容本网关，实现 **95%+ 的超高 KV-Cache 缓存命中率**与深度思维链支持。
 1. **界面一键同步（最推荐）**：
-   - 打开 Antigravity-Manager 并开启 **API 反代** 服务。
+   - 打开 Proxymateur 并开启 **API 反代** 服务。
    - 切换至 **`>_ Agent工具一键配置`** 标签页。
    - 在首个 **JeikCode** 卡片选择默认模型（如 `gemini-3.8-flash-high`），点击 **`🔄 立即同步配置`**。
    - 终端直接运行 `jeikcode` 即可运行 TUI，**强烈推荐在终端输入 `/webui` 即可打开精美的网页端，开箱即用，享受更棒的可视化编程体验！**
@@ -309,10 +313,10 @@ export ANTHROPIC_BASE_URL="http://127.0.0.1:8045"
 export ANTHROPIC_API_KEY="sk-antigravity"
 jeikcode --model claude-sonnet-4-6-thinking
 ```
-> 更多高级配置与排查指南参见：[JeikCode 接入 Antigravity-Manager 指南](./docs/jeikcode_integration.md)
+> 更多高级配置与排查指南参见：[JeikCode 接入 Proxymateur 指南](./docs/jeikcode_integration.md)
 
 ### 如何接入 Claude Code CLI?
-1.  启动 Antigravity，并在“API 反代”页面开启服务。
+1.  启动 Proxymateur，并在“API 反代”页面开启服务。
 2.  在终端执行：
 ```bash
 export ANTHROPIC_API_KEY="sk-antigravity"
@@ -362,22 +366,22 @@ print(response.choices[0].message.content)
 
 ### 如何为 AI Agent 接入 CLI 与 原生 MCP 服务?
 
-Antigravity Tools 桌面端二进制程序（`antigravity-tools` / `Antigravity-Tools.exe`）已内置标准 CLI 命令分发器与 stdio MCP 服务。
+Proxymateur 桌面端二进制程序（`proxymateur` / `proxymateur.exe`，旧名 `antigravity-tools`）已内置标准 CLI 命令分发器与 stdio MCP 服务。
 
 #### 1. CLI 命令行指令
 ```bash
 # 列出所有账号、当前激活状态与配额概况
-antigravity-tools accounts
+proxymateur accounts
 
 # 查看活跃账号的配额组（Gemini/Claude 周限与 5 小时限）及具体模型百分比
-antigravity-tools quota
+proxymateur quota
 
 # 通过邮箱、Label 别名或 UUID 秒级切换活跃账号
-antigravity-tools switch "Thun"
-antigravity-tools switch user@gmail.com
+proxymateur switch "Thun"
+proxymateur switch user@gmail.com
 
 # 输出当前活跃账号信息
-antigravity-tools current
+proxymateur current
 ```
 
 #### 2. 原生 Model Context Protocol (MCP) 服务
@@ -387,8 +391,8 @@ antigravity-tools current
 ```json
 {
   "mcpServers": {
-    "antigravity-tools": {
-      "command": "C:\\Users\\<用户名>\\AppData\\Local\\Antigravity Tools\\antigravity-tools.exe",
+    "proxymateur": {
+      "command": "C:\\Users\\<用户名>\\AppData\\Local\\Proxymateur\\proxymateur.exe",
       "args": ["mcp"]
     }
   }
@@ -601,5 +605,5 @@ response = client.chat.completions.create(
 
 <div align="center">
   <p>如果您觉得这个工具有所帮助，欢迎在 GitHub 上点一个 ⭐️</p>
-  <p>Copyright © 2024-2026 Antigravity Team.</p>
+  <p>Copyright © 2024-2026 Proxymateur contributors. Forked from lbjlaq/Antigravity-Manager.</p>
 </div>

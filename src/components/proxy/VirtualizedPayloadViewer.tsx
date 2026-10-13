@@ -720,11 +720,11 @@ export const VirtualizedPayloadViewer: React.FC<VirtualizedPayloadViewerProps> =
                         onClick={() => onCopy(copyPayload)}
                         disabled={!formattedContent && !prettyHeaders}
                         className="btn btn-ghost btn-xs gap-1 h-7 px-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-base-300"
-                        title={isCopied ? t('proxy.config.btn_copied', '已复制') : t('proxy.config.btn_copy', '复制')}
+                        title={isCopied ? t('proxy.config.btn_copied', 'Copied') : t('proxy.config.btn_copy', 'Copy')}
                     >
                         {isCopied ? <CheckCircle size={12} className="text-emerald-500" /> : <Copy size={12} />}
                         <span className="text-[10px] font-medium">
-                            {isCopied ? t('proxy.config.btn_copied', '已复制') : t('proxy.config.btn_copy', '复制')}
+                            {isCopied ? t('proxy.config.btn_copied', 'Copied') : t('proxy.config.btn_copy', 'Copy')}
                         </span>
                     </button>
                 </div>
@@ -737,7 +737,7 @@ export const VirtualizedPayloadViewer: React.FC<VirtualizedPayloadViewerProps> =
                     <input
                         ref={searchInputRef}
                         type="text"
-                        placeholder={t('monitor.details.search_placeholder', '搜索此报文... (Enter 下一个, Shift+Enter 上一个)')}
+                        placeholder={t('monitor.details.search_placeholder', 'Search payload...')}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         onKeyDown={(e) => {
@@ -764,7 +764,7 @@ export const VirtualizedPayloadViewer: React.FC<VirtualizedPayloadViewerProps> =
                             type="button"
                             onClick={() => setSearchTerm('')}
                             className="absolute right-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5"
-                            title="清除搜索"
+                            title="Clear search"
                         >
                             <X size={12} />
                         </button>
@@ -780,7 +780,7 @@ export const VirtualizedPayloadViewer: React.FC<VirtualizedPayloadViewerProps> =
                             ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800'
                             : 'bg-white dark:bg-base-100 text-gray-400 border-gray-200 dark:border-base-300 hover:text-gray-600 dark:hover:text-gray-300'
                     }`}
-                    title={caseSensitive ? '已开启区分大小写' : '点击开启区分大小写'}
+                    title={caseSensitive ? 'Match case: on' : 'Match case: off (click to enable)'}
                 >
                     <CaseSensitive size={13} />
                 </button>
@@ -794,10 +794,10 @@ export const VirtualizedPayloadViewer: React.FC<VirtualizedPayloadViewerProps> =
                             ? 'bg-gray-200/80 text-gray-800 border-gray-300 dark:bg-base-200 dark:text-gray-200 dark:border-base-300'
                             : 'bg-white dark:bg-base-100 text-gray-400 border-gray-200 dark:border-base-300 hover:text-gray-600 dark:hover:text-gray-300'
                     }`}
-                    title={isWrap ? '当前：自动折行 (点击切换为单行)' : '当前：单行横向滚动 (点击切换为自动折行)'}
+                    title={isWrap ? 'Wrapping lines (click for single line)' : 'Single line, horizontal scroll (click to wrap lines)'}
                 >
                     <WrapText size={12} />
-                    <span className="hidden sm:inline text-[9px]">{isWrap ? '折行' : '单行'}</span>
+                    <span className="hidden sm:inline text-[9px]">{isWrap ? 'Wrap' : 'Single'}</span>
                 </button>
 
                 {/* Match Counter & Prev/Next Controls */}
@@ -808,7 +808,7 @@ export const VirtualizedPayloadViewer: React.FC<VirtualizedPayloadViewerProps> =
                                 ? 'text-amber-600 dark:text-amber-400'
                                 : 'text-gray-400'
                         }`}>
-                            {matchesCount > 0 ? `${currentMatchIndex + 1}/${matchesCount}` : '无匹配'}
+                            {matchesCount > 0 ? `${currentMatchIndex + 1}/${matchesCount}` : 'No matches'}
                         </span>
                         <div className="flex items-center">
                             <button
@@ -816,7 +816,7 @@ export const VirtualizedPayloadViewer: React.FC<VirtualizedPayloadViewerProps> =
                                 onClick={handlePrev}
                                 disabled={matchesCount <= 1}
                                 className="btn btn-ghost btn-xs p-0.5 h-5 min-h-0 text-gray-500 dark:text-gray-400 disabled:opacity-30"
-                                title="上一处 (Shift+Enter)"
+                                title="Previous (Shift+Enter)"
                             >
                                 <ChevronUp size={12} />
                             </button>
@@ -825,7 +825,7 @@ export const VirtualizedPayloadViewer: React.FC<VirtualizedPayloadViewerProps> =
                                 onClick={handleNext}
                                 disabled={matchesCount <= 1}
                                 className="btn btn-ghost btn-xs p-0.5 h-5 min-h-0 text-gray-500 dark:text-gray-400 disabled:opacity-30"
-                                title="下一处 (Enter)"
+                                title="Next (Enter)"
                             >
                                 <ChevronDown size={12} />
                             </button>
@@ -849,7 +849,7 @@ export const VirtualizedPayloadViewer: React.FC<VirtualizedPayloadViewerProps> =
                                     {t('monitor.details.headers', 'Headers')}
                                 </span>
                                 <span className="text-[9px] font-mono text-gray-400 dark:text-gray-500">
-                                    ({prettyHeaders.split('\n').length} 行)
+                                    ({prettyHeaders.split('\n').length} lines)
                                 </span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -857,16 +857,16 @@ export const VirtualizedPayloadViewer: React.FC<VirtualizedPayloadViewerProps> =
                                     type="button"
                                     onClick={handleCopyHeaders}
                                     className="btn btn-ghost btn-xs h-5 min-h-0 px-1.5 gap-1 text-[10px] text-gray-500 hover:text-blue-500 dark:text-gray-400 dark:hover:text-blue-400 font-normal hover:bg-white/60 dark:hover:bg-base-200"
-                                    title={t('common.copy', '复制')}
+                                    title={t('common.copy', 'Copy')}
                                 >
                                     {isHeadersCopied ? <CheckCircle size={11} className="text-green-500" /> : <Copy size={11} />}
-                                    <span>{isHeadersCopied ? (t('common.copied') || '已复制') : (t('common.copy') || '复制')}</span>
+                                    <span>{isHeadersCopied ? (t('common.copied') || 'Copied') : (t('common.copy') || 'Copy')}</span>
                                 </button>
                                 <button
                                     type="button"
                                     className="text-[10px] text-blue-600 dark:text-blue-400 font-medium flex items-center gap-0.5"
                                 >
-                                    <span>{isHeadersExpanded ? '收起' : '展开'}</span>
+                                    <span>{isHeadersExpanded ? 'Collapse' : 'Expand'}</span>
                                     <ChevronDown size={12} className={`transition-transform duration-200 ${isHeadersExpanded ? 'rotate-180' : ''}`} />
                                 </button>
                             </div>
@@ -877,7 +877,7 @@ export const VirtualizedPayloadViewer: React.FC<VirtualizedPayloadViewerProps> =
                                     type="button"
                                     onClick={handleCopyHeaders}
                                     className="absolute top-2 right-2 p-1 rounded bg-white/80 dark:bg-base-200 border border-gray-200 dark:border-base-300 text-gray-500 hover:text-blue-500 opacity-0 group-hover/head:opacity-100 transition-opacity shadow-xs"
-                                    title={t('common.copy', '复制')}
+                                    title={t('common.copy', 'Copy')}
                                 >
                                     {isHeadersCopied ? <CheckCircle size={12} className="text-green-500" /> : <Copy size={12} />}
                                 </button>

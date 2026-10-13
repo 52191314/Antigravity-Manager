@@ -65,10 +65,10 @@ const SmartWarmup: React.FC<SmartWarmupProps> = ({ config, onChange }) => {
                     </div>
                     <div>
                         <div className="font-bold text-gray-900 dark:text-gray-100">
-                            {t('settings.warmup.title', '智能配额预热')}
+                            {t('settings.warmup.title', 'Smart Quota Warmup')}
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                            {t('settings.warmup.desc', '自动唤醒闲置账号启动 7 天周配额与 5 小时滚动重置计时器，保持额度循环更新，零多余消耗。')}
+                            {t('settings.warmup.desc', 'Automatically wakes up idle accounts to activate 7-day weekly and 5-hour rolling countdown timers with zero wasted tokens.')}
                         </p>
                     </div>
                 </div>
@@ -93,13 +93,13 @@ const SmartWarmup: React.FC<SmartWarmupProps> = ({ config, onChange }) => {
                             </div>
                             <div>
                                 <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                                    <span>{t('settings.warmup.enable_5h_title', '5小时滚动窗口自动预热')}</span>
+                                    <span>{t('settings.warmup.enable_5h_title', '5-Hour Rolling Window Auto Warmup')}</span>
                                     <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-orange-100 dark:bg-orange-900/50 text-orange-600 dark:text-orange-300">
                                         5H Rolling
                                     </span>
                                 </div>
                                 <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
-                                    {t('settings.warmup.enable_5h_desc', '应用开启时，自动唤醒处于 100% 闲置状态的模型，提前激活 5 小时滚动倒计时，无需等待首次手动使用。')}
+                                    {t('settings.warmup.enable_5h_desc', 'While the app is open, automatically pings idle models at 100% quota to start their 5-hour rolling countdown early without waiting for manual usage.')}
                                 </p>
                             </div>
                         </div>
@@ -119,10 +119,10 @@ const SmartWarmup: React.FC<SmartWarmupProps> = ({ config, onChange }) => {
                         <div>
                             <div className="flex items-center justify-between mb-2">
                                 <label className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest block">
-                                    {t('settings.warmup.monitored_models_label', '预热模型范围')}
+                                    {t('settings.warmup.monitored_models_label', 'Monitored Models')}
                                 </label>
                                 <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                                    {t('settings.warmup.weekly_notice', '默认包含 7 天周配额重置唤醒')}
+                                    {t('settings.warmup.weekly_notice', 'Includes 7-day weekly reset timer activation')}
                                 </span>
                             </div>
                             <div className="grid grid-cols-4 gap-2">
@@ -153,7 +153,7 @@ const SmartWarmup: React.FC<SmartWarmupProps> = ({ config, onChange }) => {
                                 })}
                             </div>
                             <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-2 leading-relaxed">
-                                {t('settings.warmup.monitored_models_desc', '勾选需要预热的模型。在周配额重置或 5 小时窗口闲置时将自动唤醒启动新周期。')}
+                                {t('settings.warmup.monitored_models_desc', 'Select models to warm up. When weekly resets or 5-hour windows are idle, minimal pings will start the new cycles.')}
                             </p>
                         </div>
                     </div>

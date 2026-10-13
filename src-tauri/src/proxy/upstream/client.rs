@@ -172,7 +172,7 @@ impl UpstreamClient {
     /// Base client builder configured with common connection pool, timeouts, and HTTP/2 keep-alive
     fn base_client_builder() -> rquest::ClientBuilder {
         let builder = Client::builder()
-            .emulation(rquest_util::Emulation::Chrome123)
+            .emulation(crate::utils::http::get_canonical_emulation_option())
             // Connection settings (优化连接复用，减少建立开销)
             .connect_timeout(Duration::from_secs(20))
             .pool_max_idle_per_host(20) // 每主机最多 20 个空闲连接 (对齐官方指纹)
@@ -180,8 +180,13 @@ impl UpstreamClient {
             .tcp_keepalive(Duration::from_secs(3)) // TCP 保活探测 (3秒)
             // 穿透配置 HTTP/2 PING：部分代理环境在长思考静默期（>10s）会触发 L7 空闲截断，造成流式腰斩和 Token 浪费
             .http2(|mut h2| {
-                h2.keep_alive_interval(Duration::from_secs(3))
-                    .keep_alive_timeout(Duration::from_secs(10))
+                // PING 仅在连接无任何入站帧超过 interval 时才发送（流式输出期间不会触发）。
+                // 3s/10s 过于激进：(1) 约每 3s 一次的无数据 PING 在服务端静默思考期可能被视为
+                // 滥用 (ENHANCE_YOUR_CALM / GOAWAY)；(2) 10s 内未收到 ACK 即判死整条多路复用连接，
+                // 一次 >10s 的链路抖动会同时腰斩该连接上所有账号/会话的流 (error reading a body)。
+                // 放宽为 15s/30s：仍能穿透 L7 空闲截断并及时发现死连接，但容忍短时抖动。
+                h2.keep_alive_interval(Duration::from_secs(15))
+                    .keep_alive_timeout(Duration::from_secs(30))
                     .keep_alive_while_idle(true);
             })
             // 强制开启 HTTP/2 协议，并支持在 SOCKS/HTTPS 代理下通过 ALPN 强制降级/协商
@@ -368,6 +373,15 @@ impl UpstreamClient {
             header::CONTENT_TYPE,
             header::HeaderValue::from_static("application/json"),
         );
+        let accept_value = if method == "streamGenerateContent" {
+            "text/event-stream"
+        } else {
+            "application/json"
+        };
+        headers.insert(
+            header::ACCEPT,
+            header::HeaderValue::from_static(accept_value),
+        );
         headers.insert(
             header::AUTHORIZATION,
             header::HeaderValue::from_str(&format!("Bearer {}", access_token))
@@ -396,16 +410,23 @@ impl UpstreamClient {
         }
 
         // 注入业务透传 Headers (如 anthropic-beta)
-        // 严格过滤客户端特征伪头，确保出站请求头 100% 对齐官方 Antigravity Hub
+        // 严格过滤客户端特征伪头与浏览器泄露头，确保出站请求头 100% 对齐官方 Antigravity Hub
         for (k, v) in extra_headers {
             let k_lower = k.to_ascii_lowercase();
             if k_lower == "user-agent"
+                || k_lower == "accept"
+                || k_lower == "content-type"
+                || k_lower == "authorization"
                 || k_lower == "x-session-id"
                 || k_lower == "x-client-name"
                 || k_lower == "x-client-version"
                 || k_lower == "x-machine-id"
                 || k_lower == "x-vscode-sessionid"
                 || k_lower.starts_with("x-jeikcode")
+                || k_lower.starts_with("sec-ch-ua")
+                || k_lower.starts_with("sec-fetch-")
+                || k_lower == "upgrade-insecure-requests"
+                || k_lower == "accept-language"
             {
                 continue;
             }
@@ -467,21 +488,42 @@ impl UpstreamClient {
 
                 let body_bytes = serde_json::to_vec(&body).map_err(|e| e.to_string())?;
 
-                let mut req_builder = client.post(&url).headers(headers.clone());
+                // 每次发送都重新构建请求（流式 Body 不可克隆），以便在陈旧连接上安全重试一次。
+                let build_request = || {
+                    let mut req_builder = client.post(&url).headers(headers.clone());
 
-                // [FIX] 仅对流式接口 (streamGenerateContent) 使用分块传输仿真
-                // 对其他接口 (如 generateContent, loadCodeAssist) 发送正常的固定长度 Body
-                // 否则图像生成会因为缺少 Content-Length 而被 Google 服务端拒绝或限流 (429)
-                if method == "streamGenerateContent" {
-                    let stream_bytes = body_bytes.clone();
-                    req_builder = req_builder.body(rquest::Body::wrap_stream(
-                        futures::stream::once(async move { Ok::<_, std::io::Error>(stream_bytes) }),
-                    ));
-                } else {
-                    req_builder = req_builder.body(body_bytes.clone());
+                    // [FIX] 仅对流式接口 (streamGenerateContent) 使用分块传输仿真
+                    // 对其他接口 (如 generateContent, loadCodeAssist) 发送正常的固定长度 Body
+                    // 否则图像生成会因为缺少 Content-Length 而被 Google 服务端拒绝或限流 (429)
+                    if method == "streamGenerateContent" {
+                        let stream_bytes = body_bytes.clone();
+                        req_builder = req_builder.body(rquest::Body::wrap_stream(
+                            futures::stream::once(async move {
+                                Ok::<_, std::io::Error>(stream_bytes)
+                            }),
+                        ));
+                    } else {
+                        req_builder = req_builder.body(body_bytes.clone());
+                    }
+                    req_builder
+                };
+
+                let mut response = build_request().send().await;
+
+                // [STALE-CONN RETRY] 复用到已被对端关闭 (GOAWAY/RST/NAT 回收) 的 HTTP/2 连接时，
+                // hyper 报 `client error (SendRequest)`。流式 Body 令 hyper 内置的复用重试失效，
+                // 故在此仅重试一次：连接池会丢弃死连接并新建连接。
+                if let Err(e) = &response {
+                    if e.to_string().contains("(SendRequest)") {
+                        tracing::warn!(
+                            "Stale pooled connection suspected at {} (method={}): {}; retrying once on a fresh connection",
+                            base_url,
+                            method,
+                            e
+                        );
+                        response = build_request().send().await;
+                    }
                 }
-
-                let response = req_builder.send().await;
 
                 match response {
                     Ok(resp) => {

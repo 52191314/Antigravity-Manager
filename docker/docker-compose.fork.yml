@@ -5,8 +5,8 @@
 # Windows 注意: host 网络模式不可用，改用端口映射。
 
 services:
-  antigravity-manager:
-    image: antigravity-manager:local
+  proxymateur:
+    image: proxymateur:local
     # 覆盖官方 compose 的 host 模式，便于 Windows / Docker Desktop
     network_mode: bridge
     ports:
@@ -18,8 +18,8 @@ services:
       - ABV_API_KEY=${API_KEY:-changeme}
       - ABV_WEB_PASSWORD=${WEB_PASSWORD:-}
       - ABV_BIND_LOCAL_ONLY=${ABV_BIND_LOCAL_ONLY:-false}
-      - ABV_DATA_DIR=${ABV_DATA_DIR:-/root/.antigravity_tools}
+      - ABV_DATA_DIR=${ABV_DATA_DIR:-/root/.proxymateur}
       - ABV_MAX_BODY_SIZE=${ABV_MAX_BODY_SIZE:-104857600}
       - PORT=8045
     volumes:
-      - ${ABV_HOST_DATA_DIR:-~/.antigravity_tools}:/root/.antigravity_tools
+      - ${ABV_HOST_DATA_DIR:-~/.proxymateur}:/root/.proxymateur

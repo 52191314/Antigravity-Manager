@@ -1,6 +1,6 @@
-# Antigravity Tools CLI & Model Context Protocol (MCP) Guide
+# Proxymateur CLI & Model Context Protocol (MCP) Guide
 
-Antigravity Tools includes a native Command Line Interface (CLI) and an asynchronous Model Context Protocol (MCP) stdio server built directly into the core binary (`antigravity-tools` / `Antigravity-Tools.exe`).
+Proxymateur includes a native Command Line Interface (CLI) and an asynchronous Model Context Protocol (MCP) stdio server built directly into the core binary (`proxymateur` / `proxymateur.exe`, formerly `antigravity-tools`).
 
 This enables automated workflows, shell scripts, and external AI coding assistants (such as **Hermes Agent**, **Claude Desktop**, **Cursor**, **Windsurf**, **Cline**, and **Antigravity CLI**) to programmatically inspect quota pools and seamlessly switch active accounts without manual GUI interaction.
 
@@ -11,21 +11,21 @@ This enables automated workflows, shell scripts, and external AI coding assistan
 The CLI works cross-platform and can be called from PowerShell, Command Prompt, Bash, or Zsh.
 
 ### Binary Locations
-- **Windows**: `C:\Users\<User>\AppData\Local\Antigravity Tools\antigravity-tools.exe` (or in project directory: `.\Antigravity-Tools.exe`)
-- **macOS**: `/Applications/Antigravity Tools.app/Contents/MacOS/antigravity-tools`
-- **Linux**: `/usr/bin/antigravity-tools` (or AppImage)
+- **Windows**: `C:\Users\<User>\AppData\Local\Proxymateur\proxymateur.exe` (or the deploy location `E:\01_Apps\Installed\Proxymateur\proxymateur.exe`)
+- **macOS**: `/Applications/Proxymateur.app/Contents/MacOS/proxymateur`
+- **Linux**: `/usr/bin/proxymateur` (or AppImage)
 
 ### Available Commands
 
-#### `antigravity-tools accounts [--json]`
+#### `proxymateur accounts [--json]`
 Lists all configured accounts, including account ID, email, label name, quota percentages, and active status (`*`).
 
 ```bash
 # Formatted table
-antigravity-tools accounts
+proxymateur accounts
 
 # Structured JSON output
-antigravity-tools accounts --json
+proxymateur accounts --json
 ```
 
 **Table Output Example:**
@@ -39,7 +39,7 @@ ACT ACCOUNT ID                           EMAIL                          LABEL   
 
 ---
 
-#### `antigravity-tools quota [<id|email>] [--all] [--json]`
+#### `proxymateur quota [<id|email>] [--all] [--json]`
 Fetches and inspects quota groups (Gemini 5h & weekly, Claude/GPT 5h & weekly) and detailed model-by-model quota percentages and reset timestamps.
 
 - If `<id|email>` is omitted, quotas for the **currently active account** are displayed.
@@ -48,13 +48,13 @@ Fetches and inspects quota groups (Gemini 5h & weekly, Claude/GPT 5h & weekly) a
 
 ```bash
 # Check quota for active account
-antigravity-tools quota
+proxymateur quota
 
 # Check quota for a specific email
-antigravity-tools quota myemail@gmail.com
+proxymateur quota myemail@gmail.com
 
 # Check all accounts with JSON formatting
-antigravity-tools quota --all --json
+proxymateur quota --all --json
 ```
 
 **Output Example:**
@@ -79,16 +79,16 @@ Tier:    PRO
 
 ---
 
-#### `antigravity-tools current [--json]`
+#### `proxymateur current [--json]`
 Prints the active account ID, email, label name, and target IDE binding.
 
 ```bash
-antigravity-tools current
+proxymateur current
 ```
 
 ---
 
-#### `antigravity-tools switch <id|email|label>`
+#### `proxymateur switch <id|email|label>`
 Switches the active Antigravity account immediately.
 You can specify the target using:
 1. Account ID (UUID)
@@ -97,13 +97,13 @@ You can specify the target using:
 
 ```bash
 # Switch by email
-antigravity-tools switch myemail@gmail.com
+proxymateur switch myemail@gmail.com
 
 # Switch by label
-antigravity-tools switch "Thun"
+proxymateur switch "Thun"
 
 # Switch by UUID
-antigravity-tools switch 37999049-6c0b-42f1-96ba-1d2002242029
+proxymateur switch 37999049-6c0b-42f1-96ba-1d2002242029
 ```
 
 **Switch Behavior**:
@@ -114,44 +114,44 @@ antigravity-tools switch 37999049-6c0b-42f1-96ba-1d2002242029
 
 ---
 
-#### `antigravity-tools proxy [status|accounts|enable|disable] [--json]`
+#### `proxymateur proxy [status|accounts|enable|disable] [--json]`
 Manages the local OpenAI-compatible API proxy server and dynamically controls account inclusion in the rotation pool.
 
-##### 1. `antigravity-tools proxy [status]`
+##### 1. `proxymateur proxy [status]`
 Inspects service running state, listening port, base URL, API key, and account pool counts (Total, Active, Excluded).
 ```bash
-antigravity-tools proxy status
-antigravity-tools proxy status --json
+proxymateur proxy status
+proxymateur proxy status --json
 ```
 
-##### 2. `antigravity-tools proxy accounts`
+##### 2. `proxymateur proxy accounts`
 Lists all accounts with their proxy rotation status (`ACTIVE`, `EXCLUDED`, or `DISABLED`), quotas, and exclusion reasons.
 ```bash
-antigravity-tools proxy accounts
-antigravity-tools proxy accounts --json
+proxymateur proxy accounts
+proxymateur proxy accounts --json
 ```
 
-##### 3. `antigravity-tools proxy enable <id|email|label>`
+##### 3. `proxymateur proxy enable <id|email|label>`
 Re-enables an excluded account for API proxy rotation. Hot-reloads running proxy daemon immediately without downtime.
 ```bash
-antigravity-tools proxy enable "myemail@gmail.com"
+proxymateur proxy enable "myemail@gmail.com"
 ```
 
-##### 4. `antigravity-tools proxy disable <id|email|label> [reason]`
+##### 4. `proxymateur proxy disable <id|email|label> [reason]`
 Excludes an account from API proxy rotation (protecting its quotas for personal IDE use). Hot-reloads running proxy immediately.
 ```bash
-antigravity-tools proxy disable "xianspired@gmail.com" "Reserved for personal IDE usage"
+proxymateur proxy disable "xianspired@gmail.com" "Reserved for personal IDE usage"
 ```
 
 ---
 
 ## 2. Model Context Protocol (MCP) Server
 
-Antigravity Tools includes a native MCP server operating over `stdio` conforming to JSON-RPC 2.0.
+Proxymateur includes a native MCP server operating over `stdio` conforming to JSON-RPC 2.0.
 
 Launch command:
 ```bash
-antigravity-tools mcp
+proxymateur mcp
 ```
 
 ### Agent Configuration Examples
@@ -160,7 +160,7 @@ antigravity-tools mcp
 ```yaml
 mcp_servers:
   antigravity:
-    command: "C:\\Users\\<User>\\AppData\\Local\\Antigravity Tools\\antigravity-tools.exe"
+    command: "C:\\Users\\<User>\\AppData\\Local\\Proxymateur\\proxymateur.exe"
     args: ["mcp"]
 ```
 
@@ -168,8 +168,8 @@ mcp_servers:
 ```json
 {
   "mcpServers": {
-    "antigravity-tools": {
-      "command": "C:\\Users\\<User>\\AppData\\Local\\Antigravity Tools\\antigravity-tools.exe",
+    "proxymateur": {
+      "command": "C:\\Users\\<User>\\AppData\\Local\\Proxymateur\\proxymateur.exe",
       "args": ["mcp"]
     }
   }
@@ -180,8 +180,8 @@ mcp_servers:
 ```json
 {
   "mcpServers": {
-    "antigravity-tools": {
-      "command": "antigravity-tools",
+    "proxymateur": {
+      "command": "proxymateur",
       "args": ["mcp"]
     }
   }
@@ -261,7 +261,7 @@ Retrieves the real-time operational status of the local API proxy service.
   - `port`: Local listening port (e.g. `8045`).
   - `base_url`: Base endpoint URL (e.g. `http://127.0.0.1:8045/v1`).
   - `api_key`: Configured proxy API key / Bearer token.
-  - `total_accounts`: Total accounts configured in Antigravity Tools.
+  - `total_accounts`: Total accounts configured in Proxymateur.
   - `active_accounts`: Total accounts currently eligible and rotating in proxy requests.
   - `disabled_accounts`: Total accounts excluded from proxy rotation.
 

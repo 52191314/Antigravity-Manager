@@ -37,7 +37,7 @@
 - README.md 的版本更新日志
 - 贡献者列表
 
-再次感谢您对 Antigravity Tools 项目的支持！
+再次感谢您对 Proxymateur 项目的支持！
 
 ---
 
@@ -49,7 +49,7 @@ The updates are documented in:
 - README.md changelog
 - Contributors list
 
-Thank you again for your support of the Antigravity Tools project!
+Thank you again for your support of the Proxymateur project!
 ```
 
 ### 3. 关闭 PR

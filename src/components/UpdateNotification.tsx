@@ -229,9 +229,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose 
               {updateState === 'ready' && t('update_notification.restart_prompt')}
               {updateState === 'error' && `${t('update_notification.toast.failed')}`}
               {updateState === 'manual' && (
-                navigator.language.startsWith('zh')
-                  ? '检测到您当前运行的不是 AppImage 格式，自动更新仅支持 AppImage。请点击下方按钮手动下载更新。'
-                  : 'We detected that you are not running the AppImage version. Auto-updates are only supported for AppImage. Please download the update manually.'
+                'We detected that you are not running the AppImage version. Auto-updates are only supported for AppImage. Please download the update manually.'
               )}
             </p>
           </div>
@@ -314,7 +312,7 @@ export const UpdateNotification: React.FC<UpdateNotificationProps> = ({ onClose 
                   active:scale-[0.98]
                 "
               >
-                <span>{navigator.language.startsWith('zh') ? '手动下载' : 'Download Manually'}</span>
+                <span>Download Manually</span>
               </button>
               <button
                 onClick={handleClose}

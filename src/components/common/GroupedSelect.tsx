@@ -18,6 +18,7 @@ interface GroupedSelectProps {
     className?: string;
     disabled?: boolean;
     allowCustomInput?: boolean; // 新增: 是否允许自定义输入
+    customInputPlaceholder?: string; // 自定义输入框占位符
 }
 
 export default function GroupedSelect({
@@ -27,7 +28,8 @@ export default function GroupedSelect({
     placeholder = 'Select...',
     className = '',
     disabled = false,
-    allowCustomInput = false // 新增: 默认不允许自定义输入
+    allowCustomInput = false, // 新增: 默认不允许自定义输入
+    customInputPlaceholder = 'Enter custom model ID...'
 }: GroupedSelectProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [dropdownPosition, setDropdownPosition] = useState<{
@@ -270,7 +272,7 @@ export default function GroupedSelect({
                                             handleCustomInputSubmit();
                                         }
                                     }}
-                                    placeholder="输入自定义模型 ID..."
+                                    placeholder={customInputPlaceholder}
                                     className={cn(
                                         'flex-1 px-2 py-1 text-[10px] font-mono',
                                         'bg-white dark:bg-gray-800',
@@ -292,7 +294,7 @@ export default function GroupedSelect({
                                             : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
                                     )}
                                 >
-                                    确定
+                                    OK
                                 </button>
                             </div>
                         </div>

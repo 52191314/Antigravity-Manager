@@ -1,6 +1,6 @@
 //! CLI and Model Context Protocol (MCP) Module
 //!
-//! Provides command-line interface tools and a native stdio MCP server for Antigravity Tools.
+//! Provides command-line interface tools and a native stdio MCP server for Proxymateur.
 //! Allows AI agents (e.g. Claude Code, Hermes, Cursor, OpenCode) and terminal users to:
 //! - List accounts with quota summaries (Opus 5.5 labeled accounts pinned to bottom)
 //! - Read detailed quotas (models, percentages, countdowns, reset times)
@@ -303,7 +303,7 @@ pub async fn switch_account_cli(
 ) -> Result<Account, String> {
     let accounts = modules::account::list_accounts()?;
     if accounts.is_empty() {
-        return Err("No accounts found in Antigravity Tools".to_string());
+        return Err("No accounts found in Proxymateur".to_string());
     }
 
     let query_lower = account_query.to_lowercase();
@@ -342,7 +342,7 @@ pub async fn switch_account_cli(
         Some(acc) => acc,
         None => {
             return Err(format!(
-                "No account matched '{}'. Run 'antigravity-tools accounts' to list accounts.",
+                "No account matched '{}'. Run 'proxymateuraccounts' to list accounts.",
                 account_query
             ))
         }
@@ -378,7 +378,7 @@ pub async fn switch_account_cli(
             if resp.status().is_success() {
                 switched_via_api = true;
                 info!(
-                    "Switched account via running Antigravity Manager API on port {}",
+                    "Switched account via running Proxymateur API on port {}",
                     port
                 );
             }
@@ -456,7 +456,7 @@ pub async fn toggle_proxy_cli(
 ) -> Result<Account, String> {
     let accounts = modules::account::list_accounts()?;
     if accounts.is_empty() {
-        return Err("No accounts found in Antigravity Tools".to_string());
+        return Err("No accounts found in Proxymateur".to_string());
     }
 
     let query_lower = account_query.to_lowercase();
@@ -495,7 +495,7 @@ pub async fn toggle_proxy_cli(
         Some(acc) => acc,
         None => {
             return Err(format!(
-                "No account matched '{}'. Run 'antigravity-tools accounts' to list accounts.",
+                "No account matched '{}'. Run 'proxymateuraccounts' to list accounts.",
                 account_query
             ))
         }
@@ -542,10 +542,10 @@ pub async fn toggle_proxy_cli(
 /// Print CLI help
 fn print_help() {
     println!(
-        r#"Antigravity Tools CLI & MCP Server (v{})
+        r#"Proxymateur CLI & MCP Server (v{})
 
 USAGE:
-    antigravity-tools <COMMAND> [OPTIONS]
+    proxymateur<COMMAND> [OPTIONS]
 
 COMMANDS:
     accounts, list, ls          List all accounts with Gemini/Claude quotas
@@ -564,15 +564,15 @@ OPTIONS:
     --target <ide|classic|agy>  Target IDE/environment when switching accounts (default: auto)
 
 EXAMPLES:
-    antigravity-tools accounts
-    antigravity-tools accounts --json
-    antigravity-tools quota --refresh
-    antigravity-tools switch "my-label" --target ide
-    antigravity-tools proxy status
-    antigravity-tools proxy accounts
-    antigravity-tools proxy disable "xianspired@gmail.com"
-    antigravity-tools proxy enable "xianspired@gmail.com"
-    antigravity-tools mcp
+    proxymateuraccounts
+    proxymateuraccounts --json
+    proxymateurquota --refresh
+    proxymateurswitch "my-label" --target ide
+    proxymateurproxy status
+    proxymateurproxy accounts
+    proxymateurproxy disable "xianspired@gmail.com"
+    proxymateurproxy enable "xianspired@gmail.com"
+    proxymateurmcp
 "#,
         env!("CARGO_PKG_VERSION")
     );
@@ -595,7 +595,7 @@ pub async fn run_cli(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         "version" | "--version" | "-v" => {
-            println!("antigravity-tools v{}", env!("CARGO_PKG_VERSION"));
+            println!("proxymateurv{}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         "accounts" | "account" | "list" | "ls" => {
@@ -720,7 +720,7 @@ pub async fn run_cli(args: Vec<String>) -> Result<(), String> {
                 .skip(2)
                 .find(|a| !a.starts_with("--"))
                 .cloned()
-                .ok_or_else(|| "Missing account query. Usage: antigravity-tools switch <id|email|label> [--target <ide|classic|agy>]".to_string())?;
+                .ok_or_else(|| "Missing account query. Usage: proxymateurswitch <id|email|label> [--target <ide|classic|agy>]".to_string())?;
 
             let mut target_ide: Option<&str> = None;
             for i in 2..args.len() {
@@ -876,7 +876,7 @@ pub async fn run_cli(args: Vec<String>) -> Result<(), String> {
                 "enable" => {
                     let account_query = args
                         .get(3)
-                        .ok_or_else(|| "Missing account query. Usage: antigravity-tools proxy enable <id|email|label>".to_string())?;
+                        .ok_or_else(|| "Missing account query. Usage: proxymateurproxy enable <id|email|label>".to_string())?;
 
                     let acc = toggle_proxy_cli(account_query, true, None).await?;
                     if is_json {
@@ -901,7 +901,7 @@ pub async fn run_cli(args: Vec<String>) -> Result<(), String> {
                 "disable" => {
                     let account_query = args
                         .get(3)
-                        .ok_or_else(|| "Missing account query. Usage: antigravity-tools proxy disable <id|email|label> [reason]".to_string())?;
+                        .ok_or_else(|| "Missing account query. Usage: proxymateurproxy disable <id|email|label> [reason]".to_string())?;
 
                     let reason = if args.len() > 4 {
                         let r = args.iter().skip(4).cloned().collect::<Vec<_>>().join(" ");
@@ -939,7 +939,7 @@ pub async fn run_cli(args: Vec<String>) -> Result<(), String> {
                 }
                 other => {
                     eprintln!("Unknown proxy subcommand: '{}'\n", other);
-                    println!("Usage: antigravity-tools proxy [status | accounts | enable <account> | disable <account> [reason]]");
+                    println!("Usage: proxymateurproxy [status | accounts | enable <account> | disable <account> [reason]]");
                     Err(format!("Unknown proxy subcommand: {}", other))
                 }
             }
@@ -1002,7 +1002,7 @@ pub async fn run_mcp_server() -> Result<(), String> {
                             "tools": {}
                         },
                         "serverInfo": {
-                            "name": "antigravity-manager",
+                            "name": "proxymateur",
                             "version": env!("CARGO_PKG_VERSION")
                         }
                     }

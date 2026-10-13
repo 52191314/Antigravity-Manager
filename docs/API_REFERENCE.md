@@ -1,6 +1,6 @@
 # API Reference (v4.3.0)
 
-本文档详细介绍了 **Antigravity Tools** 暴露的 HTTP API 接口。
+本文档详细介绍了 **Proxymateur** 暴露的 HTTP API 接口。
 
 > **注意**: 在 v4.0.1 版本中，所有的服务（包括 AI 反代和系统管理）均已整合至统一端口 **8045**。原有的 19527 端口已废弃。
 

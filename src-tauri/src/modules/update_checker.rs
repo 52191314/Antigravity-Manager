@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const GITHUB_API_URL: &str =
-    "https://api.github.com/repos/lbjlaq/Antigravity-Manager/releases/latest";
+    "https://api.github.com/repos/52191314/Antigravity-Manager/releases/latest";
 const GITHUB_RELEASES_API_URL: &str =
-    "https://api.github.com/repos/lbjlaq/Antigravity-Manager/releases?per_page=15";
+    "https://api.github.com/repos/52191314/Antigravity-Manager/releases?per_page=15";
 const GITHUB_RAW_URL: &str =
-    "https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/package.json";
+    "https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/package.json";
 const JSDELIVR_URL: &str =
-    "https://cdn.jsdelivr.net/gh/lbjlaq/Antigravity-Manager@main/package.json";
+    "https://cdn.jsdelivr.net/gh/52191314/Antigravity-Manager@main/package.json";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_CHECK_INTERVAL_HOURS: u64 = 24;
 
@@ -93,9 +93,9 @@ struct GitHubReleaseAsset {
 }
 
 pub const STABLE_UPDATER_JSON_URL: &str =
-    "https://github.com/lbjlaq/Antigravity-Manager/releases/latest/download/updater.json";
+    "https://github.com/52191314/Antigravity-Manager/releases/latest/download/updater.json";
 pub const PREVIEW_UPDATER_JSON_URL: &str =
-    "https://github.com/lbjlaq/Antigravity-Manager/releases/download/preview/updater.json";
+    "https://github.com/52191314/Antigravity-Manager/releases/download/preview/updater.json";
 
 pub fn get_upstream_proxy_url() -> Option<String> {
     if let Ok(config) = crate::modules::config::load_app_config() {
@@ -212,7 +212,7 @@ struct UpdaterJson {
 
 async fn create_client() -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
-        .user_agent("Antigravity-Manager")
+        .user_agent("Proxymateur")
         .timeout(std::time::Duration::from_secs(10));
 
     // Load config to check for upstream proxy
@@ -301,7 +301,7 @@ async fn check_updater_json_channel(channel: UpdateChannel) -> Result<UpdateInfo
     }
 
     let download_url = format!(
-        "https://github.com/lbjlaq/Antigravity-Manager/releases/tag/v{}",
+        "https://github.com/52191314/Antigravity-Manager/releases/tag/v{}",
         latest_version
     );
 
@@ -488,7 +488,7 @@ async fn check_static_url(url: &str, source_name: &str) -> Result<UpdateInfo, St
     }
 
     // fallback sources generally don't provide release notes or download specific URL, construct generic
-    let download_url = "https://github.com/lbjlaq/Antigravity-Manager/releases/latest".to_string();
+    let download_url = "https://github.com/52191314/Antigravity-Manager/releases/latest".to_string();
     let release_notes = format!(
         "New version detected via {}. Please check release page for details.",
         source_name
@@ -626,8 +626,8 @@ pub fn is_homebrew_installed() -> bool {
     #[cfg(target_os = "macos")]
     {
         let caskroom_paths = [
-            "/opt/homebrew/Caskroom/antigravity-tools",
-            "/usr/local/Caskroom/antigravity-tools",
+            "/opt/homebrew/Caskroom/proxymateur",
+            "/usr/local/Caskroom/proxymateur",
         ];
 
         for path in &caskroom_paths {
@@ -663,7 +663,7 @@ pub fn is_appimage_running() -> bool {
     }
 }
 
-/// Execute `brew upgrade --cask antigravity-tools` with timeout (macOS only)
+/// Execute `brew upgrade --cask proxymateur` with timeout (macOS only)
 #[cfg(not(target_os = "macos"))]
 pub async fn brew_upgrade_cask() -> Result<String, String> {
     Err("brew_not_supported".to_string())
@@ -671,7 +671,7 @@ pub async fn brew_upgrade_cask() -> Result<String, String> {
 
 #[cfg(target_os = "macos")]
 pub async fn brew_upgrade_cask() -> Result<String, String> {
-    logger::log_info("Starting Homebrew Cask upgrade for antigravity-tools...");
+    logger::log_info("Starting Homebrew Cask upgrade for proxymateur...");
 
     // Find brew binary
     let brew_path = if std::path::Path::new("/opt/homebrew/bin/brew").exists() {
@@ -686,7 +686,7 @@ pub async fn brew_upgrade_cask() -> Result<String, String> {
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(180),
         tokio::process::Command::new(brew_path)
-            .args(["upgrade", "--cask", "antigravity-tools"])
+            .args(["upgrade", "--cask", "proxymateur"])
             .output(),
     )
     .await;

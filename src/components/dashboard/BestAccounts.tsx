@@ -1,5 +1,6 @@
-import { TrendingUp } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { Account, QuotaGroup } from '../../types/account';
+import { LedgerRow, SectionRule, SegmentBar } from '../common/ledger';
 import { findQuotaModel } from '../../config/modelConfig';
 import { getAccountDisplayName, maskEmail } from '../../utils/format';
 
@@ -155,72 +156,57 @@ function BestAccounts({ accounts, currentAccountId, onSwitch }: BestAccountsProp
     const bestGeminiRender = bestGemini ? { ...bestGemini, geminiQuota: bestGemini.quotaVal } : undefined;
     const bestClaudeRender = bestClaude ? { ...bestClaude, claudeQuota: bestClaude.quotaVal } : undefined;
 
-    return (
-        <div className="bg-white dark:bg-base-100 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-base-200 h-full flex flex-col">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-base-content mb-3 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-blue-500 dark:text-blue-400" />
-                {t('dashboard.best_accounts')}
-            </h2>
-
-            <div className="space-y-2 flex-1">
-                {/* Gemini 最佳 */}
-                {bestGeminiRender && (
-                    <div className="flex items-center justify-between p-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-100 dark:border-green-900/30">
-                        <div className="flex-1 min-w-0">
-                            <div className="text-[10px] text-green-600 dark:text-green-400 font-medium mb-0.5">{t('dashboard.for_gemini')}</div>
-                            <div className="font-medium text-sm text-gray-900 dark:text-base-content truncate" title={bestGeminiRender.custom_label ? `${bestGeminiRender.custom_label} (${maskEmail(bestGeminiRender.email)})` : maskEmail(bestGeminiRender.email)}>
-                                {getAccountDisplayName(bestGeminiRender)}
-                            </div>
-                        </div>
-                        <div className="ml-2 px-2 py-0.5 bg-green-500 text-white text-xs font-semibold rounded-full">
-                            {bestGeminiRender.geminiQuota}%
-                        </div>
+    const renderPick = (
+        kicker: string,
+        acc: Account,
+        quota: number
+    ) => {
+        const full = acc.custom_label ? `${acc.custom_label} (${maskEmail(acc.email)})` : maskEmail(acc.email);
+        return (
+            <LedgerRow key={`${kicker}-${acc.id}`} className="flex-wrap">
+                <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-black uppercase tracking-[0.2em] text-base-content/60">{kicker}</div>
+                    <div className="mt-0.5 text-sm font-bold truncate" title={full}>
+                        {getAccountDisplayName(acc)}
                     </div>
+                    <div className="mt-1.5">
+                        <SegmentBar percent={quota} tone={quota >= 50 ? 'lime' : quota >= 20 ? 'warn' : 'bad'} />
+                    </div>
+                </div>
+                <span className="text-3xl leading-none font-black tabular-nums [font-stretch:75%] shrink-0">{quota}%</span>
+                {onSwitch && (
+                    <button
+                        type="button"
+                        className="btn btn-sm btn-ghost rounded-none shrink-0 gap-1.5 text-[11px] font-black uppercase tracking-[0.1em]"
+                        title={t('dashboard.switch_best')}
+                        onClick={() => onSwitch(acc.id)}
+                    >
+                        {t('dashboard.switch_best')}
+                        <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
                 )}
+            </LedgerRow>
+        );
+    };
+
+    return (
+        <section>
+            <SectionRule index="03" label={t('dashboard.best_accounts')} />
+
+            <div>
+                {/* Gemini 最佳 */}
+                {bestGeminiRender && renderPick(t('dashboard.for_gemini'), bestGeminiRender, bestGeminiRender.geminiQuota)}
 
                 {/* Claude 最佳 */}
-                {bestClaudeRender && (
-                    <div className="flex items-center justify-between p-2.5 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg border border-cyan-100 dark:border-cyan-900/30">
-                        <div className="flex-1 min-w-0">
-                            <div className="text-[10px] text-cyan-600 dark:text-cyan-400 font-medium mb-0.5">{t('dashboard.for_claude')}</div>
-                            <div className="font-medium text-sm text-gray-900 dark:text-base-content truncate" title={bestClaudeRender.custom_label ? `${bestClaudeRender.custom_label} (${maskEmail(bestClaudeRender.email)})` : maskEmail(bestClaudeRender.email)}>
-                                {getAccountDisplayName(bestClaudeRender)}
-                            </div>
-                        </div>
-                        <div className="ml-2 px-2 py-0.5 bg-cyan-500 text-white text-xs font-semibold rounded-full">
-                            {bestClaudeRender.claudeQuota}%
-                        </div>
-                    </div>
-                )}
+                {bestClaudeRender && renderPick(t('dashboard.for_claude'), bestClaudeRender, bestClaudeRender.claudeQuota)}
 
                 {(!bestGeminiRender && !bestClaudeRender) && (
-                    <div className="text-center py-4 text-gray-400 text-sm">
+                    <div className="py-6 text-sm font-bold uppercase tracking-wider text-base-content/50 border-b border-base-content/20">
                         {t('accounts.no_data')}
                     </div>
                 )}
             </div>
-
-            {(bestGeminiRender || bestClaudeRender) && onSwitch && (
-                <div className="mt-auto pt-3">
-                    <button
-                        className="w-full px-3 py-1.5 bg-blue-500 text-white text-xs font-medium rounded-lg hover:bg-blue-600 transition-colors"
-                        onClick={() => {
-                            // 优先切换到配额更高的账号
-                            let targetId = bestGeminiRender?.id;
-                            if (bestClaudeRender && (!bestGeminiRender || bestClaudeRender.claudeQuota > bestGeminiRender.geminiQuota)) {
-                                targetId = bestClaudeRender.id;
-                            }
-
-                            if (onSwitch && targetId) {
-                                onSwitch(targetId);
-                            }
-                        }}
-                    >
-                        {t('dashboard.switch_best')}
-                    </button>
-                </div>
-            )}
-        </div>
+        </section>
     );
 
 }

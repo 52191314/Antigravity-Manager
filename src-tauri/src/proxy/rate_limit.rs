@@ -899,6 +899,8 @@ impl RateLimitTracker {
         let before = self.limits.len();
         self.limits
             .retain(|key, _| key != account_id && !key.starts_with(&prefix));
+        self.quota_limits
+            .retain(|key, _| key.0 != account_id && !key.0.starts_with(&prefix));
         self.failure_counts.remove(account_id);
         self.limits.len() != before
     }
@@ -915,15 +917,16 @@ impl RateLimitTracker {
         });
     }
 
-    /// 清除所有限流记录 (乐观重置策略)
+    /// 清除所有限流记录 (乐观重置策略与手动强力重置)
     ///
-    /// 用于乐观重置机制,当所有账号都被限流但等待时间很短时,
-    /// 清除所有限流记录以解决时序竞争条件
+    /// 用于乐观重置机制或用户手动重置,清除所有限流记录、配额锁以及连续失败计数
     pub fn clear_all(&self) {
         let count = self.limits.len();
         self.limits.clear();
+        self.quota_limits.clear();
+        self.failure_counts.clear();
         tracing::warn!(
-            "🔄 Optimistic reset: Cleared all {} rate limit record(s)",
+            "🔄 Reset: Cleared all {} rate limit record(s), quota limits, and failure counts",
             count
         );
     }

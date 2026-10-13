@@ -1004,6 +1004,10 @@ pub async fn monitor_middleware(
             );
             log.response_headers = serde_json::to_string(&Value::Object(headers_map.clone())).ok();
 
+            // A stream that fails after the 200 headers went out carries an in-band
+            // `{"error":{...}}` frame; remember it so the log row reflects the real outcome.
+            let mut stream_error: Option<(u16, String)> = None;
+
             // Parse and consolidate stream data into readable format
             if let Ok(full_response) = std::str::from_utf8(&all_stream_data) {
                 let mut thinking_content = String::new();
@@ -1023,6 +1027,21 @@ pub async fn monitor_middleware(
                     }
 
                     if let Ok(json) = serde_json::from_str::<Value>(json_str) {
+                        if stream_error.is_none() {
+                            if let Some(err) = json.get("error").and_then(|e| e.as_object()) {
+                                let code = err
+                                    .get("code")
+                                    .and_then(|c| c.as_u64())
+                                    .filter(|c| (400..600).contains(c))
+                                    .unwrap_or(502) as u16;
+                                let message = err
+                                    .get("message")
+                                    .and_then(|m| m.as_str())
+                                    .unwrap_or("upstream stream failed");
+                                stream_error = Some((code, truncate_for_log(message, 300)));
+                            }
+                        }
+
                         // OpenAI format: choices[0].delta.content / reasoning_content / tool_calls
                         if let Some(choices) = json.get("choices").and_then(|c| c.as_array()) {
                             for choice in choices {
@@ -1528,7 +1547,21 @@ pub async fn monitor_middleware(
                 }
             }
 
-            if log.status >= 400 {
+            if log.status < 400 {
+                if let Some((code, message)) = stream_error.take() {
+                    tracing::warn!(
+                        "[Monitor] Stream failed after HTTP {} headers: marking log {} as {} ({})",
+                        log.status,
+                        log.id,
+                        code,
+                        message
+                    );
+                    log.status = code;
+                    log.error = Some(format!("Stream interrupted mid-response: {}", message));
+                }
+            }
+
+            if log.status >= 400 && log.error.is_none() {
                 log.error = Some("Stream Error or Failed".to_string());
             }
 

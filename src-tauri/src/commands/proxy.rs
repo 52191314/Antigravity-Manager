@@ -274,11 +274,18 @@ pub async fn ensure_admin_server(
     // [NEW] 加载账号数据，否则管理界面统计为 0
     let _ = token_manager.load_accounts().await;
 
+    let active_custom_mapping: std::collections::HashMap<String, String> = config
+        .custom_mapping
+        .iter()
+        .filter(|(k, _)| !config.disabled_custom_mappings.contains(k))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
     let (axum_server, server_handle) = match crate::proxy::AxumServer::start(
         config.get_bind_address().to_string(),
         config.port,
         token_manager,
-        config.custom_mapping.clone(),
+        active_custom_mapping,
         config.request_timeout,
         config.upstream_proxy.clone(),
         config.user_agent_override.clone(),
@@ -307,6 +314,10 @@ pub async fn ensure_admin_server(
     crate::proxy::update_thinking_budget_config(config.thinking_budget.clone());
     // [NEW] 初始化全局系统提示词配置
     crate::proxy::update_global_system_prompt_config(config.global_system_prompt.clone());
+    // [NEW] 初始化 DEMON 模式配置
+    crate::proxy::update_demon_config(config.demon.clone());
+    // [NEW] 初始化允许标准 Gemini 官方模型配置
+    crate::proxy::update_allow_standard_gemini_models(config.allow_standard_gemini_models);
     // [NEW] 初始化全局图像思维模式配置
     crate::proxy::update_image_thinking_mode(config.image_thinking_mode.clone());
     crate::proxy::update_multimodal_config(config.multimodal.clone());
@@ -610,6 +621,7 @@ pub async fn update_model_mapping(
     // 2. 无论是否运行，都保存到全局配置持久化
     let mut app_config = crate::modules::config::load_app_config().map_err(|e| e)?;
     app_config.proxy.custom_mapping = config.custom_mapping;
+    app_config.proxy.disabled_custom_mappings = config.disabled_custom_mappings;
     crate::modules::config::save_app_config(&app_config).map_err(|e| e)?;
 
     Ok(())

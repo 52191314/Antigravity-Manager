@@ -29,11 +29,11 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
                 await onSave();
             }
             setSavedSuccessfully(true);
-            showToast(t("common.success", { defaultValue: "特定 Agent 设置已保存" }), "success");
+            showToast(t("common.success", { defaultValue: "Success" }), "success");
             setTimeout(() => setSavedSuccessfully(false), 2000);
         } catch (error: any) {
-            console.error("保存特定 Agent 设置失败:", error);
-            showToast(t("common.error", { defaultValue: "保存失败" }), "error");
+            console.error("Failed to save agent-specific settings:", error);
+            showToast(t("common.error", { defaultValue: "Error" }), "error");
         } finally {
             setIsSaving(false);
         }
@@ -45,11 +45,11 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
             <div className="p-3.5 bg-blue-50/70 dark:bg-blue-950/20 rounded-xl border border-blue-200/70 dark:border-blue-800/40 text-xs leading-relaxed space-y-1">
                 <div className="font-semibold text-blue-900 dark:text-blue-300 flex items-center gap-1.5">
                     <Bot size={14} className="text-blue-600 dark:text-blue-400" />
-                    {t("proxy.agent_settings.banner_title", { defaultValue: "特定 Agent 专属特性与优化治理" })}
+                    {t("proxy.agent_settings.banner_title", { defaultValue: "Agent-Specific Features & Optimization Governance" })}
                 </div>
                 <p className="text-gray-600 dark:text-gray-400">
                     {t("proxy.agent_settings.banner_desc", {
-                        defaultValue: "针对主流智能体（Claude Desktop、Claude Code、Cursor、Cline 等）的客户端特异性机制与沙箱限制，提供非侵入式的网关级调度协同。默认保持纯净线缆，仅在启用后对指定 Agent 流量精准介入。"
+                        defaultValue: "Client-specific mechanisms and sandbox restrictions for mainstream agents (Claude Desktop, Claude Code, Cursor, Cline, etc.), with non-intrusive gateway-level coordination. Traffic is passed through untouched by default; the gateway only intervenes for the specified agents once enabled."
                     })}
                 </p>
             </div>
@@ -61,10 +61,10 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
                     <div className="flex items-center gap-2">
                         <Laptop size={16} className="text-cyan-500" />
                         <span className="text-sm font-bold text-gray-900 dark:text-white">
-                            {t("proxy.agent_settings.claude_desktop.title", { defaultValue: "Claude Desktop 系列" })}
+                            {t("proxy.agent_settings.claude_desktop.title", { defaultValue: "Claude Desktop Series" })}
                         </span>
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300">
-                            {t("proxy.agent_settings.claude_desktop.tag", { defaultValue: "Cowork 模式专属" })}
+                            {t("proxy.agent_settings.claude_desktop.tag", { defaultValue: "Cowork mode only" })}
                         </span>
                     </div>
                 </div>
@@ -75,12 +75,12 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
                         <div className="text-xs font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
                             <Zap size={14} className="text-amber-500" />
                             {t("proxy.agent_settings.claude_desktop.auto_compact_title", {
-                                defaultValue: "Cowork 模式自动响应式压缩自愈 (Auto Reactive Compact)"
+                                defaultValue: "Cowork Auto Reactive Compact (self-healing)"
                             })}
                         </div>
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-normal">
                             {t("proxy.agent_settings.claude_desktop.auto_compact_desc", {
-                                defaultValue: "针对 Cowork 模式无法敲击 /compact 且沙箱旁路本地配置、高频全屏截屏导致上下文迅速膨胀至 200k+（单次 JSON 达 20~36MB）引发几十秒卡顿的顽疾。开启后，网关在后台实行双重确权校验（严格识别 Cowork 会话并对压缩总结请求无条件豁免放行），就地触发客户端内置 Summarizer 自动打上 compact_boundary 折叠历史与截图，恢复秒级极速响应。默认关闭以完整享受 Gemini 100万 Token 超长上下文。"
+                                defaultValue: "Addresses Cowork mode being unable to run /compact, its sandbox bypassing local configuration, and frequent full-screen screenshots inflating the context to 200k+ tokens (a single JSON payload reaching 20-36 MB) and causing stalls of tens of seconds. When enabled, the gateway performs a dual authorization check in the background (strictly identifying Cowork sessions and unconditionally exempting compaction summary requests), then triggers the client's built-in Summarizer in place to insert a compact_boundary that folds history and screenshots, restoring near-instant responses. Disabled by default so you can fully use Gemini's 1M-token context."
                             })}
                         </p>
                     </div>
@@ -101,12 +101,12 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
                         <div className="space-y-0.5">
                             <label className="text-xs font-semibold text-gray-800 dark:text-gray-200">
                                 {t("proxy.agent_settings.claude_desktop.threshold_label", {
-                                    defaultValue: "压缩触发门限 (Tokens)"
+                                    defaultValue: "Compaction trigger threshold (Tokens)"
                                 })}
                             </label>
                             <p className="text-[11px] text-gray-500 dark:text-gray-400">
                                 {t("proxy.agent_settings.claude_desktop.threshold_desc", {
-                                    defaultValue: "当 Cowork 会话预估 Token 水位达到此数值时触发自愈信号。全屏截图按官方规格精准折算（~1600 tokens/张）。"
+                                    defaultValue: "Triggers the self-healing signal when the estimated token level of a Cowork session reaches this value. Full-screen screenshots are estimated at the official rate (~1,600 tokens each)."
                                 })}
                             </p>
                         </div>
@@ -131,12 +131,12 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
 
                     {/* 快捷推荐预设胶囊 */}
                     <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                        <span className="text-[11px] text-gray-400 dark:text-gray-500 mr-1">快捷预设:</span>
+                        <span className="text-[11px] text-gray-400 dark:text-gray-500 mr-1">Quick presets:</span>
                         {[
-                            { label: "150,000 (极速)", val: 150000 },
-                            { label: "180,000 (敏捷)", val: 180000 },
-                            { label: "200,000 (官方推荐)", val: 200000 },
-                            { label: "250,000 (宽裕)", val: 250000 },
+                            { label: "150,000 (Fastest)", val: 150000 },
+                            { label: "180,000 (Agile)", val: 180000 },
+                            { label: "200,000 (Recommended)", val: 200000 },
+                            { label: "250,000 (Relaxed)", val: 250000 },
                         ].map((preset) => (
                             <button
                                 key={preset.val}
@@ -158,7 +158,7 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
                         <ShieldCheck size={14} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                         <span>
                             {t("proxy.agent_settings.claude_desktop.safety_note", {
-                                defaultValue: "后台双重安全校验：① 仅对 tools 显式包含 mcp__cowork 的桌面会话生效，普通 CLI / Cursor 绝对零误伤；② 对携带 x-stainless-helper: compaction 或 Prompt 包含官方压缩签名的总结请求无条件放行，绝对杜绝卡死会话。"
+                                defaultValue: "Background dual safety check: (1) only applies to desktop sessions whose tools explicitly include mcp__cowork, so regular CLI / Cursor traffic is never affected; (2) summary requests carrying x-stainless-helper: compaction, or a prompt containing the official compaction signature, are unconditionally allowed through, so sessions can never deadlock."
                             })}
                         </span>
                     </div>
@@ -180,12 +180,12 @@ export const AgentSettings: React.FC<AgentSettingsProps> = ({
                         {savedSuccessfully ? (
                             <>
                                 <Check size={14} />
-                                {t("common.saved", { defaultValue: "已保存" })}
+                                {t("common.saved", { defaultValue: "Saved successfully" })}
                             </>
                         ) : (
                             <>
                                 <Save size={14} />
-                                {isSaving ? t("common.saving", { defaultValue: "保存中..." }) : t("common.save", { defaultValue: "保存设置" })}
+                                {isSaving ? t("common.saving", { defaultValue: "Saving..." }) : t("common.save", { defaultValue: "Save" })}
                             </>
                         )}
                     </button>

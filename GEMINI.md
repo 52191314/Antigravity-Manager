@@ -1,4 +1,4 @@
-# Antigravity Manager Development Guidelines
+# Proxymateur Development Guidelines
 
 ## 1. Quota & Account Model Invariants
 
@@ -22,15 +22,16 @@
 
 ## 3. Windows Build & Deployment Workflow
 
-When compiling and delivering changes for Antigravity Tools on Windows:
+When compiling and delivering changes for Proxymateur on Windows:
 1. **Verification**: Run `npx tsc --noEmit` and `npm run build` to ensure 0 frontend compilation or bundling errors.
 2. **Binary Build**: Execute `cmd.exe /c "build_exe.bat"`.
 3. **Hot Deployment**:
-   - Check and gracefully terminate any running `antigravity-tools.exe` process (`Stop-Process -Name "antigravity-tools" -Force`).
-   - Copy `src-tauri\target\release\antigravity-tools.exe` to:
-     - `D:\02_Projects\Antigravity-Manager\Antigravity-Tools.exe`
-     - `C:\Users\Renzu\AppData\Local\Antigravity Tools\antigravity-tools.exe`
-   - Restart the executable from `C:\Users\Renzu\AppData\Local\Antigravity Tools\antigravity-tools.exe`.
+   - Check and gracefully terminate any running `proxymateur.exe` process (`Stop-Process -Name "proxymateur" -Force`). The exe was formerly named `antigravity-tools.exe`.
+   - Copy `src-tauri\target\release\proxymateur.exe` to:
+     - `E:\03_Devops\AntigravityManager\bin\proxymateur.exe`
+     - `E:\01_Apps\Installed\Proxymateur\proxymateur.exe`
+   - Restart the executable from `E:\03_Devops\AntigravityManager\bin\proxymateur.exe`.
+   - Or use the scripted deploy: `.\scripts\deploy_proxymateur.ps1` (dry run), `-Apply`, later `-Apply -Cleanup`.
 
 ## 4. Windows Startup & Window Lifecycle Invariants
 
@@ -42,7 +43,7 @@ When compiling and delivering changes for Antigravity Tools on Windows:
 - **Agent Sandbox Desktop vs. User Interactive Desktop (`WinSta0\default`)**:
   - Automated agent tools (`run_command`) execute under an isolated desktop station (`exebox-...`) and Windows Job Object.
   - **NEVER** leave desktop GUI binaries running from inside `run_command` expecting the user to see them on their screen. They will be trapped on the virtual desktop, hold single-instance mutexes/sockets against the user, and terminate abruptly when the tool step ends.
-  - For verification: deploy binaries to canonical paths (`AppData\Local\Antigravity Tools` and project root), stop lingering sandbox test processes, and let the user launch directly from their native desktop shortcut.
+  - For verification: deploy binaries to canonical paths (`E:\01_Apps\Installed\Proxymateur` and project root), stop lingering sandbox test processes, and let the user launch directly from their native desktop shortcut.
 
 - **Headless Port 8045 Takeover & Single-Instance Bounds**:
   - Desktop GUI launches must check port 8045 for running `--headless` background instances, issuing graceful `/system/shutdown` and waiting for port release before binding.

@@ -63,7 +63,7 @@
     "selected": "Selected",
     "claude_series": "Claude Series",
     "maximize": "Maximize",
-    "app_name": "Antigravity Tools"
+    "app_name": "Proxymateur"
   },
   "nav": {
     "dashboard": "Kontrol Paneli",
@@ -412,7 +412,7 @@
       "auto_launch": "Başlangıçta Çalıştır",
       "auto_launch_enabled": "Etkin",
       "auto_launch_disabled": "Devre Dışı",
-      "auto_launch_desc": "Sistem başladığında Antigravity Tools'u otomatik olarak başlat",
+      "auto_launch_desc": "Sistem başladığında Proxymateur'u otomatik olarak başlat",
       "quiet_autostart": "Sessiz başlatma (tepside kal)",
       "quiet_autostart_desc": "Sistemle birlikte açıldığında ana pencere gizli kalır. Hafif mod da açıksa WebView hemen serbest bırakılır. Uygulamayı kendiniz açtığınızda pencere görünür. Sistem tepsisi yoksa pencere gösterilir.",
       "quiet_autostart_enabled": "Sessiz başlatma açıldı",
@@ -1690,7 +1690,7 @@
   "apiKeyFun": {
     "title": "APIKEY.FUN Hub",
     "eyebrow": "Hub",
-    "description": "The official Antigravity Tools API Hub, providing stable, open, and cost-effective large model API services. Supports mainstream models like Claude, OpenAI, and Gemini. Ideal for unified configuration in Codex, Gemini CLI, Claude Code, and other development tools.",
+    "description": "The official Proxymateur API Hub, providing stable, open, and cost-effective large model API services. Supports mainstream models like Claude, OpenAI, and Gemini. Ideal for unified configuration in Codex, Gemini CLI, Claude Code, and other development tools.",
     "viewNow": "View Now",
     "usage": {
       "remainingAmount": "Remaining",

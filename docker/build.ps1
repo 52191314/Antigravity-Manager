@@ -1,12 +1,12 @@
-# 构建二改版 Antigravity Manager Docker 镜像
+# 构建二改版 Proxymateur Docker 镜像
 # 用法:
 #   .\docker\build.ps1
-#   .\docker\build.ps1 -Tag "antigravity-manager:4.6.9-fix"
+#   .\docker\build.ps1 -Tag "proxymateur:4.6.9-fix"
 #   .\docker\build.ps1 -UseMirror   # 国内加速
-#   .\docker\build.ps1 -Push -Registry "yourname/antigravity-manager"
+#   .\docker\build.ps1 -Push -Registry "yourname/proxymateur"
 
 param(
-    [string]$Tag = "antigravity-manager:local",
+    [string]$Tag = "proxymateur:local",
     [string]$VersionTag = "",
     [ValidateSet("auto", "true", "false")]
     [string]$Mirror = "auto",
@@ -35,7 +35,7 @@ if ($UseMirror) { $Mirror = "true" }
 
 $Version = (Get-Content "package.json" -Raw | ConvertFrom-Json).version
 if (-not $VersionTag) {
-    $VersionTag = "antigravity-manager:$Version-fix"
+    $VersionTag = "proxymateur:$Version-fix"
 }
 
 Write-Host "==> 项目根目录: $Root" -ForegroundColor Cyan
@@ -66,7 +66,7 @@ docker images $Tag.Split(":")[0]
 
 if ($Push) {
     if (-not $Registry) {
-        Write-Host "[错误] -Push 需要同时指定 -Registry，例如 yourname/antigravity-manager" -ForegroundColor Red
+        Write-Host "[错误] -Push 需要同时指定 -Registry，例如 yourname/proxymateur" -ForegroundColor Red
         exit 1
     }
     $remoteLatest = "${Registry}:latest"
@@ -83,11 +83,11 @@ Write-Host @"
 启动示例:
 
   docker run -d ``
-    --name antigravity-manager ``
+    --name proxymateur ``
     -p 8045:8045 ``
     -e API_KEY=your-api-key ``
     -e WEB_PASSWORD=your-login-password ``
-    -v `${HOME}/.antigravity_tools:/root/.antigravity_tools ``
+    -v `${HOME}/.proxymateur:/root/.proxymateur ``
     $Tag
 
 或使用 compose:

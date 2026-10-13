@@ -1,16 +1,18 @@
-# Antigravity Tools 🚀
+# Proxymateur 🚀
 > Professional Account Management & Protocol Proxy System for AI Services (v4.9.5)
+>
+> Forked from [lbjlaq/Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager) (CC BY-NC-SA 4.0).
 
 <div align="center">
-  <img src="public/icon.png" width="100" height="100" alt="Antigravity Tools Logo">
-  <h3>Antigravity Tools</h3>
+  <img src="public/icon.png" width="100" height="100" alt="Proxymateur Logo">
+  <h3>Proxymateur</h3>
   <p>Multi-platform automation & multi-account matrix dispatch console</p>
 
   <p>
-    <a href="https://github.com/lbjlaq/Antigravity-Manager/releases">
-      <img src="https://img.shields.io/github/v/release/lbjlaq/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
+    <a href="https://github.com/52191314/Antigravity-Manager/releases">
+      <img src="https://img.shields.io/github/v/release/52191314/Antigravity-Manager?color=blue&style=flat-square" alt="GitHub release">
     </a>
-    <a href="https://github.com/lbjlaq/Antigravity-Manager">
+    <a href="https://github.com/52191314/Antigravity-Manager">
       <img src="https://img.shields.io/badge/Version-4.9.5-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square" alt="Tauri">
@@ -39,7 +41,7 @@
 
 ---
 
-**Antigravity Tools** is an all-in-one desktop application designed for developers and AI enthusiasts. It perfectly combines multi-account management, protocol conversion, and smart request scheduling to provide you with a stable, high-speed, and low-cost **Local AI Relay Station**.
+**Proxymateur** is an all-in-one desktop application designed for developers and AI enthusiasts. It perfectly combines multi-account management, protocol conversion, and smart request scheduling to provide you with a stable, high-speed, and low-cost **Local AI Relay Station**.
 
 By leveraging this app, you can transform common Web Sessions (Google/Anthropic) into standardized API interfaces, completely eliminating the protocol gap between different providers.
 
@@ -99,7 +101,7 @@ If you like this project, you might also be interested in:
 
 ### 6. 🤖 Native CLI & Model Context Protocol (MCP) Server
 *   **Zero-GUI Terminal Automation**: Built-in CLI commands (`accounts`, `quota`, `switch`, `current`) allow inspecting quota pools, viewing model buckets, and switching active accounts straight from shell scripts.
-*   **AI Agent MCP Stdio Transport**: Out-of-the-box Model Context Protocol server (`antigravity-tools mcp`) exposes tools (`list_accounts`, `read_quotas`, `switch_account`, `get_current_account`) to **Hermes Agent**, **Claude Desktop**, **Cursor**, **Windsurf**, and **Cline**.
+*   **AI Agent MCP Stdio Transport**: Out-of-the-box Model Context Protocol server (`proxymateur mcp`) exposes tools (`list_accounts`, `read_quotas`, `switch_account`, `get_current_account`) to **Hermes Agent**, **Claude Desktop**, **Cursor**, **Windsurf**, and **Cline**.
 *   **Safe Opus 5.5 Partitioning**: Accounts containing `Opus5.5` in their labels are automatically isolated and pinned strictly to the bottom of the account list regardless of quota levels, preventing accidental routing exhaustion.
 
 ## 📸 GUI Overview
@@ -107,7 +109,7 @@ If you like this project, you might also be interested in:
 | | |
 | :---: | :---: |
 | ![Dashboard - Global Quota Monitoring & One-click Switch](docs/images/dashboard-light.png) <br> Dashboard | ![Account List - High-density Quota Display & Smart 403 Labeling](docs/images/accounts-light.png) <br> Account List |
-| ![About Page - About Antigravity Tools](docs/images/about-dark.png) <br> About Page | ![API Proxy - Service Control](docs/images/v3/proxy-settings.png) <br> API Proxy |
+| ![About Page - About Proxymateur](docs/images/about-dark.png) <br> About Page | ![API Proxy - Service Control](docs/images/v3/proxy-settings.png) <br> API Proxy |
 | ![Settings - General Config](docs/images/settings-dark.png) <br> Settings | |
 
 ### 💡 Usage Examples
@@ -121,7 +123,7 @@ If you like this project, you might also be interested in:
 
 ```mermaid
 graph TD
-    Client([External Apps: Claude Code/NextChat]) -->|OpenAI/Anthropic| Gateway[Antigravity Axum Server]
+    Client([External Apps: Claude Code/NextChat]) -->|OpenAI/Anthropic| Gateway[Proxymateur Axum Server]
     Gateway --> Middleware[Middleware: Auth/Rate Limit/Logs]
     Middleware --> Router[Model Router: ID Mapping]
     Router --> Dispatcher[Dispatcher: Rotation/Weights]
@@ -141,27 +143,27 @@ Automatically detects your OS, architecture, and package manager — one command
 
 **Linux / macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/install.ps1 | iex
 ```
 
 > **Supported formats**: Linux (`.deb` / `.rpm` / `.AppImage`) | macOS (`.dmg`) | Windows (NSIS `.exe`)
 >
-> **Advanced usage**: Install a specific version `curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.sh | bash -s -- --version 4.6.8`, dry-run mode `curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.sh | bash -s -- --dry-run`
+> **Advanced usage**: Install a specific version `curl -fsSL https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/install.sh | bash -s -- --version 4.6.8`, dry-run mode `curl -fsSL https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/install.sh | bash -s -- --dry-run`
 
 #### macOS - Homebrew
 If you have [Homebrew](https://brew.sh/) installed, you can also install via:
 
 ```bash
 # 1. Tap the repository
-brew tap lbjlaq/antigravity-manager https://github.com/lbjlaq/Antigravity-Manager
+brew tap 52191314/proxymateur https://github.com/52191314/Antigravity-Manager
 
 # 2. Install the app
-brew install --cask antigravity-tools
+brew install --cask proxymateur
 ```
 
 #### Arch Linux
@@ -169,20 +171,20 @@ You can choose to install via the one-click script or Homebrew:
 
 **Option 1: One-click script (Recommended)**
 ```bash
-curl -sSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/deploy/arch/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/deploy/arch/install.sh | bash
 ```
 
 **Option 2: via Homebrew** (If you have [Linuxbrew](https://sh.brew.sh/) installed)
 ```bash
-brew tap lbjlaq/antigravity-manager https://github.com/lbjlaq/Antigravity-Manager
-brew install --cask antigravity-tools
+brew tap 52191314/proxymateur https://github.com/52191314/Antigravity-Manager
+brew install --cask proxymateur
 ```
 
 #### Other Linux Distributions
 The AppImage will be automatically symlinked to your binary path with executable permissions.
 
 ### Option B: Manual Download
-Download from [GitHub Releases](https://github.com/lbjlaq/Antigravity-Manager/releases):
+Download from [GitHub Releases](https://github.com/52191314/Antigravity-Manager/releases):
 *   **macOS**: `.dmg` (Universal, Apple Silicon & Intel)
 *   **Windows**: `.msi` or portable `.zip`
 *   **Linux**: `.deb` or `AppImage`
@@ -195,15 +197,16 @@ If you prefer running in a containerized environment, we provide a native Docker
 - **WEB_PASSWORD**: Optional. Used for Web UI login. Defaults to API_KEY if NOT set.
 
 ```bash
-docker run -d --name antigravity-manager \
+docker run -d --name proxymateur \
   -p 8045:8045 \
   -e API_KEY=sk-your-api-key \
   -e WEB_PASSWORD=your-login-password \
   -e ABV_MAX_BODY_SIZE=104857600 \
-  -v ~/.antigravity_tools:/root/.antigravity_tools \
-  lbjlaq/antigravity-manager:latest
+  -e ABV_DATA_DIR=/root/.proxymateur \
+  -v ~/.proxymateur:/root/.proxymateur \
+  52191314/proxymateur:latest
 
-# Forgot keys? Run `docker logs antigravity-manager` or `grep -E '"api_key"|"admin_password"' ~/.antigravity_tools/gui_config.json`
+# Forgot keys? Run `docker logs proxymateur` or `grep -E '"api_key"|"admin_password"' ~/.proxymateur/gui_config.json`
 ```
 
 > [!TIP]
@@ -211,18 +214,19 @@ docker run -d --name antigravity-manager \
 > To test the latest Beta pre-release features, specify the corresponding Beta version tag (pre-releases are published independently and will never overwrite the `latest` stable tag):
 > ```bash
 > # Pull a specific Beta pre-release version (check Docker Hub for all tags)
-> docker pull lbjlaq/antigravity-manager:v4.8.2-beta.0
+> docker pull 52191314/proxymateur:v4.8.2-beta.0
 > 
 > # Run Beta container
-> docker run -d --name antigravity-manager-beta \
+> docker run -d --name proxymateur-beta \
 >   -p 8045:8045 \
 >   -e API_KEY=sk-your-api-key \
 >   -e WEB_PASSWORD=your-login-password \
 >   -e ABV_MAX_BODY_SIZE=104857600 \
->   -v ~/.antigravity_tools:/root/.antigravity_tools \
->   lbjlaq/antigravity-manager:v4.8.2-beta.0
+>   -e ABV_DATA_DIR=/root/.proxymateur \
+>   -v ~/.proxymateur:/root/.proxymateur \
+>   52191314/proxymateur:v4.8.2-beta.0
 > ```
-> View all published Beta tags on [Docker Hub Tags](https://hub.docker.com/r/lbjlaq/antigravity-manager/tags). If you wish to run the unreleased bleeding-edge `beta` branch directly, build locally: `docker build -t lbjlaq/antigravity-manager:beta -f docker/Dockerfile .`.
+> View all published Beta tags on [Docker Hub Tags](https://hub.docker.com/r/52191314/proxymateur/tags). If you wish to run the unreleased bleeding-edge `beta` branch directly, build locally: `docker build -t 52191314/proxymateur:beta -f docker/Dockerfile .`.
 
 #### 🔐 Authentication Scenarios
 *   **Scenario A: Only `API_KEY` is set**
@@ -236,7 +240,7 @@ docker run -d --name antigravity-manager \
 If you are upgrading from v4.0.1 or earlier, your installation won't have a `WEB_PASSWORD` set by default. You can add one using any of these methods:
 1.  **Web UI (Recommended)**: Log in using your existing `API_KEY`, go to the **API Proxy Settings** page, find the **Web UI Management Password** section below the API Key, set your new password, and save.
 2.  **Environment Variable (Docker)**: Stop the old container and start the new one with the added parameter `-e WEB_PASSWORD=your_new_password`. **Note: Environment variables have the highest priority and will override any changes in the UI.**
-3.  **Config File (Persistent)**: Directly edit `~/.antigravity_tools/gui_config.json` and add/modify `"admin_password": "your_new_password"` inside the `proxy` object.
+3.  **Config File (Persistent)**: Directly edit `~/.proxymateur/gui_config.json` and add/modify `"admin_password": "your_new_password"` inside the `proxy` object.
     - *Note: `WEB_PASSWORD` is the environment variable name, while `admin_password` is the JSON key in the config file.*
 
 > [!TIP]
@@ -255,7 +259,7 @@ docker compose up -d
 > **Access URL**: `http://localhost:8045` (Admin Console) | `http://localhost:8045/v1` (API Base)
 > **System Requirements**:
 > - **RAM**: **1GB** recommended (minimum 256MB).
-> - **Persistence**: Mount `/root/.antigravity_tools` to persist your data.
+> - **Persistence**: Mount `/root/.proxymateur` to persist your data.
 > - **Architecture**: Supports x86_64 and ARM64.
 > **See**: [Docker Deployment Guide (docker)](./docker/README.md)
 
@@ -267,16 +271,16 @@ Due to macOS security gatekeeper, non-App Store apps might show this. You can fi
 
 1. **Terminal Command** (Recommended):
    ```bash
-   sudo xattr -rd com.apple.quarantine "/Applications/Antigravity Tools.app"
+   sudo xattr -rd com.apple.quarantine "/Applications/Proxymateur.app"
    ```
 2. **Homebrew Installation Advantage**:
-   When installing via Homebrew (`brew install --cask antigravity-tools`), quarantine attributes are automatically cleared upon installation for an out-of-the-box experience.
+   When installing via Homebrew (`brew install --cask proxymateur`), quarantine attributes are automatically cleared upon installation for an out-of-the-box experience.
 
 #### Linux window is black or empty?
 On niri, Hyprland, Sway, and similar compositors, older builds forced `GDK_BACKEND=x11` whenever `DISPLAY` was set, and WebKit then drew a black window. Update to a build that includes this fix, or launch once with:
 
 ```bash
-env WEBKIT_DISABLE_DMABUF_RENDERER=1 ANTIGRAVITY_FORCE_WAYLAND=1 antigravity-tools
+env WEBKIT_DISABLE_DMABUF_RENDERER=1 ANTIGRAVITY_FORCE_WAYLAND=1 proxymateur
 ```
 
 - `ANTIGRAVITY_FORCE_WAYLAND=1`: keep native Wayland (do not force X11)
@@ -296,9 +300,9 @@ env WEBKIT_DISABLE_DMABUF_RENDERER=1 ANTIGRAVITY_FORCE_WAYLAND=1 antigravity-too
 > Note: the auth URL contains a one-time local callback port. Always use the latest URL shown in the dialog. If the app isn’t running or the dialog is closed during auth, the browser may show `localhost refused connection`.
 
 ### How to use with JeikCode? (Recommended)
-[JeikCode](https://github.com/jeikl/JeikCode) is a modern terminal AI Coding Agent crafted by the core maintainer of this project, featuring native deep integration with Antigravity-Manager, delivering **95%+ KV-Cache hit rate** and seamless reasoning level control.
+[JeikCode](https://github.com/jeikl/JeikCode) is a modern terminal AI Coding Agent crafted by the core maintainer of this project, featuring native deep integration with Proxymateur, delivering **95%+ KV-Cache hit rate** and seamless reasoning level control.
 1. **One-Click Sync via GUI (Recommended)**:
-   - Launch Antigravity-Manager and ensure the **API Proxy** service is running.
+   - Launch Proxymateur and ensure the **API Proxy** service is running.
    - Switch to the **`>_ Agent Tools One-Click Configuration`** tab.
    - Locate the **JeikCode** card, choose your desired default model (e.g. `gemini-3.8-flash-high`), and click **`🔄 Sync Now`**.
    - Simply run `jeikcode` in your terminal for the TUI, **and type `/webui` to instantly launch the modern WebUI in your browser for a richer visual coding experience out of the box!**
@@ -311,7 +315,7 @@ jeikcode --model claude-sonnet-4-6-thinking
 > For complete manual configuration and tuning, see the [JeikCode Integration Guide](./docs/jeikcode_integration.md).
 
 ### How to use with Claude Code CLI?
-1. Start Antigravity service in the "API Proxy" tab.
+1. Start the Proxymateur service in the "API Proxy" tab.
 2. In your terminal:
 ```bash
 export ANTHROPIC_API_KEY="sk-antigravity"
@@ -361,22 +365,22 @@ print(response.choices[0].message.content)
 
 ### How to use CLI & Native MCP Server for AI Agents?
 
-Antigravity Tools includes a built-in CLI and stdio MCP server directly inside the application binary (`antigravity-tools` / `Antigravity-Tools.exe`).
+Proxymateur includes a built-in CLI and stdio MCP server directly inside the application binary (`proxymateur` / `proxymateur.exe`, formerly `antigravity-tools`).
 
 #### 1. CLI Commands
 ```bash
 # List all accounts with quota and active status
-antigravity-tools accounts
+proxymateur accounts
 
 # Inspect quota groups (Gemini & Claude weekly/5h) and model buckets
-antigravity-tools quota
+proxymateur quota
 
 # Switch active account immediately by email, label, or UUID
-antigravity-tools switch "Thun"
-antigravity-tools switch user@gmail.com
+proxymateur switch "Thun"
+proxymateur switch user@gmail.com
 
 # Print currently active account
-antigravity-tools current
+proxymateur current
 ```
 
 #### 2. Native Model Context Protocol (MCP) Server
@@ -386,8 +390,8 @@ Add to your agent's MCP config:
 ```json
 {
   "mcpServers": {
-    "antigravity-tools": {
-      "command": "C:\\Users\\<User>\\AppData\\Local\\Antigravity Tools\\antigravity-tools.exe",
+    "proxymateur": {
+      "command": "C:\\Users\\<User>\\AppData\\Local\\Proxymateur\\proxymateur.exe",
       "args": ["mcp"]
     }
   }
@@ -600,5 +604,5 @@ This project has referenced or learned from the ideas or code of the following e
 
 <div align="center">
   <p>If you find this tool helpful, please give it a ⭐️ on GitHub!</p>
-  <p>Copyright © 2024-2026 Antigravity Team.</p>
+  <p>Copyright © 2024-2026 Proxymateur contributors. Forked from lbjlaq/Antigravity-Manager.</p>
 </div>

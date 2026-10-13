@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Antigravity Tools Install Script (Linux + macOS)
-# Usage: curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.sh | bash
+# Proxymateur Install Script (Linux + macOS)
+# Usage: curl -fsSL https://raw.githubusercontent.com/52191314/Antigravity-Manager/main/install.sh | bash
 #
 # Environment variables:
 #   VERSION     - Install specific version (e.g., "4.1.20"), default: latest
@@ -15,9 +15,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-REPO="lbjlaq/Antigravity-Manager"
-APP_NAME="Antigravity Tools"
-APP_ID="com.lbjlaq.antigravity-tools"
+REPO="52191314/Antigravity-Manager"
+APP_NAME="Proxymateur"
+APP_ID="com.proxymateur.app"
 GITHUB_API="https://api.github.com/repos/${REPO}/releases"
 
 # Helper functions
@@ -122,7 +122,7 @@ get_version() {
 
     # Method 1: Try GitHub API (returns JSON with tag_name)
     local response
-    if response=$(curl -fsSL --max-time 10 -H "User-Agent: Antigravity-Installer" "${GITHUB_API}/latest" 2>/dev/null); then
+    if response=$(curl -fsSL --max-time 10 -H "User-Agent: Proxymateur-Installer" "${GITHUB_API}/latest" 2>/dev/null); then
         RELEASE_VERSION=$(echo "$response" | grep '"tag_name"' | head -n1 | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/' | tr -d '[:space:]\r\n')
         if _is_valid_version "${RELEASE_VERSION:-}"; then
             info "Latest version: v$RELEASE_VERSION"
@@ -156,25 +156,25 @@ build_download_url() {
         linux)
             case "$PKG_EXT" in
                 deb)
-                    # Antigravity.Tools_4.3.0_amd64.deb or _arm64.deb
-                    DOWNLOAD_URL="${base_url}/Antigravity.Tools_${RELEASE_VERSION}_${DEB_ARCH}.deb"
-                    FILENAME="Antigravity.Tools_${RELEASE_VERSION}_${DEB_ARCH}.deb"
+                    # Proxymateur_4.3.0_amd64.deb or _arm64.deb
+                    DOWNLOAD_URL="${base_url}/Proxymateur_${RELEASE_VERSION}_${DEB_ARCH}.deb"
+                    FILENAME="Proxymateur_${RELEASE_VERSION}_${DEB_ARCH}.deb"
                     ;;
                 rpm)
-                    # Antigravity.Tools-4.3.0-1.x86_64.rpm or -1.aarch64.rpm
-                    DOWNLOAD_URL="${base_url}/Antigravity.Tools-${RELEASE_VERSION}-1.${RPM_ARCH}.rpm"
-                    FILENAME="Antigravity.Tools-${RELEASE_VERSION}-1.${RPM_ARCH}.rpm"
+                    # Proxymateur-4.3.0-1.x86_64.rpm or -1.aarch64.rpm
+                    DOWNLOAD_URL="${base_url}/Proxymateur-${RELEASE_VERSION}-1.${RPM_ARCH}.rpm"
+                    FILENAME="Proxymateur-${RELEASE_VERSION}-1.${RPM_ARCH}.rpm"
                     ;;
                 AppImage)
-                    # Antigravity.Tools_4.3.0_amd64.AppImage or _aarch64.AppImage
+                    # Proxymateur_4.3.0_amd64.AppImage or _aarch64.AppImage
                     local appimage_arch
                     if [[ "$ARCH_LABEL" == "x86_64" ]]; then
                         appimage_arch="amd64"
                     else
                         appimage_arch="aarch64"
                     fi
-                    DOWNLOAD_URL="${base_url}/Antigravity.Tools_${RELEASE_VERSION}_${appimage_arch}.AppImage"
-                    FILENAME="Antigravity.Tools_${RELEASE_VERSION}_${appimage_arch}.AppImage"
+                    DOWNLOAD_URL="${base_url}/Proxymateur_${RELEASE_VERSION}_${appimage_arch}.AppImage"
+                    FILENAME="Proxymateur_${RELEASE_VERSION}_${appimage_arch}.AppImage"
                     ;;
             esac
             ;;
@@ -185,8 +185,8 @@ build_download_url() {
             else
                 mac_arch="aarch64"
             fi
-            DOWNLOAD_URL="${base_url}/Antigravity.Tools_${RELEASE_VERSION}_${mac_arch}.dmg"
-            FILENAME="Antigravity.Tools_${RELEASE_VERSION}_${mac_arch}.dmg"
+            DOWNLOAD_URL="${base_url}/Proxymateur_${RELEASE_VERSION}_${mac_arch}.dmg"
+            FILENAME="Proxymateur_${RELEASE_VERSION}_${mac_arch}.dmg"
             ;;
     esac
 
@@ -227,10 +227,10 @@ install_linux() {
             local install_dir="${HOME}/.local/bin"
             run mkdir -p "$install_dir"
             run chmod +x "$DOWNLOAD_PATH"
-            run cp "$DOWNLOAD_PATH" "${install_dir}/antigravity-tools"
+            run cp "$DOWNLOAD_PATH" "${install_dir}/proxymateur"
 
             if [[ ":$PATH:" != *":${install_dir}:"* ]]; then
-                warn "Add ${install_dir} to your PATH to run antigravity-tools from anywhere"
+                warn "Add ${install_dir} to your PATH to run proxymateur from anywhere"
 
                 local shell_name rc_file export_line
                 shell_name="$(basename "${SHELL:-/bin/bash}")"

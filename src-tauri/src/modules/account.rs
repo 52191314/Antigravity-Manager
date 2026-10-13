@@ -103,8 +103,8 @@ mod tests {
     #[test]
     fn test_normalize_data_dir_path_strips_windows_prefix() {
         assert_eq!(
-            format_data_dir_path(Path::new(r"\\?\F:\antigravity-tools-data")),
-            r"F:\antigravity-tools-data"
+            format_data_dir_path(Path::new(r"\\?\F:\proxymateur-data")),
+            r"F:\proxymateur-data"
         );
         assert_eq!(
             format_data_dir_path(Path::new(r"\\?\UNC\server\share\data")),
@@ -113,8 +113,8 @@ mod tests {
         assert_eq!(format_data_dir_path(Path::new("//?/C:/data")), "C:/data");
         assert_eq!(format_data_dir_path(Path::new("/app/data")), "/app/data");
         assert_eq!(
-            format_data_dir_path(Path::new(r"F:\antigravity-tools-data")),
-            r"F:\antigravity-tools-data"
+            format_data_dir_path(Path::new(r"F:\proxymateur-data")),
+            r"F:\proxymateur-data"
         );
     }
 
@@ -127,13 +127,13 @@ mod tests {
 
         // 记录真实家目录指针，结尾断言它自始至终没被改动。
         // 背景：`migrate_data_dir` 会写数据目录指针。如果测试让它写到真实的
-        // `~/.antigravity_tools_location`，那么测试一旦被中断（Ctrl-C / 超时 /
+        // `~/.proxymateur_location`（或旧的 `~/.antigravity_tools_location`），那么测试一旦被中断（Ctrl-C / 超时 /
         // 进程被杀），恢复逻辑不会执行，用户的数据目录就会被永久指向 /tmp 下的
         // 临时目录 —— 应用下次启动会读到空数据目录，表现为「账号全部消失」。
-        let real_pointer = dirs::home_dir()
-            .expect("home")
-            .join(".antigravity_tools_location");
+        let real_pointer = dirs::home_dir().expect("home").join(LOCATION_POINTER_FILE);
         let real_pointer_before = fs::read_to_string(&real_pointer).ok();
+        let real_legacy_pointer = dirs::home_dir().expect("home").join(LEGACY_POINTER_FILE);
+        let real_legacy_pointer_before = fs::read_to_string(&real_legacy_pointer).ok();
 
         let src = TestDataDir::new();
         fs::write(src.path().join("marker.txt"), "hello").unwrap();
@@ -182,10 +182,15 @@ mod tests {
         }));
 
         let real_pointer_after = fs::read_to_string(&real_pointer).ok();
+        let real_legacy_pointer_after = fs::read_to_string(&real_legacy_pointer).ok();
         restore();
 
         assert_eq!(
             real_pointer_before, real_pointer_after,
+            "测试污染了真实的 ~/.proxymateur_location！"
+        );
+        assert_eq!(
+            real_legacy_pointer_before, real_legacy_pointer_after,
             "测试污染了真实的 ~/.antigravity_tools_location！"
         );
 
@@ -633,15 +638,23 @@ pub(crate) fn lock_account_file_updates() -> Result<std::sync::MutexGuard<'stati
 }
 
 // ... existing constants ...
-const DATA_DIR: &str = ".antigravity_tools";
-const LOCATION_POINTER_FILE: &str = ".antigravity_tools_location";
+// Default data dir `~/.proxymateur` (legacy `~/.antigravity_tools`, see
+// `utils::identity_migration::migrate_legacy_data_dir`) and its pointer file
+// `~/.proxymateur_location` (legacy `~/.antigravity_tools_location`, still read as a fallback).
+use crate::utils::identity_migration::{
+    resolve_default_data_dir, LEGACY_DATA_DIR, LEGACY_POINTER_FILE,
+    POINTER_FILE as LOCATION_POINTER_FILE,
+};
 const ACCOUNTS_INDEX: &str = "accounts.json";
 const ACCOUNTS_DIR: &str = "accounts";
 const DATA_DIR_POINTER_FILE: &str = "data_dir.txt";
 
 /// 获取数据目录自举指针文件路径（保存在系统标准配置目录下）
+///
+/// Dead bootstrap pointer written by `commands::migrate_data_dir`; it is never read back
+/// (the live pointer is `~/.proxymateur_location`).
 pub fn get_data_dir_pointer_file() -> Option<PathBuf> {
-    dirs::config_dir().map(|p| p.join("antigravity-tools").join(DATA_DIR_POINTER_FILE))
+    dirs::config_dir().map(|p| p.join("proxymateur").join(DATA_DIR_POINTER_FILE))
 }
 
 static DATA_DIR_OVERRIDE: OnceLock<RwLock<Option<PathBuf>>> = OnceLock::new();
@@ -655,9 +668,12 @@ fn data_dir_override_slot() -> &'static RwLock<Option<PathBuf>> {
 /// 可用 `ABV_DATA_DIR_POINTER_FILE` 覆盖（测试 / Docker 用）。
 ///
 /// 为什么必须支持覆盖：单元测试会调用 `migrate_data_dir`，它经由 `apply_data_dir`
-/// 写入这个指针。若指针固定指向真实的 `~/.antigravity_tools_location`，那么测试一旦
+/// 写入这个指针。若指针固定指向真实的 `~/.proxymateur_location`，那么测试一旦
 /// 被中断（Ctrl-C、超时、崩溃、进程被杀），恢复逻辑就不会执行，指针会被永久留在
 /// 临时目录上 —— 应用下次启动就会读到一个空的数据目录，表现为「账号全部消失」。
+///
+/// 这是「写入」用的（新）指针路径；读取时若它不存在，还会回退到旧的
+/// `~/.antigravity_tools_location`（见 [`legacy_location_pointer_path`]）。
 fn location_pointer_path() -> Result<PathBuf, String> {
     if let Ok(custom) = std::env::var("ABV_DATA_DIR_POINTER_FILE") {
         let trimmed = custom.trim();
@@ -669,9 +685,33 @@ fn location_pointer_path() -> Result<PathBuf, String> {
     Ok(home.join(LOCATION_POINTER_FILE))
 }
 
+/// Legacy pointer file `~/.antigravity_tools_location`. `None` when the pointer location is
+/// overridden via `ABV_DATA_DIR_POINTER_FILE` (tests / Docker must never touch the real home).
+fn legacy_location_pointer_path() -> Option<PathBuf> {
+    if let Ok(custom) = std::env::var("ABV_DATA_DIR_POINTER_FILE") {
+        if !custom.trim().is_empty() {
+            return None;
+        }
+    }
+    dirs::home_dir().map(|home| home.join(LEGACY_POINTER_FILE))
+}
+
+/// Default data dir: `~/.proxymateur`, or the legacy `~/.antigravity_tools` when only that one
+/// exists (migration did not run / failed) so the app never starts with an empty data set.
 fn default_data_dir() -> Result<PathBuf, String> {
+    static WARN_LEGACY_ONCE: std::sync::Once = std::sync::Once::new();
     let home = dirs::home_dir().ok_or("failed_to_get_home_dir")?;
-    Ok(home.join(DATA_DIR))
+    let resolved = resolve_default_data_dir(&home);
+    if resolved.is_legacy {
+        WARN_LEGACY_ONCE.call_once(|| {
+            tracing::warn!(
+                "Using legacy data directory {:?}: it could not be migrated to {:?} yet (files in use?). It will be retried on the next launch.",
+                resolved.path,
+                home.join(crate::utils::identity_migration::DATA_DIR)
+            );
+        });
+    }
+    Ok(resolved.path)
 }
 
 fn ensure_dir(path: &Path) -> Result<(), String> {
@@ -768,14 +808,28 @@ fn persist_clean_env(dir: &Path) {
     std::env::set_var("ABV_DATA_DIR", format_data_dir_path(dir));
 }
 
+/// Reads the data-dir pointer: the new `~/.proxymateur_location` first, then the legacy
+/// `~/.antigravity_tools_location` (an unreadable / empty new pointer falls through too).
 fn read_location_pointer() -> Option<PathBuf> {
-    let path = location_pointer_path().ok()?;
-    let content = fs::read_to_string(path).ok()?;
-    let trimmed = content.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
+    let read_non_empty = |path: PathBuf| -> Option<String> {
+        let content = fs::read_to_string(path).ok()?;
+        let trimmed = content.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    };
+    let trimmed_owned = location_pointer_path()
+        .ok()
+        .and_then(read_non_empty)
+        .or_else(|| legacy_location_pointer_path().and_then(read_non_empty))?;
+    let trimmed = trimmed_owned.as_str();
     let cleaned = normalize_data_dir_path(trimmed);
+    // A pointer that still names the legacy DEFAULT dir (`~/.antigravity_tools`) must follow the
+    // default-dir resolution: after the rename to `~/.proxymateur` it would otherwise point at a
+    // folder that no longer exists and `ensure_dir` would silently create an empty one.
+    if let Some(home) = dirs::home_dir() {
+        if paths_equivalent(&cleaned, &home.join(LEGACY_DATA_DIR)) {
+            return default_data_dir().ok();
+        }
+    }
     if format_data_dir_path(&cleaned) != trimmed {
         let _ = write_location_pointer(&cleaned);
     }
@@ -824,8 +878,13 @@ fn apply_data_dir(dir: &Path) -> Result<(), String> {
     let dir = normalize_data_dir_path(dir);
     ensure_dir(&dir)?;
     if is_default_data_dir(&dir) {
+        // Back on the default dir: drop the pointer(s). The legacy pointer must go too,
+        // otherwise the read fallback would resurrect the old custom location.
         if let Ok(pointer) = location_pointer_path() {
             let _ = fs::remove_file(pointer);
+        }
+        if let Some(legacy_pointer) = legacy_location_pointer_path() {
+            let _ = fs::remove_file(legacy_pointer);
         }
     } else {
         write_location_pointer(&dir)?;
@@ -869,7 +928,7 @@ pub fn get_data_dir() -> Result<PathBuf, String> {
         return Ok(path);
     }
 
-    // 4. Default ~/.antigravity_tools
+    // 4. Default ~/.proxymateur (falls back to the legacy ~/.antigravity_tools if only that exists)
     let data_dir = default_data_dir()?;
     ensure_dir(&data_dir)?;
     Ok(data_dir)
@@ -1679,7 +1738,7 @@ fn format_switch_refresh_error(message: &str) -> String {
         || lower.contains("invalid_grant")
     {
         return format!(
-            "Token refresh failed: OAuth client is not authorized for this account. Please sign in again in Antigravity-Manager and complete authorization/verification. Raw error: {}",
+            "Token refresh failed: OAuth client is not authorized for this account. Please sign in again in Proxymateur and complete authorization/verification. Raw error: {}",
             message
         );
     }

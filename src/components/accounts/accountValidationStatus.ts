@@ -8,6 +8,7 @@ const RATE_LIMIT_HINTS = [
     'rate-limited',
     'risk control',
     'risk-controlled',
+    // Backend may emit these Chinese tokens in error text; matcher only, never displayed.
     '风控',
     '冻结',
     'frozen',

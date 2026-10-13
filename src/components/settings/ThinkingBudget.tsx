@@ -35,41 +35,41 @@ const CONCURRENCY_GUIDE_PRESETS: ConcurrencyGuidePreset[] = [
         key: "1g",
         icon: "🖥️",
         titleKey: "proxy.config.thinking_budget.guide_preset_1g_title",
-        titleDefault: "1GB 内存轻量服务器:",
+        titleDefault: "1GB RAM Lightweight Server:",
         descKey: "proxy.config.thinking_budget.guide_preset_1g_desc",
-        descDefault: "推荐填写 <1>100 ~ 200 轮</1>。几百个并发会话仅消耗约 50MB 内存，极端抗爆。",
+        descDefault: "Recommended: <1>100 ~ 200 turns</1>. Hundreds of concurrent sessions consume only ~50MB RAM, extremely resilient against OOM.",
     },
     {
         key: "team",
         icon: "👥",
         titleKey: "proxy.config.thinking_budget.guide_preset_team_title",
-        titleDefault: "个人 ~ 10 人自用团队:",
+        titleDefault: "Personal & Small Teams (1-10 Users):",
         descKey: "proxy.config.thinking_budget.guide_preset_team_desc",
-        descDefault: "推荐填写 <1>600 ~ 1000 轮</1>。数千轮历史对话常驻物理内存 0ms 闪电直出。",
+        descDefault: "Recommended: <1>600 ~ 1000 turns</1>. Thousands of historical turns stay resident in RAM for 0ms lightning-fast responses.",
     },
     {
         key: "enterprise",
         icon: "🏢",
         titleKey: "proxy.config.thinking_budget.guide_preset_enterprise_title",
-        titleDefault: "100 人企业级并发 (2G-4G):",
+        titleDefault: "100 Users Enterprise (2G-4G):",
         descKey: "proxy.config.thinking_budget.guide_preset_enterprise_desc",
-        descDefault: "推荐填写 <1>300 ~ 600 轮</1>。95%+ 请求命中 RAM，兼具极致性能与绝对稳健。",
+        descDefault: "Recommended: <1>300 ~ 600 turns</1>. 95%+ requests hit RAM, delivering peak performance with rock-solid stability.",
     },
     {
         key: "relay",
         icon: "🌐",
         titleKey: "proxy.config.thinking_budget.guide_preset_relay_title",
-        titleDefault: "1K+ 用户公共中转站 (4G-8G):",
+        titleDefault: "1K+ Users Public Relay (4G-8G):",
         descKey: "proxy.config.thinking_budget.guide_preset_relay_desc",
-        descDefault: "推荐填写 <1>150 ~ 300 轮</1>。内存优先倾斜给长连接池，长对话冷历史托付 SQLite。",
+        descDefault: "Recommended: <1>150 ~ 300 turns</1>. Memory prioritized for connection pools; long-turn cold histories safely offloaded to SQLite.",
     },
     {
         key: "cluster",
         icon: "🚀",
         titleKey: "proxy.config.thinking_budget.guide_preset_cluster_title",
-        titleDefault: "1W+ ~ 10W+ 海量并发集群:",
+        titleDefault: "10K ~ 100K+ Massive Cluster:",
         descKey: "proxy.config.thinking_budget.guide_preset_cluster_desc",
-        descDefault: "推荐填写 <1>50 ~ 100 轮</1>。单机无压承载数万并发会话，WAL 高速索引并发无锁秒级响应。",
+        descDefault: "Recommended: <1>50 ~ 100 turns</1>. Effortlessly sustains tens of thousands of concurrent sessions; lock-free WAL index ensures sub-second responses.",
     },
 ];
 
@@ -150,7 +150,7 @@ export default function ThinkingBudget({
             showToast(
                 t("proxy.config.thinking_budget.clear_success", {
                     count,
-                    defaultValue: `已成功清空思考块存储 (共清理 ${count} 条历史记录)`,
+                    defaultValue: `Successfully cleared thinking store ({{count}} records cleaned)`,
                 }),
                 "success"
             );
@@ -159,7 +159,7 @@ export default function ThinkingBudget({
             showToast(
                 t("proxy.config.thinking_budget.clear_error", {
                     error: String(err),
-                    defaultValue: `清空思考块失败: ${String(err)}`,
+                    defaultValue: `Failed to clear thinking store: {{error}}`,
                 }),
                 "error"
             );
@@ -305,52 +305,52 @@ export default function ThinkingBudget({
     const getPresetTooltip = (val: number): string => {
         if (val === 32768) {
             return t("proxy.config.thinking_budget.tooltip_32768", {
-                defaultValue: "32,768 Tokens：适合复杂编程与深度架构任务",
+                defaultValue: "32,768 Tokens: Ideal for complex coding and deep architecture design",
             });
         }
         if (val === 16384 || val === 16000) {
             return t("proxy.config.thinking_budget.tooltip_16384", {
-                defaultValue: "1.6w 档位 (16,384 Tokens)：适合复杂 Agent 任务",
+                defaultValue: "16K tier (16,384 Tokens): Best for complex agentic workflows",
             });
         }
         if (val === 8192) {
             return t("proxy.config.thinking_budget.tooltip_8192", {
-                defaultValue: "8,192 Tokens：适合中等复杂度多步推理与代码排错",
+                defaultValue: "8,192 Tokens: Balanced for multi-step reasoning and debugging",
             });
         }
         if (val === 4096) {
             return t("proxy.config.thinking_budget.tooltip_4096", {
-                defaultValue: "4,096 Tokens：标准平衡档，兼顾思考质量与响应速度",
+                defaultValue: "4,096 Tokens: Standard balance between reasoning quality and speed",
             });
         }
         if (val === 2048) {
             return t("proxy.config.thinking_budget.tooltip_2048", {
-                defaultValue: "2,048 Tokens：日常轻量推理档",
+                defaultValue: "2,048 Tokens: Lightweight daily reasoning tier",
             });
         }
         if (val === 1024) {
             return t("proxy.config.thinking_budget.tooltip_1024", {
-                defaultValue: "1,024 Tokens：轻量极速思考，消耗极低",
+                defaultValue: "1,024 Tokens: Ultra-fast lightweight thinking with minimal token usage",
             });
         }
         if (val === 65536) {
             return t("proxy.config.thinking_budget.tooltip_65536", {
-                defaultValue: "65,536 Tokens：超长深度思考链极限档",
+                defaultValue: "65,536 Tokens: Extreme maximum depth reasoning chain tier",
             });
         }
         if (val === 1001) {
             return t("proxy.config.thinking_budget.tooltip_1001", {
-                defaultValue: "1,001 Tokens：Google 官方 3.1 Pro 低思考基准档",
+                defaultValue: "1,001 Tokens: Google official 3.1 Pro Low thinking baseline",
             });
         }
         if (val === 10001) {
             return t("proxy.config.thinking_budget.tooltip_10001", {
-                defaultValue: "10,001 Tokens：Google 官方 3.1 Pro 深度推理主力档",
+                defaultValue: "10,001 Tokens: Google official 3.1 Pro High deep reasoning primary tier",
             });
         }
         if (val === -1) {
             return t("proxy.config.thinking_budget.tooltip_adaptive", {
-                defaultValue: "自适应 (-1)：完全由上游模型根据问题难度自动分配",
+                defaultValue: "Adaptive (-1): Dynamic budget allocated automatically by upstream model",
             });
         }
         return `${val.toLocaleString()} Tokens`;
@@ -395,7 +395,7 @@ export default function ThinkingBudget({
                     >
                         {val === -1
                             ? t("proxy.config.thinking_budget.preset_adaptive", {
-                                  defaultValue: "自适应 (-1)",
+                                  defaultValue: "Adaptive (-1)",
                               })
                             : val.toLocaleString()}
                     </button>
@@ -426,13 +426,13 @@ export default function ThinkingBudget({
                             />
                         </svg>
                         {t("proxy.config.thinking_budget.title", {
-                            defaultValue: "思考链预算控制 (Thinking Budget)",
+                            defaultValue: "Thinking Budget Control",
                         })}
                     </h4>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                         {t("proxy.config.thinking_budget.description", {
                             defaultValue:
-                                "跨协议归一化思考参数，统一调控 Gemini 与 Claude 模型的深度思考 Token 预算及自适应行为。",
+                                "Normalize cross-protocol reasoning parameters and centrally manage thinking token budgets and adaptive behaviors for Gemini and Claude models.",
                         })}
                     </p>
                 </div>
@@ -444,15 +444,15 @@ export default function ThinkingBudget({
                     <div className="space-y-0.5">
                         <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-gray-900 dark:text-white">
-                                {t("proxy.config.thinking_budget.store_enabled", { defaultValue: "服务端思考块与签名回填" })}
+                                {t("proxy.config.thinking_budget.store_enabled", { defaultValue: "Server-side Thought & Signature Restoration" })}
                             </span>
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60">
-                                {t("proxy.config.thinking_budget.default_on_tag", { defaultValue: "默认开启" })}
+                                {t("proxy.config.thinking_budget.default_on_tag", { defaultValue: "Default On" })}
                             </span>
                         </div>
                         <p className="text-xs text-gray-600 dark:text-gray-300 max-w-xl leading-relaxed">
                             {t("proxy.config.thinking_budget.store_enabled_desc", {
-                                defaultValue: "自动截获并持久化思考过程与加密签名；当商业 Agent（如 Cline, Roo, Claude Code 等）多轮对话未带回思考时由服务端自动补齐，杜绝上游 400 报错或上下文丢失。"
+                                defaultValue: "Automatically captures and persists reasoning blocks and encrypted signatures. When client agents (e.g. Cline, Roo, Claude Code) omit thought content in multi-turn chats, the gateway restores them to prevent upstream 400 errors or context loss."
                             })}
                         </p>
                     </div>
@@ -473,12 +473,12 @@ export default function ThinkingBudget({
                             <span className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
                                 <Layers size={14} className="text-blue-600 dark:text-blue-400" />
                                 {t("proxy.config.thinking_budget.window_settings_title", {
-                                    defaultValue: "思考块双层滑动窗口与容量配置 (RAM + SQLite)",
+                                    defaultValue: "Dual-Layer Thinking Sliding Window & Storage Limits (RAM + SQLite)",
                                 })}
                             </span>
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60">
                                 {t("proxy.config.thinking_budget.dual_layer_tag", {
-                                    defaultValue: "双层索引穿透",
+                                    defaultValue: "Dual-layer Index",
                                 })}
                             </span>
                         </div>
@@ -487,7 +487,7 @@ export default function ThinkingBudget({
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] text-gray-500 dark:text-gray-400 hidden sm:inline-block">
                                 {t("proxy.config.thinking_budget.clear_tip", {
-                                    defaultValue: "仅当缓存命中异常、版本更新或开发者要求时才删除",
+                                    defaultValue: "Only delete when cache hit anomalies occur, version updates, or requested by developers",
                                 })}
                             </span>
                             <button
@@ -495,13 +495,13 @@ export default function ThinkingBudget({
                                 onClick={() => setShowClearThinkingConfirm(true)}
                                 disabled={isClearingThinking}
                                 title={t("proxy.config.thinking_budget.clear_btn_tooltip", {
-                                    defaultValue: "清空所有思考块缓存与数据库（不影响请求日志）",
+                                    defaultValue: "Clear all thinking block caches and database (logs are preserved)",
                                 })}
                                 className="btn btn-xs btn-outline btn-error gap-1.5 h-6 min-h-6 px-2.5 text-[11px] font-medium rounded-lg shadow-2xs hover:shadow-xs transition-all"
                             >
                                 <Trash2 size={12} className={isClearingThinking ? "animate-spin" : ""} />
                                 {t("proxy.config.thinking_budget.clear_btn", {
-                                    defaultValue: "清空思考块",
+                                    defaultValue: "Clear Thinking Store",
                                 })}
                             </button>
                         </div>
@@ -516,18 +516,18 @@ export default function ThinkingBudget({
                                         <Layers size={13} className="text-blue-600 dark:text-blue-400 shrink-0" />
                                         <span className="text-xs font-bold text-gray-800 dark:text-gray-200 truncate">
                                             {t("proxy.config.thinking_budget.max_memory_turns_label", {
-                                                defaultValue: "内存常驻轮次 (RAM 窗口)",
+                                                defaultValue: "Max Memory Thinking Turns per Session",
                                             })}
                                         </span>
                                         <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 shrink-0">
                                             {t("proxy.config.thinking_budget.default_600_tag", {
-                                                defaultValue: "默认 600",
+                                                defaultValue: "Default: 600",
                                             })}
                                         </span>
                                     </div>
                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
                                         {t("proxy.config.thinking_budget.max_memory_turns_subdesc", {
-                                            defaultValue: "单轮思考约 2 KB；600 轮 ≈ 1.2 MB / 会话。",
+                                            defaultValue: "~2 KB per turn; 600 turns ≈ 1.2 MB / session.",
                                         })}
                                     </p>
                                 </div>
@@ -559,7 +559,7 @@ export default function ThinkingBudget({
                                         }}
                                     />
                                     <span className="text-xs font-medium text-gray-500">
-                                        {t("proxy.config.thinking_budget.turns_unit", { defaultValue: "轮" })}
+                                        {t("proxy.config.thinking_budget.turns_unit", { defaultValue: "turns" })}
                                     </span>
                                 </div>
                             </div>
@@ -573,18 +573,18 @@ export default function ThinkingBudget({
                                         <HardDrive size={13} className="text-purple-600 dark:text-purple-400 shrink-0" />
                                         <span className="text-xs font-bold text-gray-800 dark:text-gray-200 truncate">
                                             {t("proxy.config.experimental.thinking_retention_days_label", {
-                                                defaultValue: "思考库保留周期 (SQLite)",
+                                                defaultValue: "Thinking-store retention (sliding window, days)",
                                             })}
                                         </span>
                                         <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 shrink-0">
                                             {t("proxy.config.thinking_budget.default_15_days_tag", {
-                                                defaultValue: "默认 15天",
+                                                defaultValue: "Default: 15 days",
                                             })}
                                         </span>
                                     </div>
                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight">
                                         {t("proxy.config.thinking_budget.retention_days_subdesc", {
-                                            defaultValue: "活跃会话每次请求自动顺延，无请求才过期。",
+                                            defaultValue: "Active sessions auto-extend on each request; expires only when idle.",
                                         })}
                                     </p>
                                 </div>
@@ -615,7 +615,7 @@ export default function ThinkingBudget({
                                         }}
                                     />
                                     <span className="text-xs font-medium text-gray-500">
-                                        {t("proxy.config.thinking_budget.days_unit", { defaultValue: "天" })}
+                                        {t("proxy.config.thinking_budget.days_unit", { defaultValue: "days" })}
                                     </span>
                                 </div>
                             </div>
@@ -628,7 +628,7 @@ export default function ThinkingBudget({
                             <HelpCircle size={14} className="text-blue-500 shrink-0 mt-0.5" />
                             <span>
                                 {t("proxy.config.thinking_budget.window_guide_title", {
-                                    defaultValue: "滑动窗口淘汰机制与各并发规模选型建议",
+                                    defaultValue: "FIFO Sliding Window Eviction & Concurrency Sizing Guide",
                                 })}
                                 :
                             </span>
@@ -636,7 +636,7 @@ export default function ThinkingBudget({
                         <p className="leading-relaxed pl-5 text-[11px] text-gray-500 dark:text-gray-400">
                             {t("proxy.config.thinking_budget.window_guide_desc", {
                                 defaultValue:
-                                    "超长会话超过此设定轮次时，系统自动执行滑动窗口先进先出（FIFO）淘汰；被淘汰轮次绝不降级为破坏缓存的占位符，而是由本地 SQLite 专属索引（primary_tool_id）在纳秒级精准穿透回捞，保证 Prompt Cache 100% 字节级严格对齐且绝不 OOM。",
+                                    "When session length exceeds this limit, FIFO sliding window automatically evicts oldest thinking blocks from memory. Evicted blocks are rehydrated in nanoseconds via indexed SQLite (primary_tool_id), maintaining strict byte-level Prompt Cache alignment without OOM.",
                             })}
                         </p>
                         <div className="pl-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-[11px] pt-1">
@@ -666,7 +666,7 @@ export default function ThinkingBudget({
             <div className="space-y-2">
                 <label className="text-xs font-semibold text-gray-800 dark:text-gray-200">
                     {t("proxy.config.thinking_budget.control_source_label", {
-                        defaultValue: "控制权归属 (Top-Level Authority)",
+                        defaultValue: "Authority Source",
                     })}
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -690,19 +690,19 @@ export default function ThinkingBudget({
                                     }`}
                                 />
                                 {t("proxy.config.thinking_budget.source_gateway", {
-                                    defaultValue: "网关权威控制",
+                                    defaultValue: "Gateway Authoritative Control",
                                 })}
                             </span>
                             <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
                                 {t("proxy.config.thinking_budget.recommended_tag", {
-                                    defaultValue: "首选 / 推荐",
+                                    defaultValue: "Preferred / Recommended",
                                 })}
                             </span>
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                             {t("proxy.config.thinking_budget.source_gateway_desc", {
                                 defaultValue:
-                                    "网关层统一掌控思维链预算与启发式档位，消除不同客户端参数差异，杜绝由于超额预算或格式不当引发的官方 400 报错。",
+                                    "The gateway centrally regulates thinking budgets and heuristic tiers, eliminating client inconsistencies and preventing upstream 400 errors caused by invalid limits.",
                             })}
                         </p>
                     </button>
@@ -727,19 +727,19 @@ export default function ThinkingBudget({
                                     }`}
                                 />
                                 {t("proxy.config.thinking_budget.source_client", {
-                                    defaultValue: "客户端直接控制",
+                                    defaultValue: "Client Direct Control",
                                 })}
                             </span>
                             <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60">
                                 {t("proxy.config.thinking_budget.danger_tag", {
-                                    defaultValue: "危险 / 不推荐",
+                                    defaultValue: "Dangerous / Not Recommended",
                                 })}
                             </span>
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
                             {t("proxy.config.thinking_budget.source_client_desc", {
                                 defaultValue:
-                                    "归一化后直接提取客户端上送的预算并透传。若客户端未传则由上游自适应。不恰当的预算可能直接导致 Google 报错。",
+                                    "Extracts client-provided thinking parameters after normalization and forwards them directly. If omitted, upstream dynamic adaptive reasoning is used. Inappropriate values may trigger Google API errors.",
                             })}
                         </p>
                     </button>
@@ -765,13 +765,13 @@ export default function ThinkingBudget({
                     <div className="space-y-1 text-[11px] leading-relaxed">
                         <span className="font-semibold">
                             {t("proxy.config.thinking_budget.client_warning_title", {
-                                defaultValue: "危险警告：已切换为客户端直接控制",
+                                defaultValue: "Warning: Switched to Client Direct Control",
                             })}
                         </span>
                         <p>
                             {t("proxy.config.thinking_budget.client_warning_desc", {
                                 defaultValue:
-                                    "不同客户端插件（如 Cline, Roo, Cherry 等）上送的 thinking.budget_tokens 或 effort 各不相同。若客户端指定了超过 Google API 支持的数值（如 Flash 超过 24576、或 Pro 传入非标准数值），Google 将直接返回 400 Bad Request 错误中断生成。",
+                                    "Different clients (Cline, Roo, Cherry, etc.) submit varying thinking.budget_tokens or effort values. If a client specifies limits exceeding Google API constraints (e.g. Flash > 24576 or non-standard Pro budgets), Google will return 400 Bad Request.",
                             })}
                         </p>
                     </div>
@@ -787,12 +787,12 @@ export default function ThinkingBudget({
                             <div>
                                 <span className="text-xs font-bold text-gray-900 dark:text-white">
                                     {t("proxy.config.thinking_budget.flash_family_title", {
-                                        defaultValue: "Gemini Flash ≥ 3.0 系列 (如 3-flash, 3.7-flash, 3.8-flash, tiered 等)",
+                                        defaultValue: "Gemini Flash Series (3-flash, 3.7-flash, tiered, etc.)",
                                     })}
                                 </span>
                                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                                     {t("proxy.config.thinking_budget.flash_family_desc", {
-                                        defaultValue: "控制 Gemini ≥ 3.0 的 Flash 思考模型四大档位预算（< 3.0 如 2.5-flash 为传统非思考模型，网关自动剥离思考）",
+                                        defaultValue: "Manage four tier budgets for Flash reasoning models (enter -1 for official adaptive)",
                                     })}
                                 </p>
                             </div>
@@ -806,7 +806,7 @@ export default function ThinkingBudget({
                                         className="text-blue-600 focus:ring-blue-500"
                                     />
                                     {t("proxy.config.thinking_budget.mode_default", {
-                                        defaultValue: "默认模式 (官方自适应)",
+                                        defaultValue: "Default Mode (Upstream Adaptive)",
                                     })}
                                 </label>
                                 <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -818,7 +818,7 @@ export default function ThinkingBudget({
                                         className="text-blue-600 focus:ring-blue-500"
                                     />
                                     {t("proxy.config.thinking_budget.mode_custom", {
-                                        defaultValue: "自定义思考预算模式 (推荐)",
+                                        defaultValue: "Custom Budget Mode (Recommended)",
                                     })}
                                 </label>
                             </div>
@@ -830,7 +830,7 @@ export default function ThinkingBudget({
                                     <div>
                                         <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                                             {t("proxy.config.thinking_budget.tier_low", {
-                                                defaultValue: "Low 档位",
+                                                defaultValue: "Low Tier",
                                             })}
                                         </label>
                                         <input
@@ -846,14 +846,14 @@ export default function ThinkingBudget({
                                         {renderPresetButtons("flash_low", [1024, 2048])}
                                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
                                             {t("proxy.config.thinking_budget.flash_low_hint", {
-                                                defaultValue: "极低推理 (默认 1024)",
+                                                defaultValue: "Light reasoning (Default 1024)",
                                             })}
                                         </p>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                                             {t("proxy.config.thinking_budget.tier_medium", {
-                                                defaultValue: "Medium 档位",
+                                                defaultValue: "Medium Tier",
                                             })}
                                         </label>
                                         <input
@@ -869,14 +869,14 @@ export default function ThinkingBudget({
                                         {renderPresetButtons("flash_medium", [4096, 8192])}
                                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
                                             {t("proxy.config.thinking_budget.flash_medium_hint", {
-                                                defaultValue: "标准平衡档 (默认 4096)",
+                                                defaultValue: "Balanced tier (Default 4096)",
                                             })}
                                         </p>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                                             {t("proxy.config.thinking_budget.tier_high", {
-                                                defaultValue: "High 档位",
+                                                defaultValue: "High Tier",
                                             })}
                                         </label>
                                         <input
@@ -892,14 +892,14 @@ export default function ThinkingBudget({
                                         {renderPresetButtons("flash_high", [-1, 16384, 32768])}
                                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
                                             {t("proxy.config.thinking_budget.flash_high_hint", {
-                                                defaultValue: "深度推理档 (默认 -1，走官方自适应)",
+                                                defaultValue: "Deep reasoning (Default 16384)",
                                             })}
                                         </p>
                                     </div>
                                     <div>
                                         <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                                             {t("proxy.config.thinking_budget.tier_tiered", {
-                                                defaultValue: "Tiered (自由模型)",
+                                                defaultValue: "Tiered (Freeform Model)",
                                             })}
                                         </label>
                                         <input
@@ -915,7 +915,7 @@ export default function ThinkingBudget({
                                         {renderPresetButtons("flash_tiered", [-1, 2048, 8192, 32768])}
                                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
                                             {t("proxy.config.thinking_budget.flash_tiered_hint", {
-                                                defaultValue: "自适应/自由强度 (默认 -1)",
+                                                defaultValue: "Adaptive / Freeform (Default -1)",
                                             })}
                                         </p>
                                     </div>
@@ -923,7 +923,7 @@ export default function ThinkingBudget({
                                 <div className="p-3 bg-blue-50/70 dark:bg-blue-900/20 border border-blue-200/80 dark:border-blue-800/40 rounded-xl text-xs text-blue-800 dark:text-blue-200 leading-relaxed">
                                     {t("proxy.config.thinking_budget.tiered_desc", {
                                         defaultValue:
-                                            "💡 Tiered 自由模型说明：该模型专为谷歌动态自适应打造。设置为 -1 时，模型根据问题难度自动分配思考量；若指定具体数值（如 30000+），可突破 High 档位解锁 Max 极限思考。",
+                                            "💡 Tiered Model Note: Designed for Google's dynamic adaptation. When set to -1, the model allocates reasoning dynamically based on task difficulty; setting 30000+ unlocks Max reasoning beyond High.",
                                     })}
                                 </div>
                             </div>
@@ -931,7 +931,7 @@ export default function ThinkingBudget({
                             <p className="text-xs text-gray-500 dark:text-gray-400 italic">
                                 {t("proxy.config.thinking_budget.flash_default_hint", {
                                     defaultValue:
-                                        "已启用官方默认模式：完全透传官方模型 ID，不注入 thinkingBudget，完全由 Google 上游模型自主决定思考行为。",
+                                        "Official default mode enabled: passes model ID directly without injecting thinkingBudget.",
                                 })}
                             </p>
                         )}
@@ -943,13 +943,13 @@ export default function ThinkingBudget({
                             <div>
                                 <span className="text-xs font-bold text-gray-900 dark:text-white">
                                     {t("proxy.config.thinking_budget.pro_family_title", {
-                                        defaultValue: "Gemini Pro ≥ 3.0 系列 (如 3-pro, 3.1-pro 等)",
+                                        defaultValue: "Gemini Pro Series (3-pro, 3.1-pro, etc.)",
                                     })}
                                 </span>
                                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                                     {t("proxy.config.thinking_budget.pro_family_desc", {
                                         defaultValue:
-                                            "Google 官方 Gemini ≥ 3.0 Pro 体系仅提供 Low 与 High 两个档位。未指定 effort 或 medium 将自动走 High 保证 Pro 深度思考。",
+                                            "Google's Gemini 3.1 Pro architecture officially provides only Low and High tiers. Unspecified effort or medium automatically routes to High for deep reasoning.",
                                     })}
                                 </p>
                             </div>
@@ -963,7 +963,7 @@ export default function ThinkingBudget({
                                         className="text-blue-600 focus:ring-blue-500"
                                     />
                                     {t("proxy.config.thinking_budget.mode_default", {
-                                        defaultValue: "默认模式 (官方自适应)",
+                                        defaultValue: "Default Mode (Upstream Adaptive)",
                                     })}
                                 </label>
                                 <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -975,7 +975,7 @@ export default function ThinkingBudget({
                                         className="text-blue-600 focus:ring-blue-500"
                                     />
                                     {t("proxy.config.thinking_budget.mode_custom", {
-                                        defaultValue: "自定义思考预算模式 (推荐)",
+                                        defaultValue: "Custom Budget Mode (Recommended)",
                                     })}
                                 </label>
                             </div>
@@ -986,7 +986,7 @@ export default function ThinkingBudget({
                                 <div>
                                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                                         {t("proxy.config.thinking_budget.tier_low", {
-                                            defaultValue: "Low 档位",
+                                            defaultValue: "Low Tier",
                                         })}
                                     </label>
                                     <input
@@ -1002,14 +1002,14 @@ export default function ThinkingBudget({
                                     {renderPresetButtons("pro_low", [1001, 1024, 2048, 4096])}
                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
                                         {t("proxy.config.thinking_budget.pro_low_hint", {
-                                            defaultValue: "低思考档位 (默认 1001，填 -1 则走官方自适应)",
+                                            defaultValue: "Low reasoning tier (Default 1001, -1 for adaptive)",
                                         })}
                                     </p>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                                         {t("proxy.config.thinking_budget.tier_pro_high", {
-                                            defaultValue: "High 档位 (默认/主力档位)",
+                                            defaultValue: "High Tier (Default / Flagship)",
                                         })}
                                     </label>
                                     <input
@@ -1025,7 +1025,7 @@ export default function ThinkingBudget({
                                     {renderPresetButtons("pro_high", [10001, 16384, 32768])}
                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
                                         {t("proxy.config.thinking_budget.pro_high_hint", {
-                                            defaultValue: "深度思考档位 (默认 10001，填 -1 则走官方自适应)",
+                                            defaultValue: "Deep reasoning tier (Default 10001, -1 for adaptive)",
                                         })}
                                     </p>
                                 </div>
@@ -1034,7 +1034,7 @@ export default function ThinkingBudget({
                             <p className="text-xs text-gray-500 dark:text-gray-400 italic">
                                 {t("proxy.config.thinking_budget.pro_default_hint", {
                                     defaultValue:
-                                        "已启用官方默认模式：Gemini Pro 系列将由 Google 官方动态确定思考强度。",
+                                        "Official default mode enabled: Gemini Pro reasoning is determined dynamically by Google.",
                                 })}
                             </p>
                         )}
@@ -1046,13 +1046,13 @@ export default function ThinkingBudget({
                             <div>
                                 <span className="text-xs font-bold text-gray-900 dark:text-white">
                                     {t("proxy.config.thinking_budget.claude_family_title", {
-                                        defaultValue: "Claude 系列思考模型 (如 claude-3-7-sonnet-thinking 等)",
+                                        defaultValue: "Claude Series Thinking Models (claude-3-7-sonnet-thinking, etc.)",
                                     })}
                                 </span>
                                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                                     {t("proxy.config.thinking_budget.claude_family_desc", {
                                         defaultValue:
-                                            "调控 Claude 思考模型的 Token 预算（官方模型列表仅区分 -thinking 与普通模型，此项专用于思考模型）",
+                                            "Manage Claude thinking model token budgets (official models only differentiate between -thinking and standard models; this applies specifically to thinking models)",
                                     })}
                                 </p>
                             </div>
@@ -1066,7 +1066,7 @@ export default function ThinkingBudget({
                                         className="text-blue-600 focus:ring-blue-500"
                                     />
                                     {t("proxy.config.thinking_budget.mode_default", {
-                                        defaultValue: "默认模式 (官方规范)",
+                                        defaultValue: "Default Mode (Upstream Adaptive)",
                                     })}
                                 </label>
                                 <label className="inline-flex items-center gap-1.5 cursor-pointer text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -1078,7 +1078,7 @@ export default function ThinkingBudget({
                                         className="text-blue-600 focus:ring-blue-500"
                                     />
                                     {t("proxy.config.thinking_budget.mode_custom", {
-                                        defaultValue: "自定义思考预算模式 (推荐)",
+                                        defaultValue: "Custom Budget Mode (Recommended)",
                                     })}
                                 </label>
                             </div>
@@ -1092,12 +1092,12 @@ export default function ThinkingBudget({
                                         <div>
                                             <label className="block text-xs font-bold text-gray-900 dark:text-white">
                                                 {t("proxy.config.thinking_budget.claude_budget_title", {
-                                                    defaultValue: "Claude 思考模型预算 (Tokens)",
+                                                    defaultValue: "Claude Thinking Model Budget (Tokens)",
                                                 })}
                                             </label>
                                             <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
                                                 {t("proxy.config.thinking_budget.claude_budget_desc", {
-                                                    defaultValue: "客户端调用思考模型（如 claude-3-7-sonnet-thinking）时的核心 Token 预算（填 -1 则由官方自适应）",
+                                                    defaultValue: "Core token budget when client calls thinking models like claude-3-7-sonnet-thinking (-1 for upstream default)",
                                                 })}
                                             </p>
                                         </div>
@@ -1121,7 +1121,7 @@ export default function ThinkingBudget({
                                                                 : "bg-white dark:bg-base-200 border border-gray-300 dark:border-base-300 text-gray-700 dark:text-gray-200 hover:border-purple-400 hover:text-purple-600 dark:hover:text-purple-300"
                                                         }`}
                                                     >
-                                                        {val === -1 ? t("proxy.config.thinking_budget.preset_adaptive", { defaultValue: "自适应 (-1)" }) : `${val.toLocaleString()}`}
+                                                        {val === -1 ? t("proxy.config.thinking_budget.preset_adaptive", { defaultValue: "Adaptive (-1)" }) : `${val.toLocaleString()}`}
                                                     </button>
                                                 );
                                             })}
@@ -1141,7 +1141,7 @@ export default function ThinkingBudget({
                                         />
                                         <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
                                             {t("proxy.config.thinking_budget.claude_budget_current", {
-                                                defaultValue: "推荐默认值: 16,384 Tokens (兼顾思考深度与响应速率)",
+                                                defaultValue: "Recommended default: 16,384 Tokens (balanced depth and latency)",
                                             })}
                                         </span>
                                     </div>
@@ -1157,8 +1157,8 @@ export default function ThinkingBudget({
                                         <ChevronDown size={14} className={`transition-transform duration-200 ${showClaudeAdvanced ? "" : "-rotate-90"}`} />
                                         <span>
                                             {showClaudeAdvanced
-                                                ? t("proxy.config.thinking_budget.claude_hide_advanced", { defaultValue: "收起客户端 Effort 档位映射" })
-                                                : t("proxy.config.thinking_budget.claude_show_advanced", { defaultValue: "展开高级设置：客户端 Effort 档位映射 (low / medium / high)" })}
+                                                ? t("proxy.config.thinking_budget.claude_hide_advanced", { defaultValue: "Collapse Client Effort Mapping" })
+                                                : t("proxy.config.thinking_budget.claude_show_advanced", { defaultValue: "Advanced: Client Effort Tier Mapping (low / medium / high)" })}
                                         </span>
                                     </button>
 
@@ -1166,13 +1166,13 @@ export default function ThinkingBudget({
                                         <div className="mt-2.5 p-3.5 bg-gray-50 dark:bg-base-200 border border-gray-200 dark:border-base-300 rounded-xl space-y-2.5 shadow-2xs">
                                             <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
                                                 {t("proxy.config.thinking_budget.claude_effort_mapping_desc", {
-                                                    defaultValue: "当部分商业客户端（如 Cline, Roo 等）在请求头或参数中附带 reasoning_effort 时，按以下预算映射：",
+                                                    defaultValue: "When commercial agents (Cline, Roo, etc.) send reasoning_effort in parameters or headers, budgets are mapped as follows:",
                                                 })}
                                             </p>
                                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                                 <div>
                                                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">
-                                                        {t("proxy.config.thinking_budget.tier_low", { defaultValue: "Low 档位" })}
+                                                        {t("proxy.config.thinking_budget.tier_low", { defaultValue: "Low Tier" })}
                                                     </label>
                                                     <input
                                                         type="text"
@@ -1184,12 +1184,12 @@ export default function ThinkingBudget({
                                                     />
                                                     {renderPresetButtons("claude_low", [1024, 2048], "purple")}
                                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                                                        {t("proxy.config.thinking_budget.claude_low_hint", { defaultValue: "轻量思考 (默认 1024)" })}
+                                                        {t("proxy.config.thinking_budget.claude_low_hint", { defaultValue: "Light thinking (Default 1024)" })}
                                                     </p>
                                                 </div>
                                                 <div>
                                                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">
-                                                        {t("proxy.config.thinking_budget.tier_medium", { defaultValue: "Medium 档位" })}
+                                                        {t("proxy.config.thinking_budget.tier_medium", { defaultValue: "Medium Tier" })}
                                                     </label>
                                                     <input
                                                         type="text"
@@ -1201,12 +1201,12 @@ export default function ThinkingBudget({
                                                     />
                                                     {renderPresetButtons("claude_medium", [4096, 8192], "purple")}
                                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                                                        {t("proxy.config.thinking_budget.claude_medium_hint", { defaultValue: "日常平衡档 (默认 4096)" })}
+                                                        {t("proxy.config.thinking_budget.claude_medium_hint", { defaultValue: "Everyday balanced (Default 4096)" })}
                                                     </p>
                                                 </div>
                                                 <div>
                                                     <label className="block text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">
-                                                        {t("proxy.config.thinking_budget.tier_high", { defaultValue: "High 档位" })}
+                                                        {t("proxy.config.thinking_budget.tier_high", { defaultValue: "High Tier" })}
                                                     </label>
                                                     <input
                                                         type="text"
@@ -1218,7 +1218,7 @@ export default function ThinkingBudget({
                                                     />
                                                     {renderPresetButtons("claude_high", [16384, 32768], "purple")}
                                                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                                                        {t("proxy.config.thinking_budget.claude_high_hint", { defaultValue: "深度思考档 (默认 16384)" })}
+                                                        {t("proxy.config.thinking_budget.claude_high_hint", { defaultValue: "Deep reasoning (Default 16384)" })}
                                                     </p>
                                                 </div>
                                             </div>
@@ -1230,7 +1230,7 @@ export default function ThinkingBudget({
                                 <div className="w-full p-3 bg-purple-50/70 dark:bg-purple-900/20 border border-purple-200/80 dark:border-purple-800/40 rounded-xl text-xs text-purple-800 dark:text-purple-200 leading-relaxed">
                                     {t("proxy.config.thinking_budget.claude_thinking_note", {
                                         defaultValue:
-                                            "💡 Claude 思考模型说明：Claude 系列在模型列表中仅提供思考版模型（如 claude-3-7-sonnet-thinking）与普通版，未拆分 low/medium/high 后缀。此处设置的值将作为调用 Claude 思考模型时的统一深度思考预算。",
+                                            "💡 Claude Model Note: Anthropic official models only differentiate between `-thinking` (e.g. claude-3-7-sonnet-thinking) and standard models. This custom budget specifically manages quotas for thinking models; calling standard models will not trigger upstream reasoning.",
                                     })}
                                 </div>
                             </div>
@@ -1238,7 +1238,7 @@ export default function ThinkingBudget({
                             <p className="text-xs text-gray-500 dark:text-gray-400 italic">
                                 {t("proxy.config.thinking_budget.claude_default_hint", {
                                     defaultValue:
-                                        "已启用官方默认模式：完全按官方协议规范透传，不注入额外自定义预算限制。",
+                                        "Official default mode enabled: adheres to standard Anthropic specifications without custom limits.",
                                 })}
                             </p>
                         )}
@@ -1251,7 +1251,7 @@ export default function ThinkingBudget({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3.5 border-t border-gray-200 dark:border-base-200">
                     <span className="text-xs text-gray-500 dark:text-gray-400">
                         {t("proxy.config.thinking_budget.save_hint", {
-                            defaultValue: "修改思考预算设置后点击保存即可立即生效，配置将即时热更新至当前运行的反代服务。",
+                            defaultValue: "Changes take effect immediately upon saving and are hot-reloaded into the running proxy service.",
                         })}
                     </span>
                     <button
@@ -1267,12 +1267,12 @@ export default function ThinkingBudget({
                         {isSaved ? (
                             <>
                                 <Check size={14} className="text-white" />
-                                <span>{t("common.saved", { defaultValue: "已保存生效" })}</span>
+                                <span>{t("common.saved", { defaultValue: "Saved successfully" })}</span>
                             </>
                         ) : (
                             <>
                                 <Save size={14} className={isSaving ? "animate-spin" : ""} />
-                                <span>{isSaving ? t("common.saving", { defaultValue: "保存中..." }) : t("proxy.config.thinking_budget.save_btn", { defaultValue: "保存思考设置并热生效" })}</span>
+                                <span>{isSaving ? t("common.saving", { defaultValue: "Saving..." }) : t("proxy.config.thinking_budget.save_btn", { defaultValue: "Save & Hot Reload Thinking Config" })}</span>
                             </>
                         )}
                     </button>
@@ -1290,19 +1290,19 @@ export default function ThinkingBudget({
                             <div className="space-y-2 min-w-0">
                                 <h3 className="text-sm font-bold text-gray-900 dark:text-white">
                                     {t("proxy.config.thinking_budget.clear_modal_title", {
-                                        defaultValue: "确认清空思考块存储？",
+                                        defaultValue: "Clear Thinking Block Store?",
                                     })}
                                 </h3>
                                 <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-line">
                                     {t("proxy.config.thinking_budget.clear_modal_desc", {
                                         defaultValue:
-                                            "此操作将彻底清空内存常驻轮次 (RAM) 与本地 SQLite 数据库中所有的历史思维链和工具签名记录。\n\n⚠️ 注意：此操作仅清理思考块数据，绝不删除任何反向代理请求日志。",
+                                            "This operation will completely clear all resident memory turns (RAM) and local SQLite database thinking chains and tool signatures.\n\n⚠️ Note: This only clears thinking data and will NOT delete any proxy request logs.",
                                     })}
                                 </p>
                                 <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
                                     {t("proxy.config.thinking_budget.clear_modal_warning", {
                                         defaultValue:
-                                            "建议仅在出现缓存命中异常、版本升级或开发者明确要求时执行。清空后新请求将重新建立干净的前缀索引。",
+                                            "Recommended only when cache hit anomalies occur, after version updates, or when requested by developers. New requests will rebuild clean prefix indexes.",
                                     })}
                                 </div>
                             </div>
@@ -1315,7 +1315,7 @@ export default function ThinkingBudget({
                                 onClick={() => setShowClearThinkingConfirm(false)}
                                 disabled={isClearingThinking}
                             >
-                                {t("common.cancel", { defaultValue: "取消" })}
+                                {t("common.cancel", { defaultValue: "Cancel" })}
                             </button>
                             <button
                                 type="button"
@@ -1329,7 +1329,7 @@ export default function ThinkingBudget({
                                     <Trash2 size={13} />
                                 )}
                                 {t("proxy.config.thinking_budget.clear_confirm_btn", {
-                                    defaultValue: "确认清空",
+                                    defaultValue: "Confirm Clear",
                                 })}
                             </button>
                         </div>

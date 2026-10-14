@@ -413,7 +413,8 @@
       "filtered_notice": "({{visible}}/{{total}})",
       "toggle_details": "檢視配額池明細",
       "breakdown_title": "帳號配額池明細"
-    }
+    },
+    "switch_to_gemini": "切換到 Gemini 桌面版"
   },
   "settings": {
     "save": "儲存設定",
@@ -623,7 +624,15 @@
       "antigravity_cli_path_placeholder": "Not set (Will use auto-detection)",
       "antigravity_cli_path_desc": "Set the executable path for the command line client (agy) to bypass account restrictions.",
       "antigravity_cli_path_select": "Select Antigravity CLI (agy) Executable",
-      "antigravity_cli_path_detected": "Detected CLI path updated"
+      "antigravity_cli_path_detected": "Detected CLI path updated",
+      "gemini_desktop_path": "Google Gemini 桌面版路徑",
+      "gemini_desktop_path_placeholder": "未設定 (將使用捷徑或 LocalAppData 自動偵測)",
+      "gemini_desktop_path_desc": "設定 Google Gemini 桌面版的可執行檔或捷徑路徑，啟用帳號切換與動態反代閘道調度。",
+      "gemini_desktop_path_select": "選取 Google Gemini 桌面版程式或捷徑",
+      "gemini_desktop_path_detected": "已更新偵測到的 Google Gemini 桌面版路徑",
+      "gemini_shortcut_title": "設定動態反代閘道捷徑",
+      "gemini_shortcut_desc": "更新開始功能表與桌面捷徑，啟動 Google Gemini 桌面版時自動無感接入 Proxymateur 反代閘道。",
+      "install_shortcut_btn": "一鍵設定捷徑"
     },
     "about": {
       "title": "關於",

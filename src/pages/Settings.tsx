@@ -373,6 +373,41 @@ function Settings() {
         }
     };
 
+    const handleSelectGeminiDesktopPath = async () => {
+        try {
+            const selected = await open({
+                directory: false,
+                multiple: false,
+                title: t('settings.advanced.gemini_desktop_path_select', 'Select Google Gemini Desktop Executable or Shortcut'),
+                filters: [{ name: 'Executables and Shortcuts', extensions: ['exe', 'lnk'] }]
+            });
+            if (selected && typeof selected === 'string') {
+                setFormData({ ...formData, gemini_desktop_executable: selected });
+            }
+        } catch (error) {
+            showToast(`${t('common.error')}: ${error}`, 'error');
+        }
+    };
+
+    const handleDetectGeminiDesktopPath = async () => {
+        try {
+            const path = await invoke<string>('get_gemini_desktop_path', { bypassConfig: true });
+            setFormData({ ...formData, gemini_desktop_executable: path });
+            showToast(t('settings.advanced.gemini_desktop_path_detected', 'Detected Google Gemini desktop path'), 'success');
+        } catch (error) {
+            showToast(`${t('common.error')}: ${error}`, 'error');
+        }
+    };
+
+    const handleInstallGeminiShortcut = async () => {
+        try {
+            const res = await invoke<string>('install_gemini_shortcut');
+            showToast(res, 'success');
+        } catch (error) {
+            showToast(`${t('common.error')}: ${error}`, 'error');
+        }
+    };
+
     const handleCheckUpdate = async () => {
         setIsCheckingUpdate(true);
         setUpdateInfo(null);
@@ -1216,6 +1251,69 @@ function Settings() {
                                     <p className="text-xs text-base-content/60 mt-2">
                                         {t('settings.advanced.antigravity_ide_path_desc', 'Specify the executable path for Antigravity IDE (code editor). Once set, account switching will strictly protect processes at this path from being terminated.')}
                                     </p>
+                                </div>
+
+                                {/* Google Gemini 桌面版程序路径 */}
+                                <div className="py-4 border-b border-base-content/20">
+                                    <label className="block text-sm font-black uppercase tracking-wide text-base-content mb-2">
+                                        {t('settings.advanced.gemini_desktop_path', 'Google Gemini Desktop Path')}
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            className="input input-sm flex-1 rounded-none border border-base-content/40 bg-base-200 text-base-content font-medium focus:outline-none focus:border-base-content"
+                                            value={formData.gemini_desktop_executable || ''}
+                                            placeholder={t('settings.advanced.gemini_desktop_path_placeholder', 'Not set (Will use auto-detection from shortcut or LocalAppData)')}
+                                            onChange={(e) => setFormData({ ...formData, gemini_desktop_executable: e.target.value })}
+                                        />
+                                        {formData.gemini_desktop_executable && (
+                                            <button
+                                                className="btn btn-sm btn-ghost rounded-none border border-red-600 dark:border-red-400 text-red-600 dark:text-red-400 font-black uppercase tracking-wider hover:bg-red-600 hover:text-white"
+                                                onClick={() => setFormData({ ...formData, gemini_desktop_executable: undefined })}
+                                            >
+                                                {t('common.clear')}
+                                            </button>
+                                        )}
+                                        <button
+                                            className="btn btn-sm btn-ghost rounded-none border border-base-content/40 text-base-content font-black uppercase tracking-wider hover:bg-base-content hover:text-base-100"
+                                            onClick={handleDetectGeminiDesktopPath}
+                                        >
+                                            {t('settings.advanced.detect_btn')}
+                                        </button>
+                                        {isTauri() ? (
+                                            <button
+                                                className="btn btn-sm btn-ghost rounded-none border border-base-content/40 text-base-content font-black uppercase tracking-wider hover:bg-base-content hover:text-base-100"
+                                                onClick={handleSelectGeminiDesktopPath}
+                                            >
+                                                {t('settings.advanced.select_btn')}
+                                            </button>
+                                        ) : (
+                                            <span className="self-center text-xs text-gray-400 dark:text-gray-500 italic px-2">
+                                                {t('settings.web_mode_limitation', '(Not supported in web mode)')}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-base-content/60 mt-2">
+                                        {t('settings.advanced.gemini_desktop_path_desc', 'Set the executable or shortcut path for Google Gemini Desktop to enable account switching and dynamic gateway routing.')}
+                                    </p>
+
+                                    {/* 一键配置网关快捷方式 */}
+                                    <div className="mt-3 flex items-center gap-4 p-3 bg-base-200 border-l-4 border-lime-signal">
+                                        <div className="flex-1">
+                                            <h4 className="text-sm font-black uppercase tracking-wide text-base-content">
+                                                {t('settings.advanced.gemini_shortcut_title', 'Configure Dynamic Gateway Shortcut')}
+                                            </h4>
+                                            <p className="text-xs mt-0.5 text-base-content/70">
+                                                {t('settings.advanced.gemini_shortcut_desc', 'Updates Start Menu and Desktop shortcuts to automatically route Google Gemini Desktop through Proxymateur.')}
+                                            </p>
+                                        </div>
+                                        <button
+                                            className="btn btn-sm rounded-none border-0 font-black uppercase tracking-wider bg-base-content text-base-100 hover:bg-lime-signal hover:text-[#0A0A0A]"
+                                            onClick={handleInstallGeminiShortcut}
+                                        >
+                                            {t('settings.advanced.install_shortcut_btn', 'Install Shortcut')}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* 反重力程序启动参数 */}

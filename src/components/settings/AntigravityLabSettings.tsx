@@ -555,7 +555,7 @@ export const FEATURE_KEYS: LabExperimentItem[] = [
 export const EXPERIMENT_ITEMS: LabExperimentItem[] = FEATURE_KEYS;
 
 export const DEFAULT_LAB_CONFIG: AntigravityLabConfig = FEATURE_KEYS.reduce((acc, item) => {
-    acc[item.key] = false;
+    acc[item.key] = true;
     return acc;
 }, {} as AntigravityLabConfig);
 
@@ -778,6 +778,10 @@ export default function AntigravityLabSettings({
                     <div className="p-2 rounded bg-base-100/60 dark:bg-base-200/60 border border-purple-100 dark:border-purple-900/30 space-y-0.5">
                         <div className="font-mono font-bold text-pink-600 dark:text-pink-400">/generative_ui &lt;task&gt;</div>
                         <div className="text-[11px] text-gray-500 dark:text-gray-400">{isZh ? '生成式交互 UI：在对话 Artifact 中嵌入可玩控件' : 'Interactive UI widgets rendered directly inside artifacts'}</div>
+                    </div>
+                    <div className="p-2 rounded bg-base-100/60 dark:bg-base-200/60 border border-purple-100 dark:border-purple-900/30 space-y-0.5">
+                        <div className="font-mono font-bold text-violet-600 dark:text-violet-400">/compact</div>
+                        <div className="text-[11px] text-gray-500 dark:text-gray-400">{isZh ? '压缩修剪对话历史轨迹以释放上下文窗口' : 'Prune and compact trajectory context window cleanly'}</div>
                     </div>
                 </div>
             </div>

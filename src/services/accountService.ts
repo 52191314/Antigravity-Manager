@@ -227,3 +227,25 @@ export async function exportAccounts(accountIds: string[]): Promise<ExportAccoun
 export async function updateAccountLabel(accountId: string, label: string): Promise<void> {
     return await invoke('update_account_label', { accountId, label });
 }
+
+// Google Gemini 桌面客户端相关
+export async function getGeminiDesktopPath(bypassConfig?: boolean): Promise<string> {
+    return await invoke('get_gemini_desktop_path', { bypassConfig });
+}
+
+export async function isGeminiDesktopRunning(): Promise<boolean> {
+    return await invoke('is_gemini_desktop_running');
+}
+
+export async function startGeminiDesktop(): Promise<void> {
+    return await invoke('start_gemini_desktop');
+}
+
+export async function closeGeminiDesktop(): Promise<void> {
+    return await invoke('close_gemini_desktop');
+}
+
+export async function installGeminiShortcut(): Promise<string> {
+    return await invoke('install_gemini_shortcut');
+}
+

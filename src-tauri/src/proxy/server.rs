@@ -2029,13 +2029,7 @@ async fn admin_get_proxy_status(
 }
 
 async fn admin_start_proxy_service(State(state): State<AppState>) -> impl IntoResponse {
-    // 1. 持久化配置 (修复 #1166)
-    if let Ok(mut config) = crate::modules::config::load_app_config() {
-        config.proxy.auto_start = true;
-        let _ = crate::modules::config::save_app_config(&config);
-    }
-
-    // 2. 确保账号已加载 (如果是第一次启动)
+    // 1. 确保账号已加载 (如果是第一次启动)
     if let Err(e) = state.token_manager.load_accounts().await {
         logger::log_error(&format!("[API] 启用服务并加载账号失败: {}", e));
     }
@@ -3490,7 +3484,7 @@ async fn admin_sync_account_from_db(
         )
     })?;
     let current_target = index.current_target_ide.as_deref();
-    if current_target == Some("agy") {
+    if current_target == Some("agy") || current_target == Some("gemini") {
         return Ok(Json(None));
     }
 

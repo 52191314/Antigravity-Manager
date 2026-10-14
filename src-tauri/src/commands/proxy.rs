@@ -79,16 +79,8 @@ pub async fn start_proxy_service(
     )
     .await?;
 
-    // [FIX desktop] 对齐 Web/Docker admin_start_proxy_service (#1166):
-    // 持久化 auto_start = true，确保重启后自动拉起反代服务
-    if let Ok(mut app_config) = crate::modules::config::load_app_config() {
-        app_config.proxy.auto_start = true;
-        if let Err(e) = crate::modules::config::save_app_config(&app_config) {
-            tracing::warn!("[Desktop] Failed to persist auto_start=true: {}", e);
-        } else {
-            tracing::info!("[Desktop] Persisted auto_start=true to gui_config.json");
-        }
-    }
+    // Note: Do not forcibly overwrite auto_start = true here.
+    // The user's explicit preference in Proxy Settings controls whether the service auto-starts at app launch.
 
     Ok(result)
 }

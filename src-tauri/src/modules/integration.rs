@@ -269,6 +269,27 @@ pub async fn execute_system_switch(
         return Ok(());
     }
 
+    if target_ide == Some("gemini") {
+        crate::modules::logger::log_info(&format!(
+            "[System] Handling account switch for Google Gemini Desktop: {}",
+            account.email
+        ));
+
+        // 1. 将该账号在反代网关中置为优先活跃账号 (Account Pinning)
+        let mut cfg = crate::modules::config::load_app_config()?;
+        cfg.proxy.preferred_account_id = Some(account.id.clone());
+        crate::modules::config::save_app_config(&cfg)?;
+
+        // 2. 如果 Gemini 桌面端正在运行，重启以生效新凭据和网关通道
+        let running = process::is_gemini_running();
+        if running {
+            let _ = process::close_gemini(10);
+            let _ = process::start_gemini(None, None);
+        }
+
+        return Ok(());
+    }
+
     // 1. 智能决策：判断目标是 Antigravity IDE (VS Code 定制版) 还是 Antigravity 经典版 (原生桌面端)
     let classic_running = process::is_antigravity_running(None);
     let ide_running = process::is_antigravity_running(Some("ide"));
@@ -494,6 +515,19 @@ impl SystemIntegration for DesktopIntegration {
                 )
             };
             self.show_notification("Antigravity CLI", &msg);
+        } else if target_ide == Some("gemini") {
+            let msg = if process::is_gemini_running() {
+                format!(
+                    "Account {} activated. Google Gemini has been restarted with the selected account.",
+                    account.email
+                )
+            } else {
+                format!(
+                    "Account {} activated. Ready for next Google Gemini launch.",
+                    account.email
+                )
+            };
+            self.show_notification("Google Gemini", &msg);
         }
 
         // 更新托盘

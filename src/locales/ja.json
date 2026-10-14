@@ -390,7 +390,8 @@
     "switch_to_agy": "Switch to Antigravity CLI (agy)",
     "drag_disabled_during_sort": "列ソートが有効なため、ドラッグ並び替えは一時停止中です",
     "go_to_appeal": "異議申し立てへ移動",
-    "copy_appeal_url": "異議申し立てURLをコピー"
+    "copy_appeal_url": "異議申し立てURLをコピー",
+    "switch_to_gemini": "Gemini デスクトップ版に切り替え"
   },
   "settings": {
     "save": "設定を保存",
@@ -595,7 +596,15 @@
       "migrate_restart_notice": "移行完了後、アプリは自動的に再起動します。",
       "migrate_confirm_btn": "移行を開始して再起動",
       "migrating_text": "データを移行中...",
-      "migrate_success": "移行が成功しました。アプリを再起動しています..."
+      "migrate_success": "移行が成功しました。アプリを再起動しています...",
+      "gemini_desktop_path": "Google Gemini デスクトップ版のパス",
+      "gemini_desktop_path_placeholder": "未設定 (ショートカットまたは LocalAppData から自動検出)",
+      "gemini_desktop_path_desc": "アカウント切り替えと動的ゲートウェイルーティングを有効にするため、Google Gemini の実行ファイルまたはショートカットパスを設定します。",
+      "gemini_desktop_path_select": "Google Gemini デスクトップ版の実行可能ファイルまたはショートカットを選択",
+      "gemini_desktop_path_detected": "検出された Google Gemini デスクトップ版のパスを更新しました",
+      "gemini_shortcut_title": "動的ゲートウェイショートカットの設定",
+      "gemini_shortcut_desc": "スタートメニューとデスクトップのショートカットを更新し、Proxymateur を自動経由させます。",
+      "install_shortcut_btn": "ショートカットを設定"
     },
     "debug": {
       "title": "デバッグコンソール",

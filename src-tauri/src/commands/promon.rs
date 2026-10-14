@@ -126,21 +126,46 @@ pub async fn execute_promon_model(
     .map_err(|e| format!("Task execution panicked: {}", e))?
 }
 
+/// Helper to lazily get or create the floating Promon HUD secondary window on demand
+pub fn get_or_create_promon_hud(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window("promon-hud") {
+        Ok(window)
+    } else {
+        tauri::WebviewWindowBuilder::new(
+            app,
+            "promon-hud",
+            tauri::WebviewUrl::App("/hud".into()),
+        )
+        .title("Promon HUD")
+        .inner_size(780.0, 340.0)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .center()
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("Failed to create Promon HUD window: {}", e))
+    }
+}
+
 /// Show or hide the floating Promon HUD secondary window
 #[tauri::command]
 pub async fn toggle_promon_hud(app: AppHandle, show: bool) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("promon-hud") {
-        if show {
-            let _ = window.unminimize();
-            let _ = window.show();
-            let _ = window.center();
-            let _ = window.set_focus();
-        } else {
+    if show {
+        let window = get_or_create_promon_hud(&app)?;
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.center();
+        let _ = window.set_focus();
+        Ok(())
+    } else {
+        if let Some(window) = app.get_webview_window("promon-hud") {
             let _ = window.hide();
         }
         Ok(())
-    } else {
-        Err("promon-hud window not found in runtime".to_string())
     }
 }
 
@@ -515,7 +540,7 @@ pub fn init_global_promon_hud_hotkey(app_handle: AppHandle) {
         let mut msg: MSG = unsafe { std::mem::zeroed() };
         while unsafe { GetMessageW(&mut msg, null_mut(), 0, 0) } > 0 {
             if msg.message == WM_HOTKEY && msg.w_param == HOTKEY_ID as usize {
-                if let Some(window) = app_handle.get_webview_window("promon-hud") {
+                if let Ok(window) = get_or_create_promon_hud(&app_handle) {
                     if let Ok(visible) = window.is_visible() {
                         if visible {
                             let _ = window.hide();

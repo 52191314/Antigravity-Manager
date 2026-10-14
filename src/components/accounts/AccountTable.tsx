@@ -451,9 +451,9 @@ function AccountRowContent({
         return self.findIndex(t => `${t.label}-${t.protectedKey}` === labelKey) === index;
     });
 
-    // 针对有自定义标签的账号，配额银行聚合展示：2 个最新模型 (Gemini 3.8 Flash + Claude 5.5)，邮箱显示在账号列下方
+    // 聚合展示最新可访问模型：2 个最新模型 (Gemini 3.8 Flash + Claude 5.5/4.6)
     const hasLabel = Boolean(account.custom_label);
-    const geminiFlashModel = findQuotaModel(account.quota?.models, 'gemini-flash');
+    const geminiFlashModel = findQuotaModel(account.quota?.models, 'gemini-flash') || findQuotaModel(account.quota?.models, 'gemini-pro');
     const claudeModel = findQuotaModel(account.quota?.models, 'claude');
 
     const geminiFlashId = geminiFlashModel?.name?.toLowerCase() || 'gemini-3.8-flash';
@@ -479,7 +479,7 @@ function AccountRowContent({
 
     const meterCount = (quotaWindow === 'weekly' && weeklyItems.length > 0)
         ? weeklyItems.length
-        : (hasLabel && !showAllQuotas ? 2 : displayModels.length);
+        : (!showAllQuotas ? 2 : displayModels.length);
 
     return (
         <>
@@ -616,7 +616,7 @@ function AccountRowContent({
                                     Icon={item.Icon}
                                 />
                             ))
-                        ) : hasLabel && !showAllQuotas ? (
+                        ) : !showAllQuotas ? (
                             <>
                                 <QuotaMeter
                                     label={geminiFlashLabel}
@@ -721,6 +721,14 @@ function AccountRowContent({
                                 title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
                                 icon: <Repeat2 className="w-3.5 h-3.5" />,
                                 onClick: () => onSwitch('classic'),
+                                disabled: isSwitching || isDisabled,
+                            },
+                            {
+                                key: 'switch-gemini',
+                                label: t('accounts.switch_to_gemini', '切换到 Gemini 桌面版'),
+                                title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
+                                icon: <Bot className="w-3.5 h-3.5" />,
+                                onClick: () => onSwitch('gemini'),
                                 disabled: isSwitching || isDisabled,
                             },
                             {

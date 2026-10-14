@@ -388,7 +388,8 @@
     },
     "quota_window_5h": "5-Hour Rolling Quota",
     "quota_window_weekly": "7-Day Weekly Quota",
-    "quota_window_weekly_short": "Weekly"
+    "quota_window_weekly_short": "Weekly",
+    "switch_to_gemini": "Switch to Gemini Desktop"
   },
   "settings": {
     "save": "Simpan Tetapan",
@@ -593,7 +594,15 @@
       "antigravity_cli_path_placeholder": "Not set (Will use auto-detection)",
       "antigravity_cli_path_desc": "Set the executable path for the command line client (agy) to bypass account restrictions.",
       "antigravity_cli_path_select": "Select Antigravity CLI (agy) Executable",
-      "antigravity_cli_path_detected": "Detected CLI path updated"
+      "antigravity_cli_path_detected": "Detected CLI path updated",
+      "gemini_desktop_path": "Google Gemini Desktop Path",
+      "gemini_desktop_path_placeholder": "Not set (Will use auto-detection from shortcut or LocalAppData)",
+      "gemini_desktop_path_desc": "Set the executable or shortcut path for Google Gemini Desktop to enable account switching and dynamic gateway routing.",
+      "gemini_desktop_path_select": "Select Google Gemini Desktop Executable or Shortcut",
+      "gemini_desktop_path_detected": "Detected Google Gemini desktop path",
+      "gemini_shortcut_title": "Configure Dynamic Gateway Shortcut",
+      "gemini_shortcut_desc": "Updates Start Menu and Desktop shortcuts to automatically route Google Gemini Desktop through Proxymateur.",
+      "install_shortcut_btn": "Install Shortcut"
     },
     "menu": {
       "title": "Tetapan Paparan Menu",

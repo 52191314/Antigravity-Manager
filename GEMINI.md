@@ -32,6 +32,10 @@ When compiling and delivering changes for Proxymateur on Windows:
      - `E:\01_Apps\Installed\Proxymateur\proxymateur.exe`
    - Restart the executable from `E:\03_Devops\AntigravityManager\bin\proxymateur.exe`.
    - Or use the scripted deploy: `.\scripts\deploy_proxymateur.ps1` (dry run), `-Apply`, later `-Apply -Cleanup`.
+4. **⛔ Live Session & Binary Replacement Safety**:
+   - **NEVER** run `Stop-Process` or `taskkill` against `agy.exe` — the active CLI agent session runs inside `agy.exe`, and killing it terminates the user's active conversation.
+   - To replace a locked/running Windows binary (`agy.exe`, `language_server.exe`, etc.), always use atomic NTFS rename in Python (`os.rename(target, f"{target}.running_{ts}")`) followed by `shutil.move(new_bin, target)`.
+   - To apply configuration changes to a running `proxymateur.exe` instance (`127.0.0.1:8045`), use `POST http://127.0.0.1:8045/api/config` with `Authorization: Bearer <api_key>` and body `{"config": <full_gui_config>}` instead of killing the process.
 
 ## 4. Windows Startup & Window Lifecycle Invariants
 

@@ -21,21 +21,6 @@
         "hiddenTitle": true,
         "transparent": true,
         "visible": true
-      },
-      {
-        "label": "promon-hud",
-        "title": "Promon HUD",
-        "url": "/hud",
-        "width": 780,
-        "height": 340,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "center": true,
-        "visible": false,
-        "skipTaskbar": true,
-        "resizable": false,
-        "shadow": false
       }
     ],
     "security": {

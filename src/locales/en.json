@@ -462,7 +462,8 @@
       "batch_warmup_title": "Batch Manual Warmup",
       "batch_warmup_msg": "Are you sure you want to trigger warmup for the selected {{count}} accounts immediately?"
     },
-    "switch_to_agy": "Switch to Antigravity CLI (agy)"
+    "switch_to_agy": "Switch to Antigravity CLI (agy)",
+    "switch_to_gemini": "Switch to Gemini Desktop"
   },
   "settings": {
     "save": "Save Settings",
@@ -692,7 +693,15 @@
       "http_api_port_placeholder": "Default port 19527",
       "http_api_port_invalid": "Invalid port number (range: 1024-65535)",
       "http_api_settings_saved": "HTTP API settings saved, restart required to apply",
-      "http_api_restart_required": "⚠️ Restart required to apply"
+      "http_api_restart_required": "⚠️ Restart required to apply",
+      "gemini_desktop_path": "Google Gemini Desktop Path",
+      "gemini_desktop_path_placeholder": "Not set (Will use auto-detection from shortcut or LocalAppData)",
+      "gemini_desktop_path_desc": "Set the executable or shortcut path for Google Gemini Desktop to enable account switching and dynamic gateway routing.",
+      "gemini_desktop_path_select": "Select Google Gemini Desktop Executable or Shortcut",
+      "gemini_desktop_path_detected": "Detected Google Gemini desktop path",
+      "gemini_shortcut_title": "Configure Dynamic Gateway Shortcut",
+      "gemini_shortcut_desc": "Updates Start Menu and Desktop shortcuts to automatically route Google Gemini Desktop through Proxymateur.",
+      "install_shortcut_btn": "Install Shortcut"
     },
     "debug": {
       "title": "Debug Console",

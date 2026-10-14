@@ -151,7 +151,15 @@ pub async fn handle_generate(
         .await
         {
             Ok(response) => return Ok(response),
-            Err(failure) if !failure.can_fall_back => return Ok(failure.response),
+            Err(failure) if !failure.can_fall_back || !route.allow_account_fallback => {
+                if !route.allow_account_fallback {
+                    warn!(
+                        "[Vertex] {} for {} — model is exclusive/not supported by accounts pool, rejecting fallback",
+                        failure.reason, model_name
+                    );
+                }
+                return Ok(failure.response);
+            }
             Err(failure) => warn!(
                 "[Vertex] {} — falling back to the account pool for {}",
                 failure.reason, model_name

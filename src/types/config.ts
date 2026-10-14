@@ -244,6 +244,7 @@ export interface AppConfig {
     antigravity_executable?: string; // [NEW] 手动指定的反重力程序路径
     antigravity_ide_executable?: string; // [NEW] 手动指定的 Antigravity IDE 程序路径
     antigravity_cli_executable?: string; // [NEW] 手动指定的 Antigravity CLI (agy) 路径
+    gemini_desktop_executable?: string; // [NEW] 手动指定的 Google Gemini 桌面版路径
     antigravity_args?: string[]; // [NEW] Antigravity 启动参数
     antigravity_lab?: AntigravityLabConfig; // [NEW] Antigravity 实验性特性开关
     multi_instance_mode?: boolean; // [NEW] 多开模式：切换 2.0 GUI 时启动新窗口而不关闭旧窗口

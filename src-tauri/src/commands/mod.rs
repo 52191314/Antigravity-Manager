@@ -704,8 +704,8 @@ pub async fn sync_account_from_db(
     // Check if the current target is one we should not sync (like agy CLI)
     let index = modules::account::load_account_index()?;
     let current_target = index.current_target_ide.as_deref();
-    if current_target == Some("agy") {
-        modules::logger::log_info("Auto-sync skipped: current target is agy CLI");
+    if current_target == Some("agy") || current_target == Some("gemini") {
+        modules::logger::log_info(&format!("Auto-sync skipped: current target is {:?}", current_target));
         return Ok(None);
     }
 
@@ -1102,6 +1102,82 @@ pub async fn get_antigravity_cli_path(bypass_config: Option<bool>) -> Result<Str
     match crate::modules::process::get_antigravity_cli_executable_path() {
         Some(path) => Ok(path.to_string_lossy().to_string()),
         None => Err("未找到 Antigravity CLI (agy) 安装路径".to_string()),
+    }
+}
+
+/// 获取 Google Gemini 桌面版可执行文件路径
+#[tauri::command]
+pub async fn get_gemini_desktop_path(bypass_config: Option<bool>) -> Result<String, String> {
+    // 1. 优先从配置查询 (除非明确要求绕过)
+    if bypass_config != Some(true) {
+        if let Ok(config) = crate::modules::config::load_app_config() {
+            if let Some(path) = config.gemini_desktop_executable {
+                if std::path::Path::new(&path).exists() {
+                    return Ok(path);
+                }
+            }
+        }
+    }
+
+    // 2. 执行实时探测
+    match crate::modules::process::get_gemini_desktop_executable_path() {
+        Some(path) => Ok(path.to_string_lossy().to_string()),
+        None => Err("未找到 Google Gemini 桌面客户端安装路径".to_string()),
+    }
+}
+
+/// 检查 Google Gemini 桌面端是否正在运行
+#[tauri::command]
+pub async fn is_gemini_desktop_running() -> Result<bool, String> {
+    Ok(crate::modules::process::is_gemini_running())
+}
+
+/// 启动 Google Gemini 桌面端
+#[tauri::command]
+pub async fn start_gemini_desktop() -> Result<(), String> {
+    crate::modules::process::start_gemini(None, None)
+}
+
+/// 关闭 Google Gemini 桌面端
+#[tauri::command]
+pub async fn close_gemini_desktop() -> Result<(), String> {
+    crate::modules::process::close_gemini(10)
+}
+
+/// 安装/更新 Google Gemini 快捷方式为反代动态网关启动器
+#[tauri::command]
+pub async fn install_gemini_shortcut() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let script_path = std::path::PathBuf::from("E:\\02_Projects\\Antigravity-Manager\\scripts\\install_gemini_shortcuts.ps1");
+        if !script_path.exists() {
+            return Err("未找到 install_gemini_shortcuts.ps1 脚本".to_string());
+        }
+
+        let output = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                &script_path.to_string_lossy(),
+            ])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output()
+            .map_err(|e| format!("执行快捷方式配置失败: {}", e))?;
+
+        if output.status.success() {
+            Ok("Google Gemini 桌面快捷方式已成功更新为动态反代网关启动器".to_string())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("快捷方式更新失败: {}", stderr.trim()))
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("该功能仅支持 Windows 系统".to_string())
     }
 }
 

@@ -85,16 +85,11 @@ static CLAUDE_TO_GEMINI: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m.insert("gemini-3-pro-image", "gemini-3-pro-image");
     m.insert("gemini-3-pro-preview", "gemini-pro-agent");
     m.insert("gemini-omni-1.1-flash", "gemini-3.8-flash-tiered");
-    // ── Google 4.0 / Frontier 灰度与实验前沿模型 (Argon / Carbon / Exp-A) ──
+    // ── Google 4.0 / Frontier 灰度与实验前沿模型 (Exp-A/B) ──
     m.insert("gemini-3.8-flash-exp-a", "gemini-3.8-flash-tiered");
     m.insert("gemini-3.8-exp-a", "gemini-3.8-flash-tiered");
     m.insert("gemini-3.8-flash-exp-b", "gemini-3.8-flash-tiered");
-    m.insert("gemini-argon", "gemini-3.8-flash-tiered");
-    m.insert("gemini-4-argon", "gemini-3.8-flash-tiered");
-    m.insert("argon", "gemini-3.8-flash-tiered");
-    m.insert("gemini-carbon", "gemini-pro-agent");
-    m.insert("gemini-4-carbon", "gemini-pro-agent");
-    m.insert("carbon", "gemini-pro-agent");
+    // 注：Argon / Carbon 为 Vertex 或前沿专属模型，普通账号池无权限，禁止静默偷换伪装为 tiered / pro-agent
 
     // 历史淘汰模型重定向。保留旧版请求兼容性，平滑路由到新版健康模型。gemini-3-flash-agent 是 3.5 Flash high 的真实上游 id，保持透传。
     m.insert("gemini-3-flash", "gemini-3.8-flash-high");
@@ -420,6 +415,7 @@ pub fn is_model_compliant_with_baseline(model: &str) -> bool {
 }
 
 /// 获取所有内置支持的标准公开模型列表 (已清理过期实验模型、重复笛卡尔积及旧快照)
+#[allow(dead_code)]
 pub fn get_supported_models() -> Vec<String> {
     vec![
         // Gemini 3.8 系列
@@ -497,19 +493,11 @@ pub async fn get_all_dynamic_models(
         }
     }
 
-    // 如果未开启 only_raw_quota_models，则追加 custom_mapping 与内置标准公开模型
-    if !only_raw_quota_models {
-        // 2. 获取所有自定义映射模型 (Custom)
-        {
-            let mapping = custom_mapping.read().await;
-            for key in mapping.keys() {
-                model_ids.insert(key.clone());
-            }
-        }
-
-        // 3. 获取所有内置标准模型
-        for m in get_supported_models() {
-            model_ids.insert(m);
+    // 2. 获取所有自定义映射模型 (Custom - allow user to set up their own models)
+    {
+        let mapping = custom_mapping.read().await;
+        for key in mapping.keys() {
+            model_ids.insert(key.clone());
         }
     }
 
@@ -822,12 +810,8 @@ fn is_high_tier_flash(lower: &str) -> bool {
 pub fn normalize_to_standard_id(model_name: &str) -> Option<String> {
     let lower = model_name.to_lowercase();
 
-    // 0. 灰度与前沿实验模型统一归入 high-tier pro 深度思考配额池 (Argon / Carbon / Exp-A)
-    if lower.contains("argon")
-        || lower.contains("carbon")
-        || lower.contains("exp-a")
-        || lower.contains("exp-b")
-    {
+    // 0. 灰度与前沿实验模型统一归入 high-tier pro 深度思考配额池 (Exp-A / Exp-B)
+    if lower.contains("exp-a") || lower.contains("exp-b") {
         return Some("gemini-3-pro-high".to_string());
     }
 

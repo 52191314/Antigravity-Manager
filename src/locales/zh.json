@@ -458,7 +458,8 @@
       "batch_warmup_title": "批量手动预热",
       "batch_warmup_msg": "确定要为选中的 {{count}} 个账号立即触发预热吗？"
     },
-    "switch_to_agy": "Switch to Antigravity CLI (agy)"
+    "switch_to_agy": "Switch to Antigravity CLI (agy)",
+    "switch_to_gemini": "切换到 Gemini 桌面版"
   },
   "settings": {
     "save": "保存设置",
@@ -688,7 +689,15 @@
       "http_api_port_placeholder": "默认端口 19527",
       "http_api_port_invalid": "端口号无效（范围：1024-65535）",
       "http_api_settings_saved": "HTTP API 设置已保存，重启应用后生效",
-      "http_api_restart_required": "⚠️ 需要重启应用后生效"
+      "http_api_restart_required": "⚠️ 需要重启应用后生效",
+      "gemini_desktop_path": "Google Gemini 桌面版路径",
+      "gemini_desktop_path_placeholder": "未设置 (将使用快捷方式或 LocalAppData 自动探测)",
+      "gemini_desktop_path_desc": "设置 Google Gemini 桌面版的可执行文件或快捷方式路径，启用账号切换与动态反代网关调度。",
+      "gemini_desktop_path_select": "选择 Google Gemini 桌面版程序或快捷方式",
+      "gemini_desktop_path_detected": "已更新探测到的 Google Gemini 桌面版路径",
+      "gemini_shortcut_title": "配置动态反代网关快捷方式",
+      "gemini_shortcut_desc": "更新开始菜单与桌面快捷方式，启动 Google Gemini 桌面版时自动无感接入 Proxymateur 反代网关。",
+      "install_shortcut_btn": "一键配置快捷方式"
     },
     "debug": {
       "title": "调试控制台",

@@ -20,7 +20,69 @@ $ErrorActionPreference = 'SilentlyContinue'
 $launcherFlags = @('--gateway-print-models', '--gateway-dry-run')
 $printModels = $args -contains '--gateway-print-models'
 $dryRun      = $args -contains '--gateway-dry-run'
-$agyArgs     = @($args | Where-Object { $launcherFlags -notcontains $_ })
+
+function Strip-FileBom {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
+        if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+            $clean = [byte[]]::new($bytes.Length - 3)
+            [System.Buffer]::BlockCopy($bytes, 3, $clean, 0, $clean.Length)
+            [System.IO.File]::WriteAllBytes($Path, $clean)
+        }
+    } catch {}
+}
+
+function Write-Utf8NoBom {
+    param([string]$Path, [string]$Content)
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
+}
+
+function Sync-CliExperimentFlags {
+    param([string[]]$PassedArgs)
+
+    $homeDir = [Environment]::GetFolderPath('UserProfile')
+    $settingsPath = Join-Path $homeDir '.gemini\antigravity-cli\settings.json'
+    if (-not (Test-Path -LiteralPath $settingsPath)) { return $PassedArgs }
+
+    Strip-FileBom $settingsPath
+
+    $expFlags = @($PassedArgs | Where-Object { $_ -match '^--(enable|disable|jetski|cascade)-[a-z0-9-]+(=(true|false))?$' })
+    if ($expFlags.Count -eq 0) { return $PassedArgs }
+
+    try {
+        $raw = Get-Content -LiteralPath $settingsPath -Raw -ErrorAction Stop
+        $json = $raw | ConvertFrom-Json
+        if (-not $json.experiments) {
+            $json | Add-Member -MemberType NoteProperty -Name 'experiments' -Value ([PSCustomObject]@{}) -Force
+        }
+
+        foreach ($flag in $expFlags) {
+            $key = $flag.TrimStart('-')
+            $val = $true
+            if ($key -match '=') {
+                $parts = $key -split '=', 2
+                $key = $parts[0]
+                $val = ($parts[1] -eq 'true')
+            } elseif ($key -like 'disable-*') {
+                $val = $false
+            }
+            $json.experiments | Add-Member -MemberType NoteProperty -Name $key -Value $val -Force
+        }
+
+        $formatted = $json | ConvertTo-Json -Depth 10
+        Write-Utf8NoBom $settingsPath $formatted
+    } catch {
+        # Continue silently if settings.json is locked or error occurs
+    }
+
+    return @($PassedArgs | Where-Object { $expFlags -notcontains $_ })
+}
+
+$rawAgyArgs  = @($args | Where-Object { $launcherFlags -notcontains $_ })
+$agyArgs     = @(if ($rawAgyArgs.Count -gt 0) { Sync-CliExperimentFlags -PassedArgs $rawAgyArgs })
 
 function Resolve-DataDir {
     if ($env:ABV_DATA_DIR) { return $env:ABV_DATA_DIR }
@@ -61,6 +123,118 @@ if (-not $agyPath) {
     exit 3
 }
 
+function Ensure-AntigravitySkills {
+    $homeDir = [Environment]::GetFolderPath('UserProfile')
+    $globalSkills = Join-Path $homeDir '.gemini\config\skills'
+    if (-not (Test-Path -LiteralPath $globalSkills)) { return }
+
+    # 1. Global Plugin registration & skills junction
+    $pluginDir = Join-Path $homeDir '.gemini\config\plugins\antigravity-lab'
+    $pluginManifest = Join-Path $pluginDir 'plugin.json'
+    $pluginSkills = Join-Path $pluginDir 'skills'
+
+    if (-not (Test-Path -LiteralPath $pluginDir)) {
+        New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
+    }
+    if (-not (Test-Path -LiteralPath $pluginManifest)) {
+        Write-Utf8NoBom $pluginManifest '{"name": "antigravity-lab", "description": "Antigravity Lab Skills & Slash Commands"}'
+    }
+    if (-not (Test-Path -LiteralPath $pluginSkills)) {
+        cmd.exe /c mklink /J "$pluginSkills" "$globalSkills" | Out-Null
+    }
+
+    # 2. Home and Current Working Directory .agents/skills junctions
+    $homeAgents = Join-Path $homeDir '.agents'
+    $homeAgentsSkills = Join-Path $homeAgents 'skills'
+    if (-not (Test-Path -LiteralPath $homeAgents)) {
+        New-Item -ItemType Directory -Path $homeAgents -Force | Out-Null
+    }
+    if (-not (Test-Path -LiteralPath $homeAgentsSkills)) {
+        cmd.exe /c mklink /J "$homeAgentsSkills" "$globalSkills" | Out-Null
+    }
+
+    $cwd = (Get-Location).Path
+    if ($cwd -and ($cwd -ne $homeDir) -and (Test-Path -LiteralPath $cwd)) {
+        $cwdAgents = Join-Path $cwd '.agents'
+        $cwdSkills = Join-Path $cwdAgents 'skills'
+        if (-not (Test-Path -LiteralPath $cwdAgents)) {
+            New-Item -ItemType Directory -Path $cwdAgents -Force -ErrorAction SilentlyContinue | Out-Null
+        }
+        if ((Test-Path -LiteralPath $cwdAgents) -and (-not (Test-Path -LiteralPath $cwdSkills))) {
+            cmd.exe /c mklink /J "$cwdSkills" "$globalSkills" 2>$null | Out-Null
+        }
+    }
+
+    # 3. Allow all experiment flags per default in ~/.gemini/antigravity-cli/settings.json
+    $settingsPath = Join-Path $homeDir '.gemini\antigravity-cli\settings.json'
+    if (Test-Path -LiteralPath $settingsPath) {
+        Strip-FileBom $settingsPath
+        try {
+            $raw = Get-Content -LiteralPath $settingsPath -Raw -ErrorAction Stop
+            $json = $raw | ConvertFrom-Json
+            if (-not $json.experiments) {
+                $json | Add-Member -MemberType NoteProperty -Name 'experiments' -Value ([PSCustomObject]@{}) -Force
+            }
+
+            $defaultFlags = @(
+                'enable-owl-slash-command',
+                'jetski-autonomous-mode',
+                'disable-teamwork-forced-flash-model',
+                'jetski-generative-ui',
+                'enable-battle-mode',
+                'enable-subagent-hub',
+                'enable-programmatic-tools',
+                'enable-battle-mode-custom-agents',
+                'enable-persistent-terminals',
+                'enable-browser-subagent-v2',
+                'enable-command-antivirus',
+                'enable-fork-with-subagents',
+                'enable-swarm-narrator',
+                'enable-voice-activity-events',
+                'disable-stained-loas2-creds',
+                'enable-deepagent',
+                'enable-review',
+                'enable-image-generator-subagent',
+                'enable-sidecars',
+                'enable-ui-sidecars',
+                'enable-sidecar-sdk',
+                'sidecar-gateway',
+                'sidecar-iframe-prewarm',
+                'enable-swarm-monitor',
+                'enable-ripgrep-path-search',
+                'enable-pty',
+                'enable-wait-tool',
+                'cortex-snapshot-recording',
+                'cortex-snapshot-revert',
+                'enable-remote-agent-fastpush-pin',
+                'enable-conversation-search-v2',
+                'cascade-enable-notebook-edit-tool',
+                'cascade-use-sed-edit-tool',
+                'enable-model-capacity-exhausted-retries',
+                'enable-mcp-non-blocking-turn-load',
+                'enable-compact-slash-command'
+            )
+
+            $modified = $false
+            foreach ($flag in $defaultFlags) {
+                if ($null -eq $json.experiments.$flag) {
+                    $json.experiments | Add-Member -MemberType NoteProperty -Name $flag -Value $true -Force
+                    $modified = $true
+                }
+            }
+
+            if ($modified) {
+                $formatted = $json | ConvertTo-Json -Depth 10
+                Write-Utf8NoBom $settingsPath $formatted
+            }
+        } catch {
+            # Continue silently on lock or parse error
+        }
+    }
+}
+
+Ensure-AntigravitySkills
+
 $proxyCfg = Read-ProxyConfig
 $modeOverride = $env:PROXYMATEUR_AGY_MODE
 $useNative = ($modeOverride -eq 'native') -or ($proxyCfg -and ($proxyCfg.allow_standard_gemini_models -eq $true))
@@ -80,8 +254,12 @@ if (-not $useNative) {
                elseif ($resp.models) { @($resp.models | ForEach-Object { ($_.name -replace '^models/', '') }) }
                else { @() }
         $include = if ($env:PROXYMATEUR_AGY_INCLUDE) { $env:PROXYMATEUR_AGY_INCLUDE } else { '^(gemini|claude|gpt)-' }
-        $exclude = if ($env:PROXYMATEUR_AGY_EXCLUDE) { $env:PROXYMATEUR_AGY_EXCLUDE } else { 'image|imagen|embed|tts|audio|veo|live|omni|-exp|tiered|\*|\.x(-|$)' }
+        $exclude = if ($env:PROXYMATEUR_AGY_EXCLUDE) { $env:PROXYMATEUR_AGY_EXCLUDE } else { 'image|imagen|embed|tts|audio|veo|live|omni|-exp|tiered|carbon|gemini-argon$|claude-(?:opus|sonnet)-(?:[45])|gpt-oss|\*|\.x(-|$)' }
         $models = @($ids | Where-Object { $_ -and ($_ -match $include) -and ($_ -notmatch $exclude) } | Sort-Object -Unique)
+        if ($models -contains 'gemini-4-argon' -and ($models -notcontains 'gemini-4-argon-high')) {
+            $models += 'gemini-4-argon-high'
+            $models = @($models | Sort-Object -Unique)
+        }
     } catch {
         $models = $null
     }

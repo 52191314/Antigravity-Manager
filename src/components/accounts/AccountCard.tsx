@@ -7,7 +7,7 @@ import { useConfigStore } from '../../stores/useConfigStore';
 import { QuotaMeter } from './QuotaMeter';
 import { IconAction, ActionMenu } from './IconAction';
 import { Pill, TierBadge } from './StatusPill';
-import { MODEL_CONFIG, sortModels, getModelProtectionKey, resolveQuotaModels, ensurePinnedImageSelector, getModelIcon } from '../../config/modelConfig';
+import { MODEL_CONFIG, sortModels, getModelProtectionKey, getModelIcon, findQuotaModel } from '../../config/modelConfig';
 import { getValidationBlockedStatusLabel } from './accountValidationStatus';
 import { getLiveLimitForModel } from '../../utils/liveLimit';
 import { getModelQuotaDisplay } from '../../utils/quotaDisplay';
@@ -34,13 +34,7 @@ interface AccountCardProps {
     maskEmails?: boolean;
 }
 
-// 使用统一的模型配置
-const DEFAULT_MODELS = Object.entries(MODEL_CONFIG).map(([id, config]) => ({
-    id,
-    label: config.label,
-    protectedKey: config.protectedKey,
-    Icon: config.Icon
-}));
+
 
 function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, isRefreshing, isSwitching = false, onSwitch, onRefresh, onViewDetails, onExport, onDelete, onToggleProxy, onViewDevice, onWarmup, onUpdateLabel, onViewError, quotaWindow, maskEmails = true }: AccountCardProps) {
     const { t } = useTranslation();
@@ -96,35 +90,26 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
         if (showAllQuotas) {
             models = accountModels;
         } else {
-            // Filter for pinned or defaults
-            const pinned = config?.pinned_quota_models?.models;
-            if (pinned && pinned.length > 0) {
-                const selections = resolveQuotaModels(
-                    accountModels.map(m => m.data),
-                    ensurePinnedImageSelector(pinned),
-                );
-                models = selections
-                    .map(sel => sel.model ? accountModels.find(am => am.data === sel.model) : undefined)
-                    .filter((m): m is typeof accountModels[number] => m !== undefined);
-                // 也保留无配额数据的 pinned 模型（显示 0%）
-                for (const sel of selections) {
-                    if (!sel.model) {
-                        const selectorConfig = MODEL_CONFIG[sel.selectorId.toLowerCase()];
-                        if (selectorConfig) {
-                            models = [...models, {
-                                id: sel.selectorId,
-                                label: selectorConfig.shortLabel || selectorConfig.label,
-                                protectedKey: selectorConfig.protectedKey,
-                                Icon: selectorConfig.Icon,
-                                data: { name: sel.selectorId, percentage: 0 } as ModelQuota,
-                            }];
-                        }
-                    }
-                }
+            // Show only the latest accessible Gemini model and Claude model
+            const geminiModel = findQuotaModel(account.quota?.models, 'gemini-flash') || findQuotaModel(account.quota?.models, 'gemini-pro');
+            const claudeModel = findQuotaModel(account.quota?.models, 'claude');
+            const targetModels = [geminiModel, claudeModel].filter((m): m is ModelQuota => Boolean(m));
+
+            if (targetModels.length > 0) {
+                models = targetModels.map(tm => {
+                    const found = accountModels.find(am => am.data.name.toLowerCase() === tm.name.toLowerCase());
+                    if (found) return found;
+                    const cfg = MODEL_CONFIG[tm.name.toLowerCase()];
+                    return {
+                        id: tm.name,
+                        label: tm.display_name || cfg?.shortLabel || cfg?.label || tm.name,
+                        protectedKey: getModelProtectionKey(tm.name) ?? cfg?.protectedKey ?? tm.name,
+                        Icon: getModelIcon(tm.name) || Bot,
+                        data: tm,
+                    };
+                });
             } else {
-                // Default fallback: show known default models, plus we show all dynamic pinned models
-                // 暂时退化：如果没有 config 就不阻拦了？不，没有 pinned 就显示内置+有 display_name 的。
-                models = accountModels.filter(m => DEFAULT_MODELS.some(d => d.id === m.id) || m.data.display_name);
+                models = accountModels.slice(0, 2);
             }
         }
 
@@ -358,6 +343,14 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                                 title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
                                 icon: <Repeat2 className="w-3.5 h-3.5" />,
                                 onClick: () => onSwitch('classic'),
+                                disabled: isSwitching || isDisabled,
+                            },
+                            {
+                                key: 'switch-gemini',
+                                label: t('accounts.switch_to_gemini', '切换到 Gemini 桌面版'),
+                                title: isDisabled ? t('accounts.disabled_tooltip') : undefined,
+                                icon: <Bot className="w-3.5 h-3.5" />,
+                                onClick: () => onSwitch('gemini'),
                                 disabled: isSwitching || isDisabled,
                             },
                             {

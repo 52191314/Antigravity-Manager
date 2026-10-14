@@ -165,6 +165,24 @@ pub struct VertexRoute {
     pub project_id: String,
     pub location: String,
     pub credentials_path: Option<String>,
+    /// 是否允许在 Vertex 失败时回退到本地账号池（若为 Vertex 独占/账号池未支持模型，则禁止回退，避免降级伪装）
+    pub allow_account_fallback: bool,
+}
+
+/// 判断客户端请求的模型是否能在本地账号池中被原生正常处理。
+/// Google 账号池 (Cloud Code) 仅支持 Gemini 3.x 系列、经典 2.5/1.5 别名和 Claude 系列。
+/// 4.x 前沿模型或实验代号 (Argon / Carbon 等) 在普通账号池中不存在，不能回退。
+pub fn is_account_pool_supported_model(requested: &str) -> bool {
+    let lower = requested.to_lowercase();
+    if lower.contains("argon")
+        || lower.contains("carbon")
+        || lower.contains("gemini-4")
+        || lower.starts_with("4-")
+        || lower.starts_with("4.")
+    {
+        return false;
+    }
+    true
 }
 
 /// 默认模式：客户端模型名是默认模型本体或其档位别名
@@ -214,13 +232,15 @@ pub fn resolve_route(config: &VertexConfig, client_model: &str) -> Option<Vertex
         .trim_start_matches("models/")
         .to_lowercase();
 
-    let model = match config.model_mode {
-        ModelSelection::Default => is_default_model(&requested).then_some(DEFAULT_MODEL)?,
-        ModelSelection::Picker => picked_model(config, &requested)?.trim(),
+    let (model, is_default) = match config.model_mode {
+        ModelSelection::Default => (is_default_model(&requested).then_some(DEFAULT_MODEL)?, true),
+        ModelSelection::Picker => (picked_model(config, &requested)?.trim(), false),
     };
     if model.is_empty() {
         return None;
     }
+
+    let allow_account_fallback = is_default || is_account_pool_supported_model(&requested);
 
     let thinking_level = [("-high", "high"), ("-medium", "medium"), ("-low", "low")]
         .into_iter()
@@ -239,6 +259,7 @@ pub fn resolve_route(config: &VertexConfig, client_model: &str) -> Option<Vertex
             .map(str::trim)
             .filter(|path| !path.is_empty())
             .map(str::to_string),
+        allow_account_fallback,
     })
 }
 
@@ -619,7 +640,7 @@ fn failure(status: StatusCode, route: &VertexRoute, message: String) -> VertexFa
     });
     VertexFailure {
         response: (status, route_headers(route), Json(body)).into_response(),
-        can_fall_back: true,
+        can_fall_back: route.allow_account_fallback,
         reason: message,
     }
 }
@@ -646,8 +667,8 @@ pub async fn handle_generate(
 
     let mut retried_signatures = false;
     let mut force_token_refresh = false;
-    // 最多三次：原始请求、令牌失效后重取令牌、历史签名被拒后换哨兵
-    for _ in 0..3 {
+    // 最多三次：原始请求、令牌失效后重取令牌、历史签名被拒后换哨兵、瞬时网络连接重试
+    for attempt in 0..3 {
         let (token, quota_project) = match access_token(
             &client,
             route.credentials_path.as_deref(),
@@ -688,11 +709,21 @@ pub async fn handle_generate(
         let response = match response {
             Ok(response) => response,
             Err(e) => {
+                if attempt + 1 < 3 {
+                    tracing::warn!(
+                        "[Vertex] Network send error on attempt {} for {}: {}, retrying in 300ms...",
+                        attempt + 1,
+                        url,
+                        e
+                    );
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    continue;
+                }
                 return Err(failure(
                     StatusCode::BAD_GATEWAY,
                     route,
                     format!("Vertex request failed: {}", e),
-                ))
+                ));
             }
         };
 
@@ -733,10 +764,22 @@ pub async fn handle_generate(
             continue;
         }
 
+        if (status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::TOO_MANY_REQUESTS)
+            && attempt + 1 < 3
+        {
+            tracing::warn!(
+                "[Vertex] Upstream returned HTTP {} on attempt {}, retrying in 500ms...",
+                status.as_u16(),
+                attempt + 1
+            );
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            continue;
+        }
+
         tracing::error!("[Vertex] Upstream error {}: {}", status.as_u16(), error_text);
         return Err(VertexFailure {
             reason: format!("Vertex returned HTTP {}", status.as_u16()),
-            can_fall_back: status != StatusCode::BAD_REQUEST,
+            can_fall_back: status != StatusCode::BAD_REQUEST && route.allow_account_fallback,
             response: (
                 StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY),
                 route_headers(route),
@@ -913,6 +956,24 @@ mod tests {
         );
         let parsed: VertexConfig = serde_json::from_str(r#"{"model_mode":"picker"}"#).unwrap();
         assert_eq!(parsed.model_mode, ModelSelection::Picker);
+    }
+
+    #[test]
+    fn exclusive_models_in_picker_mode_disallow_account_fallback() {
+        let mut cfg = config(&[
+            ("gemini-4-argon", "gemini-4-argon"),
+            ("gemini-3.8-flash", "gemini-3.8-flash"),
+        ]);
+        let argon = resolve_route(&cfg, "gemini-4-argon").unwrap();
+        assert_eq!(argon.model, "gemini-4-argon");
+        assert!(!argon.allow_account_fallback);
+
+        let flash = resolve_route(&cfg, "gemini-3.8-flash").unwrap();
+        assert!(flash.allow_account_fallback);
+
+        cfg.model_mode = ModelSelection::Default;
+        let default_flash = resolve_route(&cfg, "gemini-3.8-flash").unwrap();
+        assert!(default_flash.allow_account_fallback);
     }
 
     fn none_rejected(_: &str) -> bool {

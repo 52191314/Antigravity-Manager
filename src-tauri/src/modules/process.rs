@@ -1046,6 +1046,64 @@ pub fn is_client_executable_missing(err: &str) -> bool {
         || lower.contains("application not found")
 }
 
+/// 动态为 Antigravity 注入网关环境变量 (AGY_LLM_GATEWAY_*)，仅作用于子进程，不污染 Windows 全局环境变量
+pub fn inject_gateway_env(cmd: &mut std::process::Command) {
+    if let Ok(config) = crate::modules::config::load_app_config() {
+        let mode_override = std::env::var("PROXYMATEUR_AGY_MODE")
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let use_native = mode_override == "native"
+            || config.proxy.allow_standard_gemini_models
+            || !config.proxy.enabled;
+
+        if !use_native {
+            let port = config.proxy.port;
+            let url = std::env::var("PROXYMATEUR_URL")
+                .unwrap_or_else(|_| format!("http://127.0.0.1:{}", port));
+            cmd.env("AGY_LLM_GATEWAY_URL", &url);
+
+            let key = &config.proxy.api_key;
+            if !key.is_empty() {
+                cmd.env("AGY_LLM_GATEWAY_API_KEY", key);
+            }
+
+            // 快速探测本地反代 /v1/models (超时 1.5s)，获取当前可达模型列表
+            if let Ok(client) = reqwest::blocking::Client::builder()
+                .timeout(std::time::Duration::from_millis(1500))
+                .build()
+            {
+                let mut req = client.get(format!("{}/v1/models", url.trim_end_matches('/')));
+                if !key.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", key));
+                }
+                if let Ok(resp) = req.send() {
+                    if let Ok(json) = resp.json::<serde_json::Value>() {
+                        let mut models = Vec::new();
+                        if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
+                            for item in data {
+                                if let Some(id) = item.get("id").and_then(|i| i.as_str()) {
+                                    models.push(id.to_string());
+                                }
+                            }
+                        }
+                        if !models.is_empty() {
+                            cmd.env("AGY_LLM_GATEWAY_MODELS", models.join(","));
+                            crate::modules::logger::log_info(&format!(
+                                "[Process] Injected AGY_LLM_GATEWAY_* for Antigravity ({} models)",
+                                models.len()
+                            ));
+                        }
+                    }
+                }
+            }
+        } else {
+            cmd.env_remove("AGY_LLM_GATEWAY_URL");
+            cmd.env_remove("AGY_LLM_GATEWAY_MODELS");
+            cmd.env_remove("AGY_LLM_GATEWAY_API_KEY");
+        }
+    }
+}
+
 /// Start Antigravity with optional snapshot path & args fallback
 #[allow(unused_mut)]
 pub fn start_antigravity_with_fallback_path(
@@ -1177,6 +1235,8 @@ pub fn start_antigravity_with_fallback_path(
                 #[cfg(target_os = "linux")]
                 clean_appimage_env(&mut cmd);
 
+                inject_gateway_env(&mut cmd);
+
                 cmd.spawn().map_err(|e| format!("Startup failed: {}", e))?;
             }
 
@@ -1250,6 +1310,8 @@ pub fn start_antigravity_with_fallback_path(
                 }
                 #[cfg(target_os = "linux")]
                 clean_appimage_env(&mut cmd);
+
+                inject_gateway_env(&mut cmd);
 
                 cmd.spawn().map_err(|e| {
                     format!(
@@ -1339,6 +1401,8 @@ pub fn start_antigravity_with_fallback_path(
 
             #[cfg(target_os = "linux")]
             clean_appimage_env(&mut cmd);
+
+            inject_gateway_env(&mut cmd);
 
             cmd.spawn().map_err(|e| {
                 format!("Startup failed (detected path {:?}): {}", detected_path, e)
@@ -1812,6 +1876,231 @@ pub fn get_antigravity_cli_executable_path() -> Option<std::path::PathBuf> {
     }
 
     None
+}
+
+/// 获取 Google Gemini 桌面版安装/可执行文件路径
+pub fn get_gemini_desktop_executable_path() -> Option<std::path::PathBuf> {
+    // 1. 优先从运行中进程推导 (最准确，支持任何自定义或多版本安装目录)
+    let mut system = System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All);
+    for (_pid, proc) in system.processes() {
+        let name = proc.name().to_string_lossy().to_lowercase();
+        if name.contains("gemini") {
+            if let Some(exe) = proc.exe() {
+                let exe_str = exe.to_string_lossy().to_lowercase();
+                if exe_str.contains("google\\gemini") || exe_str.contains("google/gemini") {
+                    if exe.exists() {
+                        return Some(exe.to_path_buf());
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. 检查应用配置中的手动指定路径
+    if let Ok(config) = crate::modules::config::load_app_config() {
+        if let Some(ref p) = config.gemini_desktop_executable {
+            let path = std::path::PathBuf::from(p);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+    }
+
+    // 3. 检查 Windows 快捷方式及标准安装目录
+    #[cfg(target_os = "windows")]
+    {
+        // 3.1 检查 LOCALAPPDATA 标准路径及版本目录
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            let local_path = std::path::PathBuf::from(local);
+            let gemini_root = local_path.join("Google").join("Gemini");
+
+            let direct = gemini_root.join("Gemini.exe");
+            if direct.exists() {
+                return Some(direct);
+            }
+
+            let launcher = gemini_root.join("GeminiAppLauncher.exe");
+            if launcher.exists() {
+                return Some(launcher);
+            }
+
+            // 检查 app-* 版本子目录 (如 app-1.14.0/Gemini.exe)
+            if let Ok(entries) = std::fs::read_dir(&gemini_root) {
+                let mut app_dirs: Vec<_> = entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().is_dir())
+                    .filter(|e| e.file_name().to_string_lossy().starts_with("app-"))
+                    .map(|e| e.path())
+                    .collect();
+                app_dirs.sort();
+                app_dirs.reverse();
+                for dir in app_dirs {
+                    let sub_exe = dir.join("Gemini.exe");
+                    if sub_exe.exists() {
+                        return Some(sub_exe);
+                    }
+                }
+            }
+        }
+
+        // 3.2 检查 ProgramFiles
+        for env_key in &["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
+            if let Some(pf) = std::env::var_os(env_key) {
+                let path = std::path::PathBuf::from(pf)
+                    .join("Google")
+                    .join("Gemini")
+                    .join("Gemini.exe");
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
+    // 4. PATH 环境变量检索
+    let cmd = if cfg!(target_os = "windows") {
+        "Gemini.exe"
+    } else {
+        "gemini"
+    };
+    if let Ok(path_var) = std::env::var("PATH") {
+        for p in std::env::split_paths(&path_var) {
+            let p_cmd = p.join(cmd);
+            if p_cmd.exists() {
+                return Some(p_cmd);
+            }
+        }
+    }
+
+    None
+}
+
+/// 收集所有属于 Google Gemini 桌面应用的进程 PID
+pub fn get_gemini_pids() -> Vec<u32> {
+    let mut system = System::new();
+    system.refresh_processes(sysinfo::ProcessesToUpdate::All);
+    let mut pids = Vec::new();
+    let current_pid = std::process::id();
+
+    for (pid, proc) in system.processes() {
+        let pid_u32 = pid.as_u32();
+        if pid_u32 == current_pid {
+            continue;
+        }
+
+        let name = proc.name().to_string_lossy().to_lowercase();
+        if name.contains("gemini") {
+            let is_match = if let Some(exe) = proc.exe() {
+                let exe_str = exe.to_string_lossy().to_lowercase();
+                exe_str.contains("google\\gemini") || exe_str.contains("google/gemini")
+            } else {
+                let cmd = proc
+                    .cmd()
+                    .iter()
+                    .map(|s| s.to_string_lossy().to_lowercase())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                cmd.contains("google\\gemini") || cmd.contains("google/gemini")
+            };
+
+            if is_match {
+                pids.push(pid_u32);
+            }
+        }
+    }
+
+    pids
+}
+
+/// 检查 Google Gemini 桌面客户端是否正在运行
+pub fn is_gemini_running() -> bool {
+    !get_gemini_pids().is_empty()
+}
+
+/// 关闭 Google Gemini 桌面客户端
+pub fn close_gemini(timeout_secs: u64) -> Result<(), String> {
+    crate::modules::logger::log_info("Closing Google Gemini Desktop...");
+    let pids = get_gemini_pids();
+    if pids.is_empty() {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        for pid in &pids {
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .output();
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        for pid in &pids {
+            let _ = Command::new("kill")
+                .args(["-9", &pid.to_string()])
+                .output();
+        }
+    }
+
+    // 等待进程安全退出
+    let start_time = std::time::Instant::now();
+    let timeout = Duration::from_secs(timeout_secs);
+    while start_time.elapsed() < timeout {
+        if !is_gemini_running() {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+
+    if is_gemini_running() {
+        return Err("Timeout waiting for Google Gemini to exit".to_string());
+    }
+
+    Ok(())
+}
+
+/// 启动 Google Gemini 桌面客户端
+pub fn start_gemini(
+    fallback_path: Option<&std::path::Path>,
+    args: Option<&[String]>,
+) -> Result<(), String> {
+    let detected = fallback_path
+        .map(std::path::PathBuf::from)
+        .or_else(get_gemini_desktop_executable_path);
+
+    if let Some(exe_path) = detected {
+        let mut cmd = Command::new(&exe_path);
+        if let Some(parent) = exe_path.parent() {
+            cmd.current_dir(parent);
+        }
+
+        if let Some(args_list) = args {
+            for arg in args_list {
+                cmd.arg(arg);
+            }
+        }
+
+        // 注入反代网关环境变量
+        inject_gateway_env(&mut cmd);
+
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x00000008); // DETACHED_PROCESS
+
+        cmd.spawn().map_err(|e| {
+            format!("Startup failed for Google Gemini ({:?}): {}", exe_path, e)
+        })?;
+
+        crate::modules::logger::log_info(&format!(
+            "Google Gemini startup command launched: {:?}",
+            exe_path
+        ));
+        Ok(())
+    } else {
+        Err("Unable to start Google Gemini: executable not found".to_string())
+    }
 }
 
 #[cfg(test)]

@@ -390,7 +390,8 @@
     "switch_to_agy": "Переключить для Antigravity CLI (agy)",
     "drag_disabled_during_sort": "Активна сортировка по столбцам; перетаскивание приостановлено",
     "go_to_appeal": "Go to Appeal",
-    "copy_appeal_url": "Copy Appeal URL"
+    "copy_appeal_url": "Copy Appeal URL",
+    "switch_to_gemini": "Switch to Gemini Desktop"
   },
   "settings": {
     "save": "Сохранить настройки",
@@ -595,7 +596,15 @@
       "migrate_restart_notice": "The app will automatically restart after migration to load the new data directory.",
       "migrate_confirm_btn": "Start Migration & Restart",
       "migrating_text": "Migrating data and preparing restart...",
-      "migrate_success": "Data migrated successfully, restarting app..."
+      "migrate_success": "Data migrated successfully, restarting app...",
+      "gemini_desktop_path": "Google Gemini Desktop Path",
+      "gemini_desktop_path_placeholder": "Not set (Will use auto-detection from shortcut or LocalAppData)",
+      "gemini_desktop_path_desc": "Set the executable or shortcut path for Google Gemini Desktop to enable account switching and dynamic gateway routing.",
+      "gemini_desktop_path_select": "Select Google Gemini Desktop Executable or Shortcut",
+      "gemini_desktop_path_detected": "Detected Google Gemini desktop path",
+      "gemini_shortcut_title": "Configure Dynamic Gateway Shortcut",
+      "gemini_shortcut_desc": "Updates Start Menu and Desktop shortcuts to automatically route Google Gemini Desktop through Proxymateur.",
+      "install_shortcut_btn": "Install Shortcut"
     },
     "debug": {
       "title": "Консоль отладки",
